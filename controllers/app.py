@@ -20,13 +20,15 @@ from canvas.layers import L_GRID
 class App:
     def __init__(self, root: tk.Tk, config_path: Path | None = None) -> None:
         self.root = root
-        self.root.title("Diagram Drawer")
+        self.root.title("Linework")
 
         # ---- theme ----
         try:
             sv_ttk.set_theme("dark")
         except Exception:
-            pass  # fine on platforms without sv-ttk
+            style = ttk.Style()
+            print(f"Currently installed themes: {', '.join(style.theme_names())}")
+            style.theme_use("Alt")
 
         # ---- params (load or defaults) ----
         self.config_path = config_path or Path("config.json")
@@ -117,6 +119,7 @@ class App:
         # bindings for tools
         self.canvas.bind("<ButtonPress-1>", lambda e: self.current_tool.on_press(self, e))
         self.canvas.bind("<B1-Motion>", lambda e: self.current_tool.on_motion(self, e))
+        self.canvas.bind("<Motion>", lambda e: self.current_tool.on_motion(self, e))
         self.canvas.bind("<ButtonRelease-1>", lambda e: self.current_tool.on_release(self, e))
         self.root.bind("<Escape>", lambda _e: self.current_tool.on_cancel(self))
 

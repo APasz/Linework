@@ -6,6 +6,7 @@ L_GRID: str = "layer:grid"
 L_LINES: str = "layer:lines"
 L_LABELS: str = "layer:labels"
 L_ICONS: str = "layer:icons"
+L_PREV: str = "layer:preview"
 
 LayerName = Literal["grid", "lines", "labels", "icons"]
 
@@ -31,6 +32,7 @@ class LayerManager:
         self.canvas.tag_raise(self._tag("lines"))
         self.canvas.tag_raise(self._tag("icons"))
         self.canvas.tag_raise(self._tag("labels"))
+        self.canvas.tag_raise(L_PREV)
 
     # --- clears ---
     def clear(self, layer: LayerName) -> None:
@@ -46,6 +48,9 @@ class LayerManager:
         # nukes all known layers; don’t use canvas.delete("all") so you can keep temp overlays if you want
         for layer in self.ORDER:
             self.clear(layer)
+
+    def clear_preview(self) -> None:
+        self.canvas.delete(L_PREV)
 
     # --- redraws ---
     def redraw(self, layer: LayerName) -> None:

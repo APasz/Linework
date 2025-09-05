@@ -67,6 +67,10 @@ class AddLine:
                     break
         self.on_after()
 
+    @classmethod
+    def from_points(cls, params: Params, x1, y1, x2, y2, col, width, capstyle, on_after):
+        return cls(params, Line(x1, y1, x2, y2, col, width, capstyle), on_after=on_after)
+
 
 @dataclass
 class AddLabel:

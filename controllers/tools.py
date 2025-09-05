@@ -9,6 +9,7 @@ from models.geo import Line, Point
 from models.objects import Label, Icon
 from canvas.hit_test import hit_under_cursor
 from controllers.commands import CommandStack, AddLine, AddLabel, AddIcon, MoveLabel, MoveIcon
+from canvas.layers import L_PREV
 
 
 # --- minimal app protocol the tools need ---
@@ -36,39 +37,94 @@ class Tool(Protocol):
 
 
 # ---- DrawTool ----
-@dataclass
-class DrawTool:
-    name: str = "draw"
-    cursor: str | None = "crosshair"
-    _pending: Optional[Point] = None
+class DrawTool(Tool):
+    cursor = "crosshair"
 
-    def on_press(self, app: AppLike, e: tk.Event) -> None:
-        x, y = app.snap(e.x, e.y)
-        if self._pending is None:
-            self._pending = Point(x, y)
+    def __init__(self):
+        self.start: Point | None = None
+        self.preview_id: int | None = None
+
+    # --- utilities ---
+    def _snap(self, app: AppLike, x: int, y: int) -> tuple[int, int]:
+        g = app.params.grid_size
+        if g <= 0:
+            return x, y
+        return (round(x / g) * g, round(y / g) * g)
+
+    def _clear_preview(self, app: AppLike):
+        if self.preview_id:
+            app.canvas.delete(self.preview_id)
+            self.preview_id = None
+        # belt & braces if something leaked:
+        app.layers.clear_preview()
+
+    def _update_preview(self, app: AppLike, x2: int, y2: int):
+        """Create or move the temporary rubber-band line."""
+        p = app.params
+        x1, y1 = self.start.x, self.start.y
+        if self.preview_id is None:
+            self.preview_id = app.canvas.create_line(
+                x1,
+                y1,
+                x2,
+                y2,
+                fill=p.brush_color.hex,
+                width=p.brush_width,
+                capstyle=self.start.capstyle,
+                tags=(L_PREV,),
+            )
+        else:
+            app.canvas.coords(self.preview_id, x1, y1, x2, y2)
+            # in case something else was drawn after it:
+            app.canvas.tag_raise(L_PREV)
+
+    # --- Tool interface ---
+    def on_press(self, app: AppLike, e):
+        x, y = self._snap(app, e.x, e.y)
+        if self.start is None:
+            # first click -> set start & seed a dot if you like
+            self.start = Point(x, y)
+            # optional marker at the first point:
             r = max(2, app.params.brush_width // 2)
             app.canvas.create_oval(
-                x - r, y - r, x + r, y + r, outline="", fill=app.params.brush_color.hex, tags=("temp:dot",)
+                x - r, y - r, x + r, y + r, outline="", fill=app.params.brush_color.hex, tags=(L_PREV,)
             )
-            app.status.set(f"First point set at ({x},{y}). Click another point")
         else:
-            p = self._pending
-            ln = Line(p.x, p.y, x, y, app.params.brush_color, app.params.brush_width, p.capstyle)
-            app.cmd.push_and_do(AddLine(app.params, ln, on_after=lambda: app.layers_redraw("lines")))
-            self._pending = None
-            app.canvas.delete("temp:dot")
-            app.status.set(f"Drew line: ({p.x},{p.y}) -> ({x},{y})")
+            # second click behaves like release
+            self.on_release(app, e)
 
-    def on_motion(self, app: AppLike, e: tk.Event) -> None:
-        pass
+    def on_motion(self, app: AppLike, e):
+        # plain <Motion> OR <B1-Motion> both land here; we only care if we have a start
+        if self.start is None:
+            return
+        x2, y2 = self._snap(app, e.x, e.y)
+        self._update_preview(app, x2, y2)
 
-    def on_release(self, app: AppLike, e: tk.Event) -> None:
-        pass
+    def on_release(self, app: AppLike, e):
+        if self.start is None:
+            return
+        x2, y2 = self._snap(app, e.x, e.y)
 
-    def on_cancel(self, app: AppLike) -> None:
-        self._pending = None
-        app.canvas.delete("temp:dot")
-        app.status.set("Ready")
+        # finalize: create command and clear preview
+        p = app.params
+        ln = Line(
+            x1=self.start.x,
+            y1=self.start.y,
+            x2=x2,
+            y2=y2,
+            col=p.brush_color,
+            width=p.brush_width,
+            capstyle=self.start.capstyle,
+        )
+        # Use the same pattern as Label/Icon
+        app.cmd.push_and_do(AddLine(p, ln, on_after=lambda: app.layers_redraw("lines")))
+
+        self._clear_preview(app)
+        self.start = None
+
+    def on_cancel(self, app: AppLike):
+        self._clear_preview(app)
+        self.start = None
 
 
 # ---- LabelTool ----
