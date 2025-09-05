@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from models.colour import Colour
 from models.anchors import Anchor
+from models.colour import Colour
 
 
 @dataclass(slots=True, frozen=True)

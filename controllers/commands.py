@@ -1,11 +1,12 @@
 from __future__ import annotations
+
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol, Callable
+from typing import Protocol
 
-from models.params import Params
 from models.geo import Line
-from models.objects import Label, Icon
-
+from models.objects import Icon, Label
+from models.params import Params
 
 # ---- Command infra ----
 
@@ -15,7 +16,7 @@ class Command(Protocol):
     def undo(self) -> None: ...
 
 
-class CommandStack:
+class Command_Stack:
     """Simple undo/redo stack."""
 
     def __init__(self):
@@ -46,7 +47,7 @@ class CommandStack:
 
 
 @dataclass
-class AddLine:
+class Add_Line:
     params: Params
     line: Line
     on_after: Callable[[], None]  # e.g., lambda: app.layers.redraw("lines")
@@ -73,7 +74,7 @@ class AddLine:
 
 
 @dataclass
-class AddLabel:
+class Add_Label:
     params: Params
     label: Label
     on_after: Callable[[], None]
@@ -91,7 +92,7 @@ class AddLabel:
 
 
 @dataclass
-class AddIcon:
+class Add_Icon:
     params: Params
     icon: Icon
     on_after: Callable[[], None]
@@ -109,7 +110,7 @@ class AddIcon:
 
 
 @dataclass
-class MoveLabel:
+class Move_Label:
     params: Params
     index: int
     old_xy: tuple[int, int]
@@ -132,7 +133,7 @@ class MoveLabel:
 
 
 @dataclass
-class MoveIcon:
+class Move_Icon:
     params: Params
     index: int
     old_xy: tuple[int, int]

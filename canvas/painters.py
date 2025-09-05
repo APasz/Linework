@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 import tkinter as tk
 from typing import Protocol
-from canvas.layers import L_GRID, L_LINES, L_LABELS, L_ICONS
-from models.params import Params
+
+from canvas.layers import L_GRID, L_ICONS, L_LABELS, L_LINES
 from models.geo import Line
-from models.objects import Label, Icon
+from models.objects import Icon, Label
+from models.params import Params
 
 
 class Scene(Protocol):
@@ -15,7 +17,7 @@ class Scene(Protocol):
     def icons(self) -> list[Icon]: ...
 
 
-class PaintersImpl:
+class Painters_Impl:
     """Stateless-ish painters that read from a scene (wrapping your Params)."""
 
     def __init__(self, scene: Scene):

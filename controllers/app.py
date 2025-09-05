@@ -1,26 +1,37 @@
 from __future__ import annotations
+
 import tkinter as tk
-from tkinter import ttk
 from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
 
 import sv_ttk
 
-from models.params import Params
+from canvas.layers import L_GRID, Layer_Manager, LayerName
+from canvas.painters import Painters_Impl
+from controllers.commands import Command_Stack
+from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool
+from disk.export import Exporter
+from disk.formats import Formats
+from disk.storage import IO
 from models.colour import Colours as Cols
-from canvas.layers import LayerManager, LayerName
-from canvas.painters import PaintersImpl
-from controllers.commands import CommandStack
-from controllers.tools import DrawTool, IconTool, LabelTool, SelectTool
+from models.params import Params
 from ui.header import create_header
 from ui.toolbar import create_toolbar
-from disk.storage import IO
-from canvas.layers import L_GRID
 
 
 class App:
-    def __init__(self, root: tk.Tk, config_path: Path | None = None) -> None:
+    def __init__(self, root: tk.Tk, project_path: Path | None = None) -> None:
         self.root = root
         self.root.title("Linework")
+
+        self.project_path: Path = project_path or Path("untitled.linework")
+        if self.project_path.exists():
+            self.params = IO.load_params(self.project_path)
+        else:
+            self.params = Params()
+
+        self.dirty: bool = False
+        self._update_title()
 
         # ---- theme ----
         try:
@@ -30,19 +41,15 @@ class App:
             print(f"Currently installed themes: {', '.join(style.theme_names())} | Defaulting to Alt")
             style.theme_use("Alt")
 
-        # ---- params (load or defaults) ----
-        self.config_path = config_path or Path("config.json")
-        self.params = IO.load_params(self.config_path) if self.config_path.exists() else Params()
-
         # ---- UI state vars ----
-        self.var_drag_to_draw = tk.BooleanVar(value=True)
+        self.var_drag_to_draw = tk.BooleanVar(value=False)
         self.var_grid = tk.IntVar(value=self.params.grid_size)
         self.var_width_px = tk.IntVar(value=self.params.width)
         self.var_height_px = tk.IntVar(value=self.params.height)
         self.var_brush_w = tk.IntVar(value=self.params.brush_width)
         self.var_bg = tk.StringVar(value=self.params.bg_mode.name)
-        self.var_color = tk.StringVar(value=self.params.brush_color.name)
-        self.var_color.trace_add("write", self.apply_color)
+        self.var_colour = tk.StringVar(value=self.params.brush_colour.name)
+        self.var_colour.trace_add("write", self.apply_colour)
 
         self.mode = tk.StringVar(value="draw")
         self.var_icon = tk.StringVar(value="signal")
@@ -60,10 +67,11 @@ class App:
             on_undo=self.on_undo,
             on_redo=self.on_redo,
             on_clear=self.on_clear,
+            on_new=self.new_project,
+            on_open=self.open_project,
             on_save=self.save_project,
-            on_palette_select=lambda name: self.var_color.set(name),
-            on_palette_set_bg=lambda name: self.var_bg.set(name),
-            selected_colour_name=self.var_color.get(),
+            on_save_as=self.save_project_as,
+            on_export=self.export_image,
         )
         tbar = create_toolbar(
             self.root,
@@ -76,6 +84,9 @@ class App:
             on_grid_change=self.on_grid_change,
             on_brush_change=self.on_brush_change,
             on_canvas_size_change=self.on_canvas_size_change,
+            on_palette_select=lambda name: self.var_colour.set(name),
+            on_palette_set_bg=lambda name: self.var_bg.set(name),
+            selected_colour_name=self.var_colour.get(),
         )
 
         # ---- canvas ----
@@ -87,14 +98,14 @@ class App:
         self.status = tk.StringVar(value="Ready")
         ttk.Label(self.root, textvariable=self.status, anchor="w").pack(fill="x")
 
-        self.apply_color()
+        self.apply_colour()
 
         # keep palette highlight in sync when brush colour changes
-        self.var_color.trace_add("write", lambda *_: hdr.palette.set_selected(self.var_color.get()))
+        self.var_colour.trace_add("write", lambda *_: tbar.palette.set_selected(self.var_colour.get()))
         self.var_bg.trace_add("write", self.apply_bg)
 
         # ---- scene/layers/painters ----
-        class _SceneAdapter:
+        class _Scene_Adapter:
             def __init__(self, params: Params):
                 self.params = params
 
@@ -107,22 +118,21 @@ class App:
             def icons(self):
                 return self.params.icons
 
-        self.scene = _SceneAdapter(self.params)
-        self.painters = PaintersImpl(self.scene)
-        self.layers = LayerManager(self.canvas, self.painters)
+        self.scene = _Scene_Adapter(self.params)
+        self.painters = Painters_Impl(self.scene)
+        self.layers = Layer_Manager(self.canvas, self.painters)
 
         # ---- commands & tools ----
-        self.cmd = CommandStack()
+        self.cmd = Command_Stack()
         self.tools = {
-            "draw": DrawTool(),
-            "label": LabelTool(),
-            "icon": IconTool(get_icon_name=lambda: self.var_icon.get()),
-            "select": SelectTool(),
+            "draw": Draw_Tool(),
+            "label": Label_Tool(),
+            "icon": Icon_Tool(get_icon_name=lambda: self.var_icon.get()),
+            "select": Select_Tool(),
         }
         self.current_tool = self.tools[self.mode.get()]
         self.canvas.config(cursor=self.current_tool.cursor or "")
 
-        # Make sure Canvas gets events before item-specific bindings
         tags = list(self.canvas.bindtags())
         # default order is (item, 'Canvas', 'all'); put Canvas first
         if "Canvas" in tags:
@@ -148,6 +158,11 @@ class App:
         self.root.bind("<KeyPress-Y>", self.on_redo)
         self.root.bind("<KeyPress-c>", self.on_clear)
         self.root.bind("<KeyPress-C>", self.on_clear)
+        self.root.bind("<Control-n>", lambda e: self.new_project())
+        self.root.bind("<Control-o>", lambda e: self.open_project())
+        self.root.bind("<Control-s>", lambda e: self.save_project())
+        self.root.bind("<Control-S>", lambda e: self.save_project_as())  # Shift+Ctrl+S
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # watch mode changes
         self.mode.trace_add("write", self._on_mode_change)
@@ -192,6 +207,7 @@ class App:
         else:
             self.layers.clear("grid")
         self.status.set("Grid ON" if self.params.grid_visible else "Grid OFF")
+        self.mark_dirty()
 
     def on_grid_change(self, *_):
         try:
@@ -210,6 +226,7 @@ class App:
         except ValueError:
             return
         self.status.set(f"Line width: {self.params.brush_width}")
+        self.mark_dirty()
 
     def on_canvas_size_change(self, *_):
         try:
@@ -221,29 +238,33 @@ class App:
         self.canvas.config(width=w, height=h)
         self.layers.redraw_all()
         self.status.set(f"Canvas {w}×{h}")
+        self.mark_dirty()
 
     def apply_bg(self, *_):
         col = Cols.get(self.var_bg.get()) or Cols.white
         self.params.bg_mode = col
         display_bg = Cols.sys.dark_gray if col.alpha == 0 else col
         self.canvas.config(bg=display_bg.hex)
-        self.layers.redraw("grid")  # grid color may need contrast
 
-    def apply_color(self, *_):
-        col = Cols.get(self.var_color.get()) or Cols.black
-        self.params.brush_color = col
+        self.layers.redraw("grid")  # grid colour may need contrast
+
+    def apply_colour(self, *_):
+        col = Cols.get(self.var_colour.get()) or Cols.black
+        self.params.brush_colour = col
         self.status.set(f"Brush: {col.name}")
 
     def on_undo(self, _evt=None):
         self.current_tool.on_cancel(self)
         self.cmd.undo()
         self.layers.redraw_all()
+        self.mark_dirty()
         self.status.set("Undo")
 
     def on_redo(self, _evt=None):
         self.current_tool.on_cancel(self)
         self.cmd.redo()
         self.layers.redraw_all()
+        self.mark_dirty()
         self.status.set("Redo")
 
     def on_clear(self, _evt=None):
@@ -252,26 +273,47 @@ class App:
         self.params.labels.clear()
         self.params.icons.clear()
         self.layers.redraw_all()
+        self.mark_dirty()
         self.status.set("Cleared")
 
     # --------- persistence ---------
-    def save_project(self):
-        IO.save_params(self.params, self.config_path)
-        self.status.set(f"Saved {self.config_path}")
+    def export_image(self):
+        # default file name & type based on params
+        def_ext = f".{self.params.output_type}"
+        initialfile = self.params.output_file.with_suffix(def_ext).name
+        # dialog
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Export",
+            defaultextension=def_ext,
+            filetypes=[(t.upper(), f"*.{t.lower()}") for t in Formats],  # e.g. WEBP/PNG/SVG
+            initialdir=self.params.output_file.parent,
+            initialfile=initialfile,
+        )
+        if not path:
+            return
 
-    def load_project(self):
-        if self.config_path.exists():
-            self.params = IO.load_params(self.config_path)
-            # refresh UI vars
-            self.var_grid.set(self.params.grid_size)
-            self.var_width_px.set(self.params.width)
-            self.var_height_px.set(self.params.height)
-            self.var_brush_w.set(self.params.brush_width)
-            self.var_bg.set(self.params.bg_mode.name)
-            self.var_color.set(self.params.brush_color.name)
-            self.canvas.config(width=self.params.width, height=self.params.height)
-            self.layers.redraw_all()
-            self.status.set(f"Loaded {self.config_path}")
+        out = Path(path)
+        ext = out.suffix.lower().lstrip(".")
+        if ext not in Formats:
+            messagebox.showerror("Invalid filetype", f"Choose one of: {', '.join(Formats)}")
+            return
+
+        # update params & export
+        self.params.output_file = out
+        try:
+            Exporter.output(self.params)
+        except Exception as e:
+            messagebox.showerror("Export failed", str(e))
+            return
+
+        # Optional: persist export settings back to the current PROJECT, not config.json
+        try:
+            IO.save_params(self.params, self.project_path)
+        except Exception:
+            pass
+
+        self.status.set(f"Exported: {out}")
 
     # --------- helpers ---------
     def _nearest_multiple(self, n: int, m: int) -> int:
@@ -295,6 +337,115 @@ class App:
                 self.params.height = new_h
                 self.var_height_px.set(new_h)
             self.canvas.config(width=self.params.width, height=self.params.height)
+
+    def _update_title(self):
+        name = self.project_path.name if self.project_path else "Untitled"
+        star = " *" if self.dirty else ""
+        self.root.title(f"Linework — {name}{star}")
+
+    def mark_dirty(self, _reason: str = ""):
+        self.dirty = True
+        self._update_title()
+
+    def mark_clean(self):
+        self.dirty = False
+        self._update_title()
+
+    def _maybe_save_changes(self) -> bool:
+        """Return True if it's OK to proceed (saved or discarded), False if user cancelled."""
+        if not self.dirty:
+            return True
+        ans = messagebox.askyesnocancel("Save changes?", "Save your changes before continuing?")
+        if ans is None:
+            return False  # Cancel
+        if ans is True:
+            return self.save_project()  # True if saved, False if user cancelled dialog
+        # No -> discard
+        return True
+
+    def _on_close(self):
+        if self._maybe_save_changes():
+            self.root.destroy()
+
+    # --------- project ---------
+    def save_project(self) -> bool:
+        """Save to current path; if it's an 'untitled', redirect to Save As. Returns success."""
+        if not self.project_path or self.project_path.name.startswith("untitled"):
+            return self.save_project_as()
+        try:
+            IO.save_params(self.params, self.project_path)
+        except Exception as e:
+            messagebox.showerror("Save failed", str(e))
+            return False
+        self.mark_clean()
+        self.status.set(f"Saved {self.project_path}")
+        return True
+
+    def save_project_as(self) -> bool:
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Save As",
+            defaultextension=".linework",
+            filetypes=[("Linework Projects", "*.linework"), ("JSON", "*.json")],
+            initialdir=self.project_path.parent if self.project_path else None,
+            initialfile=(self.project_path.name if self.project_path else "untitled.linework"),
+        )
+        if not path:
+            return False
+        self.project_path = Path(path)
+        return self.save_project()
+
+    def open_project(self):
+        if not self._maybe_save_changes():
+            return
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Open Project",
+            filetypes=[("Linework Projects", "*.linework"), ("JSON", "*.json"), ("All Files", "*.*")],
+            initialdir=self.project_path.parent if self.project_path else None,
+        )
+        if not path:
+            return
+        try:
+            self.params = IO.load_params(Path(path))
+        except Exception as e:
+            messagebox.showerror("Open failed", str(e))
+            return
+
+        self.project_path = Path(path)
+        self.scene.params = self.params
+        # refresh UI vars
+        self.var_grid.set(self.params.grid_size)
+        self.var_width_px.set(self.params.width)
+        self.var_height_px.set(self.params.height)
+        self.var_brush_w.set(self.params.brush_width)
+        self.var_bg.set(self.params.bg_mode.name)
+        self.var_colour.set(self.params.brush_colour.name)
+        self.canvas.config(width=self.params.width, height=self.params.height)
+        self._apply_size_increments(self.params.grid_size)
+        self.layers.redraw_all()
+        self.mark_clean()
+        self._update_title()
+        self.status.set(f"Opened {self.project_path}")
+
+    def new_project(self):
+        if not self._maybe_save_changes():
+            return
+        self.params = Params()
+
+        self.project_path = Path("untitled.linework")
+        self.scene.params = self.params
+        # refresh UI vars
+        self.var_grid.set(self.params.grid_size)
+        self.var_width_px.set(self.params.width)
+        self.var_height_px.set(self.params.height)
+        self.var_brush_w.set(self.params.brush_width)
+        self.var_bg.set(self.params.bg_mode.name)
+        self.var_colour.set(self.params.brush_colour.name)
+        self.canvas.config(width=self.params.width, height=self.params.height)
+        self.layers.redraw_all()
+        self.mark_clean()
+        self.status.set("New project")
 
     def drag_to_draw(self) -> bool:
         return bool(self.var_drag_to_draw.get())

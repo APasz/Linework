@@ -1,16 +1,13 @@
 from __future__ import annotations
+
+import tkinter as tk
 from dataclasses import dataclass
 from tkinter import ttk
-import tkinter as tk
-
-from ui.palette import create_palette, PaletteHandles
-from models.colour import Colours as Cols
 
 
 @dataclass
-class HeaderHandles:
+class Header_Handles:
     frame: ttk.Frame
-    palette: PaletteHandles
 
 
 def _add_labeled(master: ttk.Frame, make_widget, text: str = "", right_label: bool = False):
@@ -34,9 +31,10 @@ def create_header(
     on_redo,
     on_clear,
     on_save,
-    on_palette_select,
-    on_palette_set_bg,
-    selected_colour_name: str,
+    on_export,
+    on_new,
+    on_open,
+    on_save_as,
 ):
     """Builds the header strip and returns handles."""
     frame = ttk.Frame(master)
@@ -47,7 +45,11 @@ def create_header(
     _add_labeled(frame, lambda p: ttk.Button(p, text="Undo (Z)", command=on_undo))
     _add_labeled(frame, lambda p: ttk.Button(p, text="Redo (Y)", command=on_redo))
     _add_labeled(frame, lambda p: ttk.Button(p, text="Clear (C)", command=on_clear))
-    _add_labeled(frame, lambda p: ttk.Button(p, text="Save…", command=on_save))
+    _add_labeled(frame, lambda p: ttk.Button(p, text="Export…", command=on_export))
+    _add_labeled(frame, lambda p: ttk.Button(p, text="New", command=on_new))
+    _add_labeled(frame, lambda p: ttk.Button(p, text="Open…", command=on_open))
+    _add_labeled(frame, lambda p: ttk.Button(p, text="Save", command=on_save))
+    _add_labeled(frame, lambda p: ttk.Button(p, text="Save As…", command=on_save_as))
 
     # Modes
     _add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Draw", value="draw", variable=mode_var))
@@ -64,13 +66,4 @@ def create_header(
         # "Icon:",
     )
 
-    # Palette on right
-    pal = create_palette(
-        frame,
-        colours=Cols.option_col(min_trans=255),
-        on_select=on_palette_select,
-        on_set_bg=on_palette_set_bg,
-        selected_name=selected_colour_name,
-    )
-
-    return HeaderHandles(frame=frame, palette=pal)
+    return Header_Handles(frame=frame)

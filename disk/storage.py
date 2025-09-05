@@ -1,21 +1,21 @@
 from __future__ import annotations
+
+import json
 from pathlib import Path
 from typing import Any
 
-import json
-
+from disk.formats import Formats
 from models.anchors import Anchor
-from models.params import Params
-from models.colour import Colour, Colours as Cols
+from models.colour import Colour
+from models.colour import Colours as Cols
 from models.geo import Line
-from models.objects import Label, Icon
-from enums import OUT_TYPES
+from models.objects import Icon, Label
+from models.params import Params
 
-SCHEMA_VERSION = 1  # bump when you change shape
+SCHEMA_VERSION = 1
+
 
 # ---------- Encoders ----------
-
-
 def _enc_colour(colour: Colour) -> dict[str, Any]:
     return {"name": colour.name, "r": colour.red, "g": colour.green, "b": colour.blue, "a": colour.alpha}
 
@@ -66,7 +66,7 @@ def params_to_dict(params: Params) -> dict[str, Any]:
         "height": params.height,
         "bg_mode": _enc_colour(params.bg_mode),
         "brush_width": params.brush_width,
-        "brush_color": _enc_colour(params.brush_color),
+        "brush_colour": _enc_colour(params.brush_colour),
         "grid_size": params.grid_size,
         "grid_colour": _enc_colour(params.grid_colour),
         "grid_visible": params.grid_visible,
@@ -137,12 +137,12 @@ def dict_to_params(dic: dict[str, Any]) -> Params:
         height=int(dic["height"]),
         bg_mode=_dec_colour(dic["bg_mode"]),
         brush_width=int(dic["brush_width"]),
-        brush_color=_dec_colour(dic["brush_color"]),
+        brush_colour=_dec_colour(dic["brush_colour"]),
         grid_size=int(dic["grid_size"]),
         grid_colour=_dec_colour(dic["grid_colour"]),
         grid_visible=bool(dic["grid_visible"]),
         output_file=Path(dic.get("output_file", "output")),
-        output_type=OUT_TYPES(dic.get("output_type", "webp")),
+        output_type=Formats(dic.get("output_type", "webp")),
         lines=[_dec_line(x) for x in dic.get("lines", [])],
         labels=[_dec_label(x) for x in dic.get("labels", [])],
         icons=[_dec_icon(x) for x in dic.get("icons", [])],
@@ -170,7 +170,7 @@ class IO:
 def _migrate(data: dict[str, Any], from_version: int) -> dict[str, Any]:
     """Migrate older payloads to current schema."""
     dic = dict(data)
-    ver = int(from_version)
+    # ver = int(from_version)
 
     # example future migrations:
     # if v < 1:

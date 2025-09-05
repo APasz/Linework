@@ -1,19 +1,21 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Callable, Iterable
-import tkinter as tk
-from tkinter import ttk
 
-from models.colour import Colour, Colours as Cols
+import tkinter as tk
+from dataclasses import dataclass
+from tkinter import ttk
+from typing import Callable, Iterable
+
+from models.colour import Colour
+from models.colour import Colours as Cols
 
 
 @dataclass
-class PaletteHandles:
+class Palette_Handles:
     frame: ttk.Frame
     set_selected: Callable[[str], None]  # call with colour name
 
 
-class ColorPalette(ttk.Frame):
+class Colour_Palette(ttk.Frame):
     def __init__(
         self,
         master,
@@ -65,7 +67,7 @@ def create_palette(
     on_select: Callable[[str], None],
     on_set_bg: Callable[[str], None],
     selected_name: str,
-) -> PaletteHandles:
-    pal = ColorPalette(master, colours, on_select, on_set_bg, selected_name)
+) -> Palette_Handles:
+    pal = Colour_Palette(master, colours, on_select, on_set_bg, selected_name)
     pal.pack(side="right", padx=8)
-    return PaletteHandles(frame=pal, set_selected=pal._update_highlight)
+    return Palette_Handles(frame=pal, set_selected=pal._update_highlight)

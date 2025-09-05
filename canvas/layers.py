@@ -1,6 +1,8 @@
 from __future__ import annotations
+
+from collections.abc import Iterable
 import tkinter as tk
-from typing import Iterable, Literal, Protocol
+from typing import Literal, Protocol
 
 L_GRID: str = "layer:grid"
 L_LINES: str = "layer:lines"
@@ -18,7 +20,7 @@ class Painters(Protocol):
     def paint_icons(self, canvas: tk.Canvas, /) -> None: ...
 
 
-class LayerManager:
+class Layer_Manager:
     """Thin wrapper around canvas tags for per-layer operations."""
 
     ORDER: tuple[LayerName, ...] = ("grid", "lines", "icons", "labels")

@@ -1,9 +1,9 @@
-from tkinter import ttk
 import tkinter as tk
+from tkinter import ttk
 from typing import Any, Literal
 
 
-class VerticalSpinbox(ttk.Frame):
+class Composite_Spinbox(ttk.Frame):
     def __init__(
         self,
         master,

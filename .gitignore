@@ -5,3 +5,5 @@ logs/
 __p*
 .env*
 config.json
+output.*
+*.linework

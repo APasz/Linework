@@ -1,26 +1,27 @@
 from __future__ import annotations
-from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Protocol, Literal
 
 import tkinter as tk
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Literal, Protocol
 
-from models.params import Params
-from models.geo import Line, Point
-from models.objects import Label, Icon
 from canvas.hit_test import hit_under_cursor
-from controllers.commands import CommandStack, AddLine, AddLabel, AddIcon, MoveLabel, MoveIcon
-from canvas.layers import L_PREV, LayerManager, LayerName
+from canvas.layers import L_PREV, Layer_Manager, LayerName
+from controllers.commands import Add_Icon, Add_Label, Add_Line, Command_Stack, Move_Icon, Move_Label
+from models.geo import Line, Point
+from models.objects import Icon, Label
+from models.params import Params
 
 
 # --- minimal app protocol the tools need ---
-class AppLike(Protocol):
+class Applike(Protocol):
     root: tk.Tk
     canvas: tk.Canvas
     params: Params
-    cmd: CommandStack
+    cmd: Command_Stack
     status: tk.StringVar
-    layers: LayerManager
+    layers: Layer_Manager
+    mark_dirty: Callable
 
     def snap(self, x: int, y: int, /) -> tuple[int, int]: ...
     def layers_redraw(self, *layers: LayerName) -> None: ...
@@ -33,15 +34,14 @@ class Tool(Protocol):
     name: str
     cursor: str | None
 
-    def on_press(self, app: AppLike, evt: tk.Event, /) -> None: ...
-    def on_motion(self, app: AppLike, evt: tk.Event, /) -> None: ...
-    def on_release(self, app: AppLike, evt: tk.Event, /) -> None: ...
-    def on_cancel(self, app: AppLike) -> None: ...
+    def on_press(self, app: Applike, evt: tk.Event, /) -> None: ...
+    def on_motion(self, app: Applike, evt: tk.Event, /) -> None: ...
+    def on_release(self, app: Applike, evt: tk.Event, /) -> None: ...
+    def on_cancel(self, app: Applike) -> None: ...
 
 
 # ---- DrawTool ----
-# controllers/tools.py
-class DrawTool(Tool):
+class Draw_Tool(Tool):
     name = "draw"
     cursor = "crosshair"
 
@@ -51,7 +51,7 @@ class DrawTool(Tool):
         self._is_dragging: bool = False  # only used in drag-to-draw mode
 
     # --- utilities ---
-    def _snap(self, app: AppLike, x: int, y: int) -> tuple[int, int]:
+    def _snap(self, app: Applike, x: int, y: int) -> tuple[int, int]:
         g = app.params.grid_size
         W, H = app.params.width, app.params.height
         if g > 0:
@@ -65,13 +65,13 @@ class DrawTool(Tool):
         y = 0 if y < 0 else H if y > H else y
         return x, y
 
-    def _clear_preview(self, app: AppLike):
+    def _clear_preview(self, app: Applike):
         if self.preview_id:
             app.canvas.delete(self.preview_id)
             self.preview_id = None
         app.layers.clear_preview()
 
-    def _update_preview_to(self, app: AppLike, x2: int, y2: int):
+    def _update_preview_to(self, app: Applike, x2: int, y2: int):
         if not self.start:
             return
         p = app.params
@@ -82,7 +82,7 @@ class DrawTool(Tool):
                 y1,
                 x2,
                 y2,
-                fill=p.brush_color.hex,
+                fill=p.brush_colour.hex,
                 width=p.brush_width,
                 capstyle=self.start.capstyle,
                 tags=(L_PREV,),
@@ -91,7 +91,7 @@ class DrawTool(Tool):
             app.canvas.coords(self.preview_id, x1, y1, x2, y2)
             app.canvas.tag_raise(L_PREV)
 
-    def _commit_segment(self, app: AppLike, x2: int, y2: int):
+    def _commit_segment(self, app: Applike, x2: int, y2: int):
         if not self.start:
             return
         if x2 == self.start.x and y2 == self.start.y:
@@ -105,16 +105,17 @@ class DrawTool(Tool):
             y1=self.start.y,
             x2=x2,
             y2=y2,
-            col=p.brush_color,
+            col=p.brush_colour,
             width=p.brush_width,
             capstyle=self.start.capstyle,
         )
-        app.cmd.push_and_do(AddLine(p, ln, on_after=lambda: app.layers_redraw("lines")))
+        app.cmd.push_and_do(Add_Line(p, ln, on_after=lambda: app.layers_redraw("lines")))
+        app.mark_dirty()
         self._clear_preview(app)
         self.start = None
 
     # --- Tool interface ---
-    def on_press(self, app: AppLike, evt: tk.Event):
+    def on_press(self, app: Applike, evt: tk.Event):
         x, y = self._snap(app, evt.x, evt.y)
         if app.drag_to_draw():
             # drag mode: press sets start; release will commit
@@ -123,22 +124,21 @@ class DrawTool(Tool):
                 self._is_dragging = True
                 r = max(2, app.params.brush_width // 2)
                 app.canvas.create_oval(
-                    x - r, y - r, x + r, y + r, outline="", fill=app.params.brush_color.hex, tags=(L_PREV,)
+                    x - r, y - r, x + r, y + r, outline="", fill=app.params.brush_colour.hex, tags=(L_PREV,)
                 )
-            # if already have start, ignore extra presses; release will handle
         else:
             # click-click: press toggles between set-start and commit
             if self.start is None:
                 self.start = Point(x, y)
                 r = max(2, app.params.brush_width // 2)
                 app.canvas.create_oval(
-                    x - r, y - r, x + r, y + r, outline="", fill=app.params.brush_color.hex, tags=(L_PREV,)
+                    x - r, y - r, x + r, y + r, outline="", fill=app.params.brush_colour.hex, tags=(L_PREV,)
                 )
             else:
                 # second click commits at this snapped press position
                 self._commit_segment(app, x, y)
 
-    def on_motion(self, app: AppLike, evt: tk.Event):
+    def on_motion(self, app: Applike, evt: tk.Event):
         if self.start is None:
             return
         if app.drag_to_draw():
@@ -148,14 +148,14 @@ class DrawTool(Tool):
             app.status.set(f"Drew line: ({self.start.x},{self.start.y}) -> ({x2},{y2})")
 
     # optional: for click-click, preview while hovering between clicks
-    def on_hover(self, app: AppLike, evt: tk.Event):
+    def on_hover(self, app: Applike, evt: tk.Event):
         if self.start is None or app.drag_to_draw():
             return
         x2, y2 = self._snap(app, evt.x, evt.y)
         self._update_preview_to(app, x2, y2)
         app.status.set(f"Drew line: ({self.start.x},{self.start.y}) -> ({x2},{y2})")
 
-    def on_release(self, app: AppLike, evt: tk.Event):
+    def on_release(self, app: Applike, evt: tk.Event):
         if self.start is None:
             return
         if app.drag_to_draw():
@@ -167,7 +167,7 @@ class DrawTool(Tool):
             # click-click: release does nothing (press does the work)
             pass
 
-    def on_cancel(self, app: AppLike):
+    def on_cancel(self, app: Applike):
         self._clear_preview(app)
         self.start = None
         self._is_dragging = False
@@ -175,52 +175,54 @@ class DrawTool(Tool):
 
 # ---- LabelTool ----
 @dataclass
-class LabelTool:
+class Label_Tool:
     name: str = "label"
     cursor: str | None = "xterm"
 
-    def on_press(self, app: AppLike, evt: tk.Event) -> None:
+    def on_press(self, app: Applike, evt: tk.Event) -> None:
         x, y = app.snap(evt.x, evt.y)
         text = app.prompt_text("New Label", "Text:")
         if not text:
             return
-        lab = Label(x=x, y=y, text=text, col=app.params.brush_color, size=12)
-        app.cmd.push_and_do(AddLabel(app.params, lab, on_after=lambda: app.layers_redraw("labels")))
+        lab = Label(x=x, y=y, text=text, col=app.params.brush_colour, size=12)
+        app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers_redraw("labels")))
+        app.mark_dirty()
         app.status.set(f"Placed label at ({x},{y})")
 
-    def on_motion(self, app: AppLike, evt: tk.Event) -> None: ...
-    def on_release(self, app: AppLike, evt: tk.Event) -> None: ...
-    def on_cancel(self, app: AppLike) -> None: ...
+    def on_motion(self, app: Applike, evt: tk.Event) -> None: ...
+    def on_release(self, app: Applike, evt: tk.Event) -> None: ...
+    def on_cancel(self, app: Applike) -> None: ...
 
 
 # ---- IconTool ----
 @dataclass
-class IconTool:
+class Icon_Tool:
     get_icon_name: Callable
     name: str = "icon"
     cursor: str | None = "hand2"
 
-    def on_press(self, app: AppLike, e: tk.Event) -> None:
+    def on_press(self, app: Applike, e: tk.Event) -> None:
         x, y = app.snap(e.x, e.y)
-        ico = Icon(x=x, y=y, name=self.get_icon_name(), col=app.params.brush_color, size=16, rotation=0)
-        app.cmd.push_and_do(AddIcon(app.params, ico, on_after=lambda: app.layers_redraw("icons")))
+        ico = Icon(x=x, y=y, name=self.get_icon_name(), col=app.params.brush_colour, size=16, rotation=0)
+        app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers_redraw("icons")))
+        app.mark_dirty()
         app.status.set(f"Placed icon at ({x},{y})")
 
-    def on_motion(self, app: AppLike, e: tk.Event) -> None: ...
-    def on_release(self, app: AppLike, e: tk.Event) -> None: ...
-    def on_cancel(self, app: AppLike) -> None: ...
+    def on_motion(self, app: Applike, e: tk.Event) -> None: ...
+    def on_release(self, app: Applike, e: tk.Event) -> None: ...
+    def on_cancel(self, app: Applike) -> None: ...
 
 
 # ---- SelectTool (drag labels/icons) ----
 @dataclass
-class SelectTool:
+class Select_Tool:
     name: str = "select"
     cursor: str | None = "arrow"
     _drag_kind: Literal["label", "icon", ""] = ""
     _drag_token: int | None = None
     _start_xy: tuple[int, int] | None = None
 
-    def on_press(self, app: AppLike, e: tk.Event) -> None:
+    def on_press(self, app: Applike, e: tk.Event) -> None:
         hit = hit_under_cursor(app.canvas, e.x, e.y)
         if not hit:
             # clicked empty space -> abort any pending drag
@@ -239,7 +241,7 @@ class SelectTool:
         self._drag_token = hit.token
         self._start_xy = (e.x, e.y)
 
-    def on_motion(self, app: AppLike, e: tk.Event) -> None:
+    def on_motion(self, app: Applike, e: tk.Event) -> None:
         if not self._start_xy or not self._drag_kind:
             return
         dx, dy = e.x - self._start_xy[0], e.y - self._start_xy[1]
@@ -250,7 +252,7 @@ class SelectTool:
             app.canvas.move(tag, dx, dy)
         self._start_xy = (e.x, e.y)
 
-    def on_release(self, app: AppLike, e: tk.Event) -> None:
+    def on_release(self, app: Applike, e: tk.Event) -> None:
         # always release the grab so the pointer is “dropped”
         try:
             app.canvas.grab_release()
@@ -274,8 +276,9 @@ class SelectTool:
             old = (app.params.labels[idx].x, app.params.labels[idx].y)
             if (sx, sy) != old:
                 app.cmd.push_and_do(
-                    MoveLabel(app.params, idx, old, (sx, sy), on_after=lambda: app.layers_redraw("labels"))
+                    Move_Label(app.params, idx, old, (sx, sy), on_after=lambda: app.layers_redraw("labels"))
                 )
+                app.mark_dirty()
             else:
                 app.layers_redraw("labels")
 
@@ -344,8 +347,9 @@ class SelectTool:
             old = (app.params.icons[idx].x, app.params.icons[idx].y)
             if (sx, sy) != old:
                 app.cmd.push_and_do(
-                    MoveIcon(app.params, idx, old, (sx, sy), on_after=lambda: app.layers_redraw("icons"))
+                    Move_Icon(app.params, idx, old, (sx, sy), on_after=lambda: app.layers_redraw("icons"))
                 )
+                app.mark_dirty()
             else:
                 app.layers_redraw("icons")
 
@@ -353,13 +357,13 @@ class SelectTool:
         self._drag_token = None
         self._start_xy = None
 
-    def on_cancel(self, app: AppLike) -> None:
+    def on_cancel(self, app: Applike) -> None:
         self._drag_kind = ""
         self._drag_token = None
         self._start_xy = None
 
     # helper: map canvas text id -> label index (rebuild cheaply)
-    def _label_index_from_canvas(self, app: AppLike, cid: int) -> int:
+    def _label_index_from_canvas(self, app: Applike, cid: int) -> int:
         # rebuild a fresh map (labels aren't huge)
         # draw order matches params.labels order in painters, but ids differ per redraw
         # so we re-hit labels by position/text match:

@@ -1,6 +1,6 @@
+import tkinter as tk
 from dataclasses import dataclass
 from typing import Any, Literal
-import tkinter as tk
 
 
 @dataclass

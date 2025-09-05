@@ -1,20 +1,24 @@
 from __future__ import annotations
+
+import tkinter as tk
 from dataclasses import dataclass
 from tkinter import ttk
-import tkinter as tk
 
-from ui.widgets.composite_spinbox import VerticalSpinbox
 from models.colour import Colours as Cols
+from ui.palette import Palette_Handles, create_palette
+from ui.widgets.composite_spinbox import Composite_Spinbox
 
 
 @dataclass
-class ToolbarHandles:
+class Toolbar_Handles:
     frame: ttk.Frame
-    spin_grid: VerticalSpinbox
-    spin_brush: VerticalSpinbox
-    spin_w: VerticalSpinbox
-    spin_h: VerticalSpinbox
+    spin_grid: Composite_Spinbox
+    spin_brush: Composite_Spinbox
+    spin_w: Composite_Spinbox
+    spin_h: Composite_Spinbox
     cb_bg: ttk.Combobox
+    cb_dtd: ttk.Checkbutton
+    palette: Palette_Handles
 
 
 def _add_labeled(master: ttk.Frame, make_widget, text: str = "", right_label: bool = False):
@@ -40,6 +44,9 @@ def create_toolbar(
     on_grid_change,
     on_brush_change,
     on_canvas_size_change,
+    on_palette_select,
+    on_palette_set_bg,
+    selected_colour_name: str,
 ):
     """Builds the toolbar strip and returns widget handles."""
     frame = ttk.Frame(master)
@@ -47,28 +54,28 @@ def create_toolbar(
 
     sbox_grid = _add_labeled(
         frame,
-        lambda p: VerticalSpinbox(
+        lambda p: Composite_Spinbox(
             p, from_=0, to=200, increment=5, width=3, textvariable=grid_var, command=on_grid_change
         ),
         "Grid:",
     )
     sbox_brush = _add_labeled(
         frame,
-        lambda p: VerticalSpinbox(
+        lambda p: Composite_Spinbox(
             p, from_=1, to=50, increment=1, width=3, textvariable=brush_var, command=on_brush_change
         ),
         "Line:",
     )
     sbox_w = _add_labeled(
         frame,
-        lambda p: VerticalSpinbox(
+        lambda p: Composite_Spinbox(
             p, from_=100, to=10000, increment=50, width=4, textvariable=width_var, command=on_canvas_size_change
         ),
         "W:",
     )
     sbox_h = _add_labeled(
         frame,
-        lambda p: VerticalSpinbox(
+        lambda p: Composite_Spinbox(
             p, from_=100, to=10000, increment=50, width=4, textvariable=height_var, command=on_canvas_size_change
         ),
         "H:",
@@ -93,10 +100,26 @@ def create_toolbar(
         ),
         "Drag to draw:",
     )
+    # Palette on right
+    pal = create_palette(
+        frame,
+        colours=Cols.option_col(min_trans=255),
+        on_select=on_palette_select,
+        on_set_bg=on_palette_set_bg,
+        selected_name=selected_colour_name,
+    )
+
     # Enter key triggers
     for sb in (sbox_grid, sbox_brush, sbox_w, sbox_h):
         sb.bind("<Return>", lambda _e: (on_grid_change(), on_brush_change(), on_canvas_size_change()))
 
-    return ToolbarHandles(
-        frame=frame, spin_grid=sbox_grid, spin_brush=sbox_brush, spin_w=sbox_w, spin_h=sbox_h, cb_bg=cbox_bg
+    return Toolbar_Handles(
+        frame=frame,
+        spin_grid=sbox_grid,
+        spin_brush=sbox_brush,
+        spin_w=sbox_w,
+        spin_h=sbox_h,
+        cb_bg=cbox_bg,
+        cb_dtd=cbut_dtd,
+        palette=pal,
     )

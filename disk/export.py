@@ -1,11 +1,13 @@
 from __future__ import annotations
+
 from collections.abc import Callable
-from pathlib import Path
 from math import hypot
+from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-from enums import OUT_TYPES
+from disk.formats import Formats
 from models.geo import Line
 from models.objects import Icon, Label
 from models.params import Params
@@ -123,14 +125,14 @@ class Exporter:
         return img
 
     @classmethod
-    def _generic(cls, params: Params) -> Path:
+    def _generic(cls, params: Params, save_kwargs: dict[str, Any] | None = None) -> Path:
         frame = cls._draw(params)
-        frame.save(params.output_file, format=params.output_type.upper())
+        frame.save(params.output_file, format=params.output_type.upper(), **(save_kwargs or {}))
         return params.output_file
 
     @classmethod
     def webp(cls, params: Params) -> Path:
-        return cls._generic(params)
+        return cls._generic(params, {"lossless": True, "method": 6})
 
     @classmethod
     def png(cls, params: Params) -> Path:
@@ -165,9 +167,10 @@ class Exporter:
         # labels
         for lab in getattr(params, "labels", []):
             lab: Label
+            ta, db = lab.anchor.svg
             parts.append(
                 f'<text x="{lab.x}" y="{lab.y}" fill="{lab.col.hex}" font-size="{lab.size}" '
-                f'text-anchor="start" dominant-baseline="hanging">{_escape(lab.text)}</text>'
+                f'text-anchor="{ta}" dominant-baseline="{db}">{_escape(lab.text)}</text>'
             )
 
         # icons
@@ -210,7 +213,7 @@ class Exporter:
     @classmethod
     def match_supported(cls) -> dict[str, Callable[[Params], Path]]:
         sups = {}
-        for fmt in OUT_TYPES:
+        for fmt in Formats:
             func = getattr(cls, fmt, None)
             if not func:
                 raise AttributeError(f"Output format handler '{fmt}' not implemented in Exporter")
