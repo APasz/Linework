@@ -22,21 +22,22 @@ class PaintersImpl:
         self.s = scene
 
     # ------- grid -------
-    def paint_grid(self, c: tk.Canvas) -> None:
+    def paint_grid(self, canvas: tk.Canvas) -> None:
         p = self.s.params
         g = p.grid_size
         if g <= 0:
             return
         w, h = p.width, p.height
         for x in range(0, w + 1, g):
-            c.create_line(x, 0, x, h, fill=p.grid_colour.hex, tags=(L_GRID,))
+            canvas.create_line(x, 0, x, h, fill=p.grid_colour.hex, tags=(L_GRID,))
         for y in range(0, h + 1, g):
-            c.create_line(0, y, w, y, fill=p.grid_colour.hex, tags=(L_GRID,))
+            canvas.create_line(0, y, w, y, fill=p.grid_colour.hex, tags=(L_GRID,))
+        canvas.tag_lower(L_GRID)
 
     # ------- lines -------
-    def paint_lines(self, c: tk.Canvas) -> None:
+    def paint_lines(self, canvas: tk.Canvas) -> None:
         for ln in self.s.lines():
-            c.create_line(
+            canvas.create_line(
                 ln.x1,
                 ln.y1,
                 ln.x2,
@@ -48,9 +49,9 @@ class PaintersImpl:
             )
 
     # ------- labels -------
-    def paint_labels(self, c: tk.Canvas) -> None:
+    def paint_labels(self, canvas: tk.Canvas) -> None:
         for idx, lab in enumerate(self.s.labels()):
-            c.create_text(
+            canvas.create_text(
                 lab.x,
                 lab.y,
                 text=lab.text,
@@ -61,31 +62,33 @@ class PaintersImpl:
             )
 
     # ------- icons -------
-    def paint_icons(self, c: tk.Canvas) -> None:
+    def paint_icons(self, canvas: tk.Canvas) -> None:
         for idx, ico in enumerate(self.s.icons()):
-            self._paint_icon(c, ico, idx)
+            self._paint_icon(canvas, ico, idx)
 
-    def _paint_icon(self, c: tk.Canvas, ico: Icon, idx: int) -> None:
+    def _paint_icon(self, canvas: tk.Canvas, ico: Icon, idx: int) -> None:
         tag = f"icon:{idx}"
         s, x, y, col = ico.size, ico.x, ico.y, ico.col.hex
         if ico.name == "signal":
             r = s // 2
-            c.create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags=(tag, "icon", L_ICONS))
-            c.create_rectangle(x - r // 3, y + r, x + r // 3, y + s, fill=col, outline="", tags=(tag, "icon", L_ICONS))
+            canvas.create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags=(tag, "icon", L_ICONS))
+            canvas.create_rectangle(
+                x - r // 3, y + r, x + r // 3, y + s, fill=col, outline="", tags=(tag, "icon", L_ICONS)
+            )
         elif ico.name == "buffer":
             w = s
             h = s // 2
-            c.create_rectangle(
+            canvas.create_rectangle(
                 x - w // 2, y - h // 2, x + w // 2, y + h // 2, outline=col, width=2, tags=(tag, "icon", L_ICONS)
             )
         elif ico.name == "crossing":
             L = s
-            c.create_line(x - L, y - L, x + L, y + L, fill=col, width=2, tags=(tag, "icon", L_ICONS))
-            c.create_line(x - L, y + L, x + L, y - L, fill=col, width=2, tags=(tag, "icon", L_ICONS))
+            canvas.create_line(x - L, y - L, x + L, y + L, fill=col, width=2, tags=(tag, "icon", L_ICONS))
+            canvas.create_line(x - L, y + L, x + L, y - L, fill=col, width=2, tags=(tag, "icon", L_ICONS))
         elif ico.name == "switch":
             L = s
-            c.create_line(x, y, x + L, y, fill=col, width=2, tags=(tag, "icon", L_ICONS))
-            c.create_line(x, y, x + L, y + L // 2, fill=col, width=2, tags=(tag, "icon", L_ICONS))
+            canvas.create_line(x, y, x + L, y, fill=col, width=2, tags=(tag, "icon", L_ICONS))
+            canvas.create_line(x, y, x + L, y + L // 2, fill=col, width=2, tags=(tag, "icon", L_ICONS))
         else:
             r = s // 3
-            c.create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags=(tag, "icon", L_ICONS))
+            canvas.create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags=(tag, "icon", L_ICONS))

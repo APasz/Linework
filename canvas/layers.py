@@ -2,7 +2,6 @@ from __future__ import annotations
 import tkinter as tk
 from typing import Iterable, Literal, Protocol
 
-# Canonical layer tags — keep these stable
 L_GRID: str = "layer:grid"
 L_LINES: str = "layer:lines"
 L_LABELS: str = "layer:labels"
@@ -12,10 +11,10 @@ LayerName = Literal["grid", "lines", "labels", "icons"]
 
 
 class Painters(Protocol):
-    def paint_grid(self, c: tk.Canvas) -> None: ...
-    def paint_lines(self, c: tk.Canvas) -> None: ...
-    def paint_labels(self, c: tk.Canvas) -> None: ...
-    def paint_icons(self, c: tk.Canvas) -> None: ...
+    def paint_grid(self, canvas: tk.Canvas, /) -> None: ...
+    def paint_lines(self, canvas: tk.Canvas, /) -> None: ...
+    def paint_labels(self, canvas: tk.Canvas, /) -> None: ...
+    def paint_icons(self, canvas: tk.Canvas, /) -> None: ...
 
 
 class LayerManager:
@@ -24,14 +23,20 @@ class LayerManager:
     ORDER: tuple[LayerName, ...] = ("grid", "lines", "icons", "labels")
 
     def __init__(self, canvas: tk.Canvas, painters: Painters):
-        self.c = canvas
-        self.p = painters
+        self.canvas = canvas
+        self.painters = painters
+
+    def _enforce_z(self):
+        self.canvas.tag_lower(self._tag("grid"))
+        self.canvas.tag_raise(self._tag("lines"))
+        self.canvas.tag_raise(self._tag("icons"))
+        self.canvas.tag_raise(self._tag("labels"))
 
     # --- clears ---
     def clear(self, layer: LayerName) -> None:
         if not layer:
             return
-        self.c.delete(self._tag(layer))
+        self.canvas.delete(self._tag(layer))
 
     def clear_many(self, layers: Iterable[LayerName]) -> None:
         for layer in layers:
@@ -48,6 +53,7 @@ class LayerManager:
             return
         self.clear(layer)
         self._paint(layer)
+        self._enforce_z()
 
     def redraw_many(self, layers: Iterable[LayerName]) -> None:
         for layer in layers:
@@ -58,22 +64,23 @@ class LayerManager:
         self.clear_all()
         for layer in self.ORDER:
             self._paint(layer)
+        self._enforce_z()
 
     # --- internals ---
     def _tag(self, layer: LayerName) -> str:
         return {
-            "grid": L_GRID,
             "lines": L_LINES,
             "labels": L_LABELS,
             "icons": L_ICONS,
+            "grid": L_GRID,
         }[layer]
 
     def _paint(self, layer: LayerName) -> None:
-        if layer == "grid":
-            self.p.paint_grid(self.c)
-        elif layer == "lines":
-            self.p.paint_lines(self.c)
+        if layer == "lines":
+            self.painters.paint_lines(self.canvas)
         elif layer == "labels":
-            self.p.paint_labels(self.c)
+            self.painters.paint_labels(self.canvas)
         elif layer == "icons":
-            self.p.paint_icons(self.c)
+            self.painters.paint_icons(self.canvas)
+        elif layer == "grid":
+            self.painters.paint_grid(self.canvas)

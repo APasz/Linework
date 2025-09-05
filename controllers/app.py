@@ -14,6 +14,7 @@ from controllers.tools import DrawTool, IconTool, LabelTool, SelectTool
 from ui.header import create_header
 from ui.toolbar import create_toolbar
 from disk.storage import IO
+from canvas.layers import L_GRID
 
 
 class App:
@@ -168,6 +169,7 @@ class App:
         self.params.grid_visible = not self.params.grid_visible
         if self.params.grid_visible:
             self.layers.redraw("grid")
+            self.canvas.tag_lower(L_GRID)
         else:
             self.layers.clear("grid")
         self.status.set("Grid ON" if self.params.grid_visible else "Grid OFF")
