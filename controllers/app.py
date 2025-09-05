@@ -7,7 +7,7 @@ import sv_ttk
 
 from models.params import Params
 from models.colour import Colours as Cols
-from canvas.layers import LayerManager
+from canvas.layers import LayerManager, LayerName
 from canvas.painters import PaintersImpl
 from controllers.commands import CommandStack
 from controllers.tools import DrawTool, IconTool, LabelTool, SelectTool
@@ -27,7 +27,7 @@ class App:
             sv_ttk.set_theme("dark")
         except Exception:
             style = ttk.Style()
-            print(f"Currently installed themes: {', '.join(style.theme_names())}")
+            print(f"Currently installed themes: {', '.join(style.theme_names())} | Defaulting to Alt")
             style.theme_use("Alt")
 
         # ---- params (load or defaults) ----
@@ -35,6 +35,7 @@ class App:
         self.params = IO.load_params(self.config_path) if self.config_path.exists() else Params()
 
         # ---- UI state vars ----
+        self.var_drag_to_draw = tk.BooleanVar(value=True)
         self.var_grid = tk.IntVar(value=self.params.grid_size)
         self.var_width_px = tk.IntVar(value=self.params.width)
         self.var_height_px = tk.IntVar(value=self.params.height)
@@ -45,6 +46,10 @@ class App:
 
         self.mode = tk.StringVar(value="draw")
         self.var_icon = tk.StringVar(value="signal")
+
+        self.var_drag_to_draw.trace_add(
+            "write", lambda *_: self.status.set("Mode: drag to draw" if self.drag_to_draw() else "Mode: click-click")
+        )
 
         # ---- header & toolbar ----
         hdr = create_header(
@@ -67,6 +72,7 @@ class App:
             width_var=self.var_width_px,
             height_var=self.var_height_px,
             bg_var=self.var_bg,
+            drag_to_draw_var=self.var_drag_to_draw,
             on_grid_change=self.on_grid_change,
             on_brush_change=self.on_brush_change,
             on_canvas_size_change=self.on_canvas_size_change,
@@ -89,8 +95,8 @@ class App:
 
         # ---- scene/layers/painters ----
         class _SceneAdapter:
-            def __init__(self, p: Params):
-                self.params = p
+            def __init__(self, params: Params):
+                self.params = params
 
             def lines(self):
                 return self.params.lines
@@ -116,11 +122,21 @@ class App:
         self.current_tool = self.tools[self.mode.get()]
         self.canvas.config(cursor=self.current_tool.cursor or "")
 
+        # Make sure Canvas gets events before item-specific bindings
+        tags = list(self.canvas.bindtags())
+        # default order is (item, 'Canvas', 'all'); put Canvas first
+        if "Canvas" in tags:
+            tags.remove("Canvas")
+            tags.insert(0, "Canvas")
+        self.canvas.bindtags(tuple(tags))
+
         # bindings for tools
-        self.canvas.bind("<ButtonPress-1>", lambda e: self.current_tool.on_press(self, e))
-        self.canvas.bind("<B1-Motion>", lambda e: self.current_tool.on_motion(self, e))
-        self.canvas.bind("<Motion>", lambda e: self.current_tool.on_motion(self, e))
-        self.canvas.bind("<ButtonRelease-1>", lambda e: self.current_tool.on_release(self, e))
+        self.canvas.bind("<ButtonPress-1>", lambda e: (self.current_tool.on_press(self, e), "break")[-1])
+        self.canvas.bind("<B1-Motion>", lambda e: (self.current_tool.on_motion(self, e), "break")[-1])
+        self.canvas.bind("<ButtonRelease-1>", lambda e: (self.current_tool.on_release(self, e), "break")[-1])
+        self.canvas.bind(
+            "<Motion>", lambda e: (getattr(self.current_tool, "on_hover", lambda *_: None)(self, e), "break")[-1]
+        )
         self.root.bind("<Escape>", lambda _e: self.current_tool.on_cancel(self))
 
         # shortcuts
@@ -146,18 +162,18 @@ class App:
 
         return sd.askstring(title, prompt, parent=self.root)
 
-    def layers_redraw(self, *layers: str) -> None:
+    def layers_redraw(self, *layers: LayerName) -> None:
         if layers:
             for name in layers:
-                self.layers.redraw(name)  # pyright: ignore[reportArgumentType]
+                self.layers.redraw(name)
         else:
             self.layers.redraw_all()
 
     def snap(self, x: int, y: int) -> tuple[int, int]:
-        g = self.params.grid_size
-        if g <= 0:
+        grid = self.params.grid_size
+        if grid <= 0:
             return x, y
-        return round(x / g) * g, round(y / g) * g
+        return round(x / grid) * grid, round(y / grid) * grid
 
     # --------- UI callbacks ---------
     def _on_mode_change(self, *_):
@@ -279,3 +295,6 @@ class App:
                 self.params.height = new_h
                 self.var_height_px.set(new_h)
             self.canvas.config(width=self.params.width, height=self.params.height)
+
+    def drag_to_draw(self) -> bool:
+        return bool(self.var_drag_to_draw.get())

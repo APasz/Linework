@@ -1,5 +1,6 @@
 from tkinter import ttk
 import tkinter as tk
+from typing import Any, Literal
 
 
 class VerticalSpinbox(ttk.Frame):
@@ -15,7 +16,7 @@ class VerticalSpinbox(ttk.Frame):
         command=None,
         wrap=False,
         state: str = "normal",
-        justify="right",
+        justify: Literal["left", "center", "right"] = "right",
         **kwargs,
     ):
         super().__init__(master, **kwargs)
@@ -69,8 +70,23 @@ class VerticalSpinbox(ttk.Frame):
         self.var.set(str(value))
         self._validate_and_clamp(call_command=False)
 
-    def configure(self, **kw):
-        # allow changing range/increment/wrap programmatically
+    def set_justify(self, just: Literal["left", "center", "right"]) -> None:
+        self.entry.configure(justify=just)
+
+    def configure(
+        self,
+        cnf: str | dict[str, Any] | None = None,  # accept str/dict/None like ttk
+        **kw: Any,
+    ) -> Any:  # may return a tuple when querying a single option
+        # Query form: spinbox.configure('option')
+        if isinstance(cnf, str) and not kw:
+            return super().configure(cnf)
+
+        # Merge positional dict into kw (Tk accepts both styles)
+        if isinstance(cnf, dict):
+            kw = {**cnf, **kw}
+
+        # Intercept our custom keys
         if "from_" in kw:
             self._min = kw.pop("from_")
         if "to" in kw:
@@ -82,10 +98,16 @@ class VerticalSpinbox(ttk.Frame):
         if "command" in kw:
             self._command = kw.pop("command")
         if "state" in kw:
-            self.state(kw.pop("state"))
+            self.state(kw.pop("state"))  # delegate to your state handler
 
+        # Forward the rest to ttk.Frame
         if kw:
-            super().configure(**kw)
+            return super().configure(**kw)
+        return None
+
+    # Alias expected by Tk
+    def config(self, cnf: str | dict[str, Any] | None = None, **kw: Any) -> Any:
+        return self.configure(cnf, **kw)
 
     # --- internals ---
     def _on_mousewheel(self, e):

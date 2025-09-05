@@ -6,6 +6,8 @@ from math import hypot
 from PIL import Image, ImageDraw, ImageFont
 
 from enums import OUT_TYPES
+from models.geo import Line
+from models.objects import Icon, Label
 from models.params import Params
 
 
@@ -34,7 +36,8 @@ class Exporter:
                 draw.line([(0, y), (params.width, y)], fill=params.grid_colour.rgba, width=1)
 
         # lines with capstyle emulation
-        for line in params.lines:
+        for line in getattr(params, "lines", []):
+            line: Line
             x1, y1, x2, y2, w = line.x1, line.y1, line.x2, line.y2, line.width
             fill = line.col.rgba
             r = w / 2.0
@@ -52,23 +55,48 @@ class Exporter:
                 draw.line([(x1, y1), (x2, y2)], fill=fill, width=w)
 
         # labels (default font)
-        try:
-            font_cache = {}  # size -> font
+        _TTF_CANDIDATES = ("DejaVuSans.ttf", "DejaVuSansMono.ttf")
+        _font_cache: dict[int, "ImageFont.FreeTypeFont | ImageFont.ImageFont | None"] = {}
 
-            def _font(sz: int):  # pyright: ignore[reportRedeclaration]
-                if sz not in font_cache:
-                    font_cache[sz] = ImageFont.load_default()
-                return font_cache[sz]
-        except Exception:
+        def _font(sz: int):
+            """Return a cached PIL ImageFont (TTF if available, else default bitmap)."""
+            f = _font_cache.get(sz)
+            if f is not None:
+                return f
 
-            def _font(_):
-                return None
+            # Try TrueType faces first
+            got = None
+            if hasattr(ImageFont, "truetype"):
+                for name in _TTF_CANDIDATES:
+                    try:
+                        got = ImageFont.truetype(name, sz)
+                        break
+                    except Exception:
+                        pass
+
+            # Fallback to the default bitmap font (fixed size)
+            if got is None:
+                try:
+                    got = ImageFont.load_default()
+                except Exception:
+                    got = None
+
+            _font_cache[sz] = got
+            return got
 
         for lab in getattr(params, "labels", []):
-            draw.text((lab.x, lab.y), lab.text, fill=lab.col.rgba, font=_font(lab.size), anchor=None)
+            lab: Label
+            draw.text(
+                (lab.x, lab.y),
+                lab.text,
+                fill=lab.col.rgba,
+                font=_font(lab.size),
+                anchor=lab.anchor.pil,
+            )
 
         # icons (simple raster equivalents of your SVG primitives)
         for ico in getattr(params, "icons", []):
+            ico: Icon
             s = ico.size
             x, y = ico.x, ico.y
             col = ico.col.rgba
@@ -127,7 +155,8 @@ class Exporter:
                 )
 
         # lines
-        for line in params.lines:
+        for line in getattr(params, "lines", []):
+            line: Line
             parts.append(
                 f'<line x1="{line.x1}" y1="{line.y1}" x2="{line.x2}" y2="{line.y2}" '
                 f'stroke="{line.col.hex}" stroke-linecap="{line.capstyle}" stroke-width="{line.width}"/>'
@@ -135,6 +164,7 @@ class Exporter:
 
         # labels
         for lab in getattr(params, "labels", []):
+            lab: Label
             parts.append(
                 f'<text x="{lab.x}" y="{lab.y}" fill="{lab.col.hex}" font-size="{lab.size}" '
                 f'text-anchor="start" dominant-baseline="hanging">{_escape(lab.text)}</text>'
@@ -142,6 +172,7 @@ class Exporter:
 
         # icons
         for ico in getattr(params, "icons", []):
+            ico: Icon
             x, y, s, col = ico.x, ico.y, ico.size, ico.col.hex
             if ico.name == "signal":
                 r = s // 2
@@ -192,8 +223,8 @@ class Exporter:
     supported: dict[str, Callable[[Params], Path]] = {}
 
 
-def _escape(s: str) -> str:
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+def _escape(string: str) -> str:
+    return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 Exporter.match_supported()

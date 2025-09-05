@@ -52,8 +52,8 @@ def create_header(
     # Modes
     _add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Draw", value="draw", variable=mode_var))
     _add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Label", value="label", variable=mode_var))
-    _add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Icon", value="icon", variable=mode_var))
     _add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Select", value="select", variable=mode_var))
+    _add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Icon:", value="icon", variable=mode_var))
 
     # Icon picker
     _add_labeled(
@@ -61,7 +61,7 @@ def create_header(
         lambda p: ttk.Combobox(
             p, textvariable=icon_var, values=["signal", "switch", "buffer", "crossing"], state="readonly", width=10
         ),
-        "Icon:",
+        # "Icon:",
     )
 
     # Palette on right

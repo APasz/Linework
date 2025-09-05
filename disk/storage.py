@@ -1,12 +1,13 @@
 from __future__ import annotations
 from pathlib import Path
-from typing import Any, TypedDict, Literal
+from typing import Any
 
 import json
 
+from models.anchors import Anchor
 from models.params import Params
 from models.colour import Colour, Colours as Cols
-from models.geo import Line, Point
+from models.geo import Line
 from models.objects import Label, Icon
 from enums import OUT_TYPES
 
@@ -15,111 +16,138 @@ SCHEMA_VERSION = 1  # bump when you change shape
 # ---------- Encoders ----------
 
 
-def _enc_colour(c: Colour) -> dict[str, Any]:
-    return {"name": c.name, "r": c.red, "g": c.green, "b": c.blue, "a": c.alpha}
+def _enc_colour(colour: Colour) -> dict[str, Any]:
+    return {"name": colour.name, "r": colour.red, "g": colour.green, "b": colour.blue, "a": colour.alpha}
 
 
-def _enc_line(l: Line) -> dict[str, Any]:
+def _enc_anchor(anchor: Anchor) -> dict[str, Any]:
+    return {"value": anchor.value}
+
+
+def _enc_line(line: Line) -> dict[str, Any]:
     return {
-        "x1": l.x1,
-        "y1": l.y1,
-        "x2": l.x2,
-        "y2": l.y2,
-        "col": _enc_colour(l.col),
-        "width": l.width,
-        "cap": l.capstyle,
+        "x1": line.x1,
+        "y1": line.y1,
+        "x2": line.x2,
+        "y2": line.y2,
+        "col": _enc_colour(line.col),
+        "width": line.width,
+        "cap": line.capstyle,
     }
 
 
-def _enc_label(lb: Label) -> dict[str, Any]:
-    return {"x": lb.x, "y": lb.y, "text": lb.text, "col": _enc_colour(lb.col), "anchor": lb.anchor, "size": lb.size}
+def _enc_label(label: Label) -> dict[str, Any]:
+    return {
+        "x": label.x,
+        "y": label.y,
+        "text": label.text,
+        "col": _enc_colour(label.col),
+        "anchor": _enc_anchor(label.anchor),
+        "size": label.size,
+    }
 
 
-def _enc_icon(ic: Icon) -> dict[str, Any]:
-    return {"x": ic.x, "y": ic.y, "name": ic.name, "col": _enc_colour(ic.col), "size": ic.size, "rotation": ic.rotation}
+def _enc_icon(ico: Icon) -> dict[str, Any]:
+    return {
+        "x": ico.x,
+        "y": ico.y,
+        "name": ico.name,
+        "col": _enc_colour(ico.col),
+        "anchor": _enc_anchor(ico.anchor),
+        "size": ico.size,
+        "rotation": ico.rotation,
+    }
 
 
-def params_to_dict(p: Params) -> dict[str, Any]:
+def params_to_dict(params: Params) -> dict[str, Any]:
     return {
         "version": SCHEMA_VERSION,
-        "width": p.width,
-        "height": p.height,
-        "bg_mode": _enc_colour(p.bg_mode),
-        "brush_width": p.brush_width,
-        "brush_color": _enc_colour(p.brush_color),
-        "grid_size": p.grid_size,
-        "grid_colour": _enc_colour(p.grid_colour),
-        "grid_visible": p.grid_visible,
-        "output_file": str(p.output_file),
-        "output_type": str(p.output_type),
-        "lines": [_enc_line(l) for l in p.lines],
-        "labels": [_enc_label(lb) for lb in getattr(p, "labels", [])],
-        "icons": [_enc_icon(ic) for ic in getattr(p, "icons", [])],
+        "width": params.width,
+        "height": params.height,
+        "bg_mode": _enc_colour(params.bg_mode),
+        "brush_width": params.brush_width,
+        "brush_color": _enc_colour(params.brush_color),
+        "grid_size": params.grid_size,
+        "grid_colour": _enc_colour(params.grid_colour),
+        "grid_visible": params.grid_visible,
+        "output_file": str(params.output_file),
+        "output_type": str(params.output_type),
+        "lines": [_enc_line(line) for line in params.lines],
+        "labels": [_enc_label(lb) for lb in params.labels],
+        "icons": [_enc_icon(ic) for ic in params.icons],
     }
 
 
 # ---------- Decoders ----------
 
 
-def _dec_colour(d: dict[str, Any]) -> Colour:
+def _dec_colour(dic: dict[str, Any]) -> Colour:
     # allow either {"name": "..."} or full rgba dicts
-    if isinstance(d, str):
-        return Cols.get(d) or Cols.white
-    return Colour(d.get("name", "custom"), int(d["r"]), int(d["g"]), int(d["b"]), int(d.get("a", 255)))
+    if isinstance(dic, str):
+        return Cols.get(dic) or Cols.white
+    return Colour(dic.get("name", "custom"), int(dic["r"]), int(dic["g"]), int(dic["b"]), int(dic.get("a", 255)))
 
 
-def _dec_line(d: dict[str, Any]) -> Line:
-    return Line(d["x1"], d["y1"], d["x2"], d["y2"], _dec_colour(d["col"]), int(d["width"]), d.get("cap", "round"))
+def _dec_anchor(val: Any) -> Anchor:
+    if isinstance(val, str):
+        return Anchor.parse(val) or Anchor.C
+    if isinstance(val, dict):
+        return Anchor(val.get("value", "center"))
+    return Anchor.C
 
 
-def _dec_label(d: dict[str, Any]) -> Label:
+def _dec_line(dic: dict[str, Any]) -> Line:
+    return Line(
+        dic["x1"], dic["y1"], dic["x2"], dic["y2"], _dec_colour(dic["col"]), int(dic["width"]), dic.get("cap", "round")
+    )
+
+
+def _dec_label(dic: dict[str, Any]) -> Label:
     return Label(
-        int(d["x"]),
-        int(d["y"]),
-        d.get("text", ""),
-        _dec_colour(d["col"]),
-        d.get("anchor", "nw"),
-        int(d.get("size", 12)),
+        int(dic["x"]),
+        int(dic["y"]),
+        dic.get("text", ""),
+        _dec_colour(dic["col"]),
+        _dec_anchor(dic.get("anchor", Anchor.NW)),
+        int(dic.get("size", 12)),
     )
 
 
-def _dec_icon(d: dict[str, Any]) -> Icon:
+def _dec_icon(dic: dict[str, Any]) -> Icon:
     return Icon(
-        int(d["x"]),
-        int(d["y"]),
-        d.get("name", "signal"),
-        _dec_colour(d["col"]),
-        int(d.get("size", 16)),
-        int(d.get("rotation", 0)),
+        int(dic["x"]),
+        int(dic["y"]),
+        dic.get("name", "signal"),
+        _dec_colour(dic["col"]),
+        _dec_anchor(dic.get("anchor", Anchor.SE)),
+        int(dic.get("size", 16)),
+        int(dic.get("rotation", 0)),
     )
 
 
-def dict_to_params(data: dict[str, Any]) -> Params:
-    v = int(data.get("version", 0))
+def dict_to_params(dic: dict[str, Any]) -> Params:
+    v = int(dic.get("version", 0))
     if v != SCHEMA_VERSION:
-        data = _migrate(data, v)
+        dic = _migrate(dic, v)
 
     from models.params import Params  # avoid cycles
 
-    p = Params(
-        width=int(data["width"]),
-        height=int(data["height"]),
-        bg_mode=_dec_colour(data["bg_mode"]),
-        brush_width=int(data["brush_width"]),
-        brush_color=_dec_colour(data["brush_color"]),
-        grid_size=int(data["grid_size"]),
-        grid_colour=_dec_colour(data["grid_colour"]),
-        grid_visible=bool(data["grid_visible"]),
-        output_file=Path(data.get("output_file", "output")),
-        output_type=OUT_TYPES[data.get("output_type", "webp")],
-        lines=[_dec_line(x) for x in data.get("lines", [])],
+    params = Params(
+        width=int(dic["width"]),
+        height=int(dic["height"]),
+        bg_mode=_dec_colour(dic["bg_mode"]),
+        brush_width=int(dic["brush_width"]),
+        brush_color=_dec_colour(dic["brush_color"]),
+        grid_size=int(dic["grid_size"]),
+        grid_colour=_dec_colour(dic["grid_colour"]),
+        grid_visible=bool(dic["grid_visible"]),
+        output_file=Path(dic.get("output_file", "output")),
+        output_type=OUT_TYPES(dic.get("output_type", "webp")),
+        lines=[_dec_line(x) for x in dic.get("lines", [])],
+        labels=[_dec_label(x) for x in dic.get("labels", [])],
+        icons=[_dec_icon(x) for x in dic.get("icons", [])],
     )
-    # optional fields in older files
-    if "labels" in data:
-        p.labels = [_dec_label(x) for x in data["labels"]]
-    if "icons" in data:
-        p.icons = [_dec_icon(x) for x in data["icons"]]
-    return p
+    return params
 
 
 # ---------- Public API ----------
@@ -127,8 +155,8 @@ def dict_to_params(data: dict[str, Any]) -> Params:
 
 class IO:
     @staticmethod
-    def save_params(p: Params, path: Path) -> None:
-        path.write_text(json.dumps(params_to_dict(p), indent=4))
+    def save_params(params: Params, path: Path) -> None:
+        path.write_text(json.dumps(params_to_dict(params), indent=4))
 
     @staticmethod
     def load_params(path: Path) -> Params:
@@ -141,8 +169,8 @@ class IO:
 
 def _migrate(data: dict[str, Any], from_version: int) -> dict[str, Any]:
     """Migrate older payloads to current schema."""
-    d = dict(data)
-    v = int(from_version)
+    dic = dict(data)
+    ver = int(from_version)
 
     # example future migrations:
     # if v < 1:
@@ -152,5 +180,5 @@ def _migrate(data: dict[str, Any], from_version: int) -> dict[str, Any]:
     #     ...
     #     v = 2
 
-    d["version"] = SCHEMA_VERSION
-    return d
+    dic["version"] = SCHEMA_VERSION
+    return dic

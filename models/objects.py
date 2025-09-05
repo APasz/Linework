@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from models.colour import Colour
+from models.anchors import Anchor
 
 
 @dataclass(slots=True, frozen=True)
@@ -10,7 +11,7 @@ class Label:
     y: int
     text: str
     col: Colour
-    anchor: Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"] = "nw"
+    anchor: Anchor = Anchor.NW
     size: int = 12  # px
 
 
@@ -20,5 +21,6 @@ class Icon:
     y: int
     name: Literal["signal", "switch", "buffer", "crossing"]  # start simple; add more later
     col: Colour
+    anchor: Anchor = Anchor.SE
     size: int = 16
     rotation: int = 0  # degrees

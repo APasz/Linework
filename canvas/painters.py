@@ -56,7 +56,7 @@ class PaintersImpl:
                 lab.y,
                 text=lab.text,
                 fill=lab.col.hex,
-                anchor=lab.anchor,
+                anchor=lab.anchor.tk,
                 font=("TkDefaultFont", lab.size),
                 tags=("label", L_LABELS, f"label:{idx}"),
             )

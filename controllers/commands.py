@@ -61,9 +61,9 @@ class AddLine:
             self.params.lines.pop()
         else:
             # fall back: remove by value once
-            for i in range(len(self.params.lines) - 1, -1, -1):
-                if self.params.lines[i] == self.line:
-                    del self.params.lines[i]
+            for idx in range(len(self.params.lines) - 1, -1, -1):
+                if self.params.lines[idx] == self.line:
+                    del self.params.lines[idx]
                     break
         self.on_after()
 
@@ -83,9 +83,9 @@ class AddLabel:
         self.on_after()
 
     def undo(self) -> None:
-        for i in range(len(self.params.labels) - 1, -1, -1):
-            if self.params.labels[i] == self.label:
-                del self.params.labels[i]
+        for idx in range(len(self.params.labels) - 1, -1, -1):
+            if self.params.labels[idx] == self.label:
+                del self.params.labels[idx]
                 break
         self.on_after()
 
@@ -101,9 +101,9 @@ class AddIcon:
         self.on_after()
 
     def undo(self) -> None:
-        for i in range(len(self.params.icons) - 1, -1, -1):
-            if self.params.icons[i] == self.icon:
-                del self.params.icons[i]
+        for idx in range(len(self.params.icons) - 1, -1, -1):
+            if self.params.icons[idx] == self.icon:
+                del self.params.icons[idx]
                 break
         self.on_after()
 

@@ -28,7 +28,7 @@ class ColorPalette(ttk.Frame):
         self._swatches: list[tuple[tk.Canvas, str]] = []
 
         # label (optional)
-        ttk.Label(self, text="Colour:").pack(side="left", padx=(0, 6))
+        ttk.Label(self).pack(side="left", padx=(0, 6))
 
         for col in colours:
             sw = tk.Canvas(self, width=18, height=18, highlightthickness=0)
