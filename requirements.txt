@@ -1,0 +1,3 @@
+pillow
+sv-ttk
+pydantic

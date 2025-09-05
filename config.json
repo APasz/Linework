@@ -1,0 +1,181 @@
+{
+    "version": 1,
+    "width": 560,
+    "height": 400,
+    "bg_mode": {
+        "name": "white",
+        "r": 255,
+        "g": 255,
+        "b": 255,
+        "a": 255
+    },
+    "brush_width": 10,
+    "brush_color": {
+        "name": "yellow",
+        "r": 255,
+        "g": 255,
+        "b": 0,
+        "a": 255
+    },
+    "grid_size": 40,
+    "grid_colour": {
+        "name": "gray",
+        "r": 128,
+        "g": 128,
+        "b": 128,
+        "a": 255
+    },
+    "grid_visible": true,
+    "output_file": "output",
+    "output_type": "webp",
+    "lines": [
+        {
+            "x1": 40,
+            "y1": 40,
+            "x2": 520,
+            "y2": 40,
+            "col": {
+                "name": "black",
+                "r": 0,
+                "g": 0,
+                "b": 0,
+                "a": 255
+            },
+            "width": 10,
+            "cap": "round"
+        },
+        {
+            "x1": 40,
+            "y1": 360,
+            "x2": 480,
+            "y2": 360,
+            "col": {
+                "name": "black",
+                "r": 0,
+                "g": 0,
+                "b": 0,
+                "a": 255
+            },
+            "width": 10,
+            "cap": "round"
+        },
+        {
+            "x1": 520,
+            "y1": 40,
+            "x2": 480,
+            "y2": 360,
+            "col": {
+                "name": "red",
+                "r": 255,
+                "g": 0,
+                "b": 0,
+                "a": 255
+            },
+            "width": 10,
+            "cap": "round"
+        },
+        {
+            "x1": 40,
+            "y1": 360,
+            "x2": 120,
+            "y2": 40,
+            "col": {
+                "name": "red",
+                "r": 255,
+                "g": 0,
+                "b": 0,
+                "a": 255
+            },
+            "width": 10,
+            "cap": "round"
+        }
+    ],
+    "labels": [
+        {
+            "x": 160,
+            "y": 80,
+            "text": "hiya",
+            "col": {
+                "name": "green",
+                "r": 0,
+                "g": 255,
+                "b": 0,
+                "a": 255
+            },
+            "anchor": "nw",
+            "size": 12
+        },
+        {
+            "x": 200,
+            "y": 120,
+            "text": "teehee",
+            "col": {
+                "name": "blue",
+                "r": 0,
+                "g": 0,
+                "b": 255,
+                "a": 255
+            },
+            "anchor": "nw",
+            "size": 12
+        }
+    ],
+    "icons": [
+        {
+            "x": 160,
+            "y": 160,
+            "name": "signal",
+            "col": {
+                "name": "blue",
+                "r": 0,
+                "g": 0,
+                "b": 255,
+                "a": 255
+            },
+            "size": 16,
+            "rotation": 0
+        },
+        {
+            "x": 160,
+            "y": 200,
+            "name": "buffer",
+            "col": {
+                "name": "cyan",
+                "r": 0,
+                "g": 255,
+                "b": 255,
+                "a": 255
+            },
+            "size": 16,
+            "rotation": 0
+        },
+        {
+            "x": 160,
+            "y": 240,
+            "name": "crossing",
+            "col": {
+                "name": "magenta",
+                "r": 255,
+                "g": 0,
+                "b": 255,
+                "a": 255
+            },
+            "size": 16,
+            "rotation": 0
+        },
+        {
+            "x": 160,
+            "y": 280,
+            "name": "switch",
+            "col": {
+                "name": "yellow",
+                "r": 255,
+                "g": 255,
+                "b": 0,
+                "a": 255
+            },
+            "size": 16,
+            "rotation": 0
+        }
+    ]
+}

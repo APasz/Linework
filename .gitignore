@@ -1,0 +1,6 @@
+_*.txt
+test.py
+logs/
+.venv
+__p*
+.env*
