@@ -17,6 +17,7 @@ from models.colour import Colours as Cols
 from models.params import Params
 from ui.header import create_header
 from ui.toolbar import create_toolbar
+from ui.status import Status
 
 
 class App:
@@ -43,6 +44,7 @@ class App:
 
         # ---- UI state vars ----
         self.var_drag_to_draw = tk.BooleanVar(value=False)
+        self.var_snapping = tk.BooleanVar(value=True)
         self.var_grid = tk.IntVar(value=self.params.grid_size)
         self.var_width_px = tk.IntVar(value=self.params.width)
         self.var_height_px = tk.IntVar(value=self.params.height)
@@ -55,7 +57,10 @@ class App:
         self.var_icon = tk.StringVar(value="signal")
 
         self.var_drag_to_draw.trace_add(
-            "write", lambda *_: self.status.set("Mode: drag to draw" if self.drag_to_draw() else "Mode: click-click")
+            "write", lambda *_: self.status.temp("Mode: drag to draw" if self.drag_to_draw() else "Mode: click-click")
+        )
+        self.var_snapping.trace_add(
+            "write", lambda *_: self.status.temp("Mode: Snapping" if self.snapping() else "Mode: No Snap")
         )
 
         # ---- header & toolbar ----
@@ -81,6 +86,7 @@ class App:
             height_var=self.var_height_px,
             bg_var=self.var_bg,
             drag_to_draw_var=self.var_drag_to_draw,
+            snapping_var=self.var_snapping,
             on_grid_change=self.on_grid_change,
             on_brush_change=self.on_brush_change,
             on_canvas_size_change=self.on_canvas_size_change,
@@ -95,8 +101,9 @@ class App:
         self.canvas.pack(fill="both", expand=False)
 
         # ---- status bar ----
-        self.status = tk.StringVar(value="Ready")
-        ttk.Label(self.root, textvariable=self.status, anchor="w").pack(fill="x")
+        self.status = Status(self.root)
+        ttk.Label(self.root, textvariable=self.status.var, anchor="w").pack(fill="x")
+        self.status.set("Ready")
 
         self.apply_colour()
 
@@ -152,16 +159,34 @@ class App:
         # shortcuts
         self.root.bind("<KeyPress-g>", self.on_toggle_grid)
         self.root.bind("<KeyPress-G>", self.on_toggle_grid)
-        self.root.bind("<KeyPress-z>", self.on_undo)
         self.root.bind("<KeyPress-Z>", self.on_undo)
-        self.root.bind("<KeyPress-y>", self.on_redo)
         self.root.bind("<KeyPress-Y>", self.on_redo)
         self.root.bind("<KeyPress-c>", self.on_clear)
         self.root.bind("<KeyPress-C>", self.on_clear)
         self.root.bind("<Control-n>", lambda e: self.new_project())
         self.root.bind("<Control-o>", lambda e: self.open_project())
         self.root.bind("<Control-s>", lambda e: self.save_project())
-        self.root.bind("<Control-S>", lambda e: self.save_project_as())  # Shift+Ctrl+S
+        self.root.bind("<Control-S>", lambda e: self.save_project_as())
+        self.root.bind(
+            "<KeyPress-Shift_L>",
+            lambda e: self.status.hold(
+                "shift",
+                f"Snap {'OFF' if self.snapping() else 'ON'}",
+                priority=100,
+                side="right",
+            ),
+        )
+        self.root.bind("<KeyRelease-Shift_L>", lambda e: self.status.release("shift"))
+        self.root.bind(
+            "<KeyPress-Shift_R>",
+            lambda e: self.status.hold(
+                "shift",
+                f"Snap {'OFF' if self.snapping() else 'ON'}",
+                priority=100,
+                side="right",
+            ),
+        )
+        self.root.bind("<KeyRelease-Shift_R>", lambda e: self.status.release("shift"))
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # watch mode changes
@@ -194,7 +219,8 @@ class App:
     def _on_mode_change(self, *_):
         self.current_tool = self.tools[self.mode.get()]
         self.canvas.config(cursor=self.current_tool.cursor or "")
-        self.status.set(self.mode.get().title())
+        self.status.temp(self.mode.get().title())
+        self.status.clear_suffix()
 
     def on_toggle_grid(self, _evt=None):
         self.toggle_grid()
@@ -206,7 +232,7 @@ class App:
             self.canvas.tag_lower(L_GRID)
         else:
             self.layers.clear("grid")
-        self.status.set("Grid ON" if self.params.grid_visible else "Grid OFF")
+        self.status.temp("Grid ON" if self.params.grid_visible else "Grid OFF")
         self.mark_dirty()
 
     def on_grid_change(self, *_):
@@ -225,7 +251,7 @@ class App:
             self.params.brush_width = max(1, int(self.var_brush_w.get()))
         except ValueError:
             return
-        self.status.set(f"Line width: {self.params.brush_width}")
+        self.status.temp(f"Line width: {self.params.brush_width}")
         self.mark_dirty()
 
     def on_canvas_size_change(self, *_):
@@ -237,7 +263,7 @@ class App:
         self.params.width, self.params.height = w, h
         self.canvas.config(width=w, height=h)
         self.layers.redraw_all()
-        self.status.set(f"Canvas {w}×{h}")
+        self.status.temp(f"Canvas {w}×{h}")
         self.mark_dirty()
 
     def apply_bg(self, *_):
@@ -251,21 +277,21 @@ class App:
     def apply_colour(self, *_):
         col = Cols.get(self.var_colour.get()) or Cols.black
         self.params.brush_colour = col
-        self.status.set(f"Brush: {col.name}")
+        self.status.temp(f"Brush: {col.name}")
 
     def on_undo(self, _evt=None):
         self.current_tool.on_cancel(self)
         self.cmd.undo()
         self.layers.redraw_all()
         self.mark_dirty()
-        self.status.set("Undo")
+        self.status.temp("Undo")
 
     def on_redo(self, _evt=None):
         self.current_tool.on_cancel(self)
         self.cmd.redo()
         self.layers.redraw_all()
         self.mark_dirty()
-        self.status.set("Redo")
+        self.status.temp("Redo")
 
     def on_clear(self, _evt=None):
         self.current_tool.on_cancel(self)
@@ -274,7 +300,7 @@ class App:
         self.params.icons.clear()
         self.layers.redraw_all()
         self.mark_dirty()
-        self.status.set("Cleared")
+        self.status.temp("Cleared")
 
     # --------- persistence ---------
     def export_image(self):
@@ -449,3 +475,6 @@ class App:
 
     def drag_to_draw(self) -> bool:
         return bool(self.var_drag_to_draw.get())
+
+    def snapping(self) -> bool:
+        return bool(self.var_snapping.get())

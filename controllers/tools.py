@@ -11,6 +11,10 @@ from controllers.commands import Add_Icon, Add_Label, Add_Line, Command_Stack, M
 from models.geo import Line, Point
 from models.objects import Icon, Label
 from models.params import Params
+from ui.status import Status
+import math
+
+SHIFT_MASK = 0x0001  # Tk modifier mask for Shift
 
 
 # --- minimal app protocol the tools need ---
@@ -19,14 +23,15 @@ class Applike(Protocol):
     canvas: tk.Canvas
     params: Params
     cmd: Command_Stack
-    status: tk.StringVar
+    status: Status
     layers: Layer_Manager
     mark_dirty: Callable
+    drag_to_draw: Callable[..., bool]
+    snapping: Callable[..., bool]
 
     def snap(self, x: int, y: int, /) -> tuple[int, int]: ...
     def layers_redraw(self, *layers: LayerName) -> None: ...
     def prompt_text(self, title: str, prompt: str, /) -> str | None: ...
-    def drag_to_draw(self) -> bool: ...
 
 
 # ---- base tool ----
@@ -71,9 +76,12 @@ class Draw_Tool(Tool):
             self.preview_id = None
         app.layers.clear_preview()
 
-    def _update_preview_to(self, app: Applike, x2: int, y2: int):
+    def _update_preview_to(self, app: Applike, x2: int, y2: int, evt: tk.Event | None = None):
         if not self.start:
             return
+        if evt is not None and self._dir_snap_on(app, evt):
+            x2, y2 = self._snap_directional(app, x2, y2, self.start)
+
         p = app.params
         x1, y1 = self.start.x, self.start.y
         if self.preview_id is None:
@@ -91,14 +99,18 @@ class Draw_Tool(Tool):
             app.canvas.coords(self.preview_id, x1, y1, x2, y2)
             app.canvas.tag_raise(L_PREV)
 
-    def _commit_segment(self, app: Applike, x2: int, y2: int):
+    def _commit_segment(self, app: Applike, x2: int, y2: int, evt: tk.Event | None = None):
         if not self.start:
             return
+        if evt is not None and self._dir_snap_on(app, evt):
+            x2, y2 = self._snap_directional(app, x2, y2, self.start)
+
         if x2 == self.start.x and y2 == self.start.y:
             self._clear_preview(app)
             self.start = None
-            app.status.set("Ignored zero-length segment")
+            app.status.temp("Ignored zero-length segment", ms=1000, priority=50, side="left")
             return
+
         p = app.params
         ln = Line(
             x1=self.start.x,
@@ -113,6 +125,38 @@ class Draw_Tool(Tool):
         app.mark_dirty()
         self._clear_preview(app)
         self.start = None
+
+    def _dir_snap_on(self, app: Applike, evt: tk.Event) -> bool:
+        """Return True if direction snapping should be applied for this event."""
+        base = app.snapping()  # your UI toggle
+        shift = bool(getattr(evt, "state", 0) & SHIFT_MASK)
+        return (not base) if shift else base  # Shift inverts
+
+    def _snap_directional(self, app: Applike, x: int, y: int, start: Point) -> tuple[int, int]:
+        """
+        Snap (x,y) to grid/clamp, then constrain the vector from start -> (x,y)
+        to the nearest 45° octant. Finally re-snap/clamp to grid.
+        """
+        # 1) normal grid snap + clamp
+        sx, sy = self._snap(app, x, y)
+
+        dx, dy = sx - start.x, sy - start.y
+        if dx == 0 and dy == 0:
+            return sx, sy
+
+        # 2) quantize angle to nearest 45°
+        ang = math.atan2(dy, dx)  # [-pi, pi]
+        step = math.pi / 4.0  # 45°
+        qang = round(ang / step) * step  # nearest octant
+
+        # keep the same length (in pixels)
+        r = math.hypot(dx, dy)
+        qx = start.x + r * math.cos(qang)
+        qy = start.y + r * math.sin(qang)
+
+        # 3) final snap/clamp to grid/canvas (and cast to int)
+        qxs, qys = self._snap(app, int(round(qx)), int(round(qy)))
+        return qxs, qys
 
     # --- Tool interface ---
     def on_press(self, app: Applike, evt: tk.Event):
@@ -136,41 +180,36 @@ class Draw_Tool(Tool):
                 )
             else:
                 # second click commits at this snapped press position
-                self._commit_segment(app, x, y)
+                self._commit_segment(app, x, y, evt)
 
     def on_motion(self, app: Applike, evt: tk.Event):
         if self.start is None:
             return
-        if app.drag_to_draw():
-            # only preview while dragging (B1-Motion)
-            x2, y2 = self._snap(app, evt.x, evt.y)
-            self._update_preview_to(app, x2, y2)
-            app.status.set(f"Drew line: ({self.start.x},{self.start.y}) -> ({x2},{y2})")
+        x2, y2 = self._snap(app, evt.x, evt.y)
+        self._update_preview_to(app, x2, y2, evt)
+        app.status.hold("drawline", f"({self.start.x},{self.start.y}) → ({x2},{y2})")
 
-    # optional: for click-click, preview while hovering between clicks
     def on_hover(self, app: Applike, evt: tk.Event):
         if self.start is None or app.drag_to_draw():
             return
         x2, y2 = self._snap(app, evt.x, evt.y)
-        self._update_preview_to(app, x2, y2)
-        app.status.set(f"Drew line: ({self.start.x},{self.start.y}) -> ({x2},{y2})")
+        self._update_preview_to(app, x2, y2, evt)
+        app.status.hold("drawline", f"({self.start.x},{self.start.y}) → ({x2},{y2})")
 
     def on_release(self, app: Applike, evt: tk.Event):
         if self.start is None:
             return
         if app.drag_to_draw():
-            # commit to release position
             x2, y2 = self._snap(app, evt.x, evt.y)
-            self._commit_segment(app, x2, y2)
+            self._commit_segment(app, x2, y2, evt)
             self._is_dragging = False
-        else:
-            # click-click: release does nothing (press does the work)
-            pass
+        app.status.release("drawline")
 
     def on_cancel(self, app: Applike):
         self._clear_preview(app)
         self.start = None
         self._is_dragging = False
+        app.status.release("drawline")
 
 
 # ---- LabelTool ----
@@ -187,7 +226,7 @@ class Label_Tool:
         lab = Label(x=x, y=y, text=text, col=app.params.brush_colour, size=12)
         app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers_redraw("labels")))
         app.mark_dirty()
-        app.status.set(f"Placed label at ({x},{y})")
+        app.status.temp(f"Label @ ({x},{y})")
 
     def on_motion(self, app: Applike, evt: tk.Event) -> None: ...
     def on_release(self, app: Applike, evt: tk.Event) -> None: ...
@@ -206,7 +245,7 @@ class Icon_Tool:
         ico = Icon(x=x, y=y, name=self.get_icon_name(), col=app.params.brush_colour, size=16, rotation=0)
         app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers_redraw("icons")))
         app.mark_dirty()
-        app.status.set(f"Placed icon at ({x},{y})")
+        app.status.temp(f"Icon @ ({x},{y})")
 
     def on_motion(self, app: Applike, e: tk.Event) -> None: ...
     def on_release(self, app: Applike, e: tk.Event) -> None: ...

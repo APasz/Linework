@@ -41,6 +41,7 @@ def create_toolbar(
     height_var: tk.IntVar,
     bg_var: tk.StringVar,
     drag_to_draw_var: tk.BooleanVar,
+    snapping_var: tk.BooleanVar,
     on_grid_change,
     on_brush_change,
     on_canvas_size_change,
@@ -99,6 +100,14 @@ def create_toolbar(
             variable=drag_to_draw_var,
         ),
         "Drag to draw:",
+    )
+    cbut_snap = _add_labeled(
+        frame,
+        lambda p: ttk.Checkbutton(
+            p,
+            variable=snapping_var,
+        ),
+        "Snap:",
     )
     # Palette on right
     pal = create_palette(
