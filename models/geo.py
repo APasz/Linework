@@ -1,8 +1,7 @@
 from dataclasses import dataclass
-from typing import Literal
 
 from models.colour import Colour
-from models.linestyle import LineStyle
+from models.linestyle import LineStyle, CapStyle
 
 
 @dataclass(slots=True)
@@ -13,7 +12,7 @@ class Line:
     y2: int
     col: Colour
     width: int
-    capstyle: Literal["round", "projecting", "butt"] = "round"
+    capstyle: CapStyle = CapStyle.ROUND
     style: LineStyle = LineStyle.SOLID
     dash_offset: int = 0
 
@@ -22,4 +21,4 @@ class Line:
 class Point:
     x: int
     y: int
-    capstyle: Literal["round", "projecting", "butt"] = "round"
+    capstyle: CapStyle = CapStyle.ROUND

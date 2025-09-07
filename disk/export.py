@@ -10,7 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from disk.formats import Formats
 from models.geo import Line
-from models.linestyle import scaled_pattern, svg_dasharray
+from models.linestyle import CapStyle, scaled_pattern, svg_dasharray
 from models.objects import Icon, Label
 from models.params import Params
 
@@ -25,7 +25,7 @@ def _stroke_dashed_line(
     rgba,
     dash: tuple[int, ...],
     offset: int = 0,
-    capstyle: str = "butt",  # "butt" | "round" | "projecting"
+    capstyle: CapStyle = CapStyle.ROUND,  # "butt" | "round" | "projecting"
 ):
     """
     Draw a dashed line with cap emulation for PIL:
@@ -43,13 +43,13 @@ def _stroke_dashed_line(
     r = width / 2.0
 
     if not dash:  # solid
-        if capstyle == "projecting":
+        if capstyle == CapStyle.PROJECTING:
             xa, ya = x1 - ux * r, y1 - uy * r
             xb, yb = x2 + ux * r, y2 + uy * r
             draw.line([(xa, ya), (xb, yb)], fill=rgba, width=width)
         else:
             draw.line([(x1, y1), (x2, y2)], fill=rgba, width=width)
-            if capstyle == "round":
+            if capstyle == CapStyle.ROUND:
                 draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=rgba)
                 draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=rgba)
         return
@@ -97,7 +97,7 @@ def _stroke_dashed_line(
                 cy = (yA + yB) * 0.5
                 draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=rgba)
             else:
-                if capstyle == "projecting":
+                if capstyle == CapStyle.PROJECTING:
                     # extend along the direction, but clip to [0, L]
                     a_ext = max(0.0, a - r)
                     b_ext = min(L, b + r)
@@ -106,7 +106,7 @@ def _stroke_dashed_line(
                     draw.line([(xA2, yA2), (xB2, yB2)], fill=rgba, width=width)
                 else:
                     draw.line([(xA, yA), (xB, yB)], fill=rgba, width=width)
-                    if capstyle == "round":
+                    if capstyle == CapStyle.ROUND:
                         draw.ellipse([xA - r, yA - r, xA + r, yA + r], fill=rgba)
                         draw.ellipse([xB - r, yB - r, xB + r, yB + r], fill=rgba)
 
@@ -151,7 +151,7 @@ class Exporter:
             if dash:
                 # --- dashed branch ---
                 # For "projecting" (square) caps, extend endpoints by half width, but KEEP it dashed.
-                if line.capstyle == "projecting":
+                if line.capstyle == CapStyle.PROJECTING:
                     ux = uy = 0.0
                     dx, dy = (x2 - x1), (y2 - y1)
                     L = hypot(dx, dy)
@@ -179,7 +179,7 @@ class Exporter:
                 # (Per-dash round caps are non-trivial to emulate; Tk/SVG handle that natively.)
             else:
                 # --- solid branch (keep your original cap emulation) ---
-                if line.capstyle == "projecting":
+                if line.capstyle == CapStyle.PROJECTING:
                     ux = uy = 0.0
                     dx, dy = (x2 - x1), (y2 - y1)
                     L = hypot(dx, dy)
@@ -188,7 +188,7 @@ class Exporter:
                     x1e, y1e = x1 - ux * r, y1 - uy * r
                     x2e, y2e = x2 + ux * r, y2 + uy * r
                     draw.line([(x1e, y1e), (x2e, y2e)], fill=fill, width=w)
-                elif line.capstyle == "round":
+                elif line.capstyle == CapStyle.ROUND:
                     draw.line([(x1, y1), (x2, y2)], fill=fill, width=w)
                     draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=fill)
                     draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=fill)
@@ -235,7 +235,7 @@ class Exporter:
             # Render onto its own image, rotate, then paste with alpha
             temp = Image.new("RGBA", (params.width, params.height), (0, 0, 0, 0))
             ImageDraw.Draw(temp).text((lab.x, lab.y), txt, fill=lab.col.rgba, font=font, anchor=lab.anchor.pil)
-            temp = temp.rotate(lab.rotation, resample=Image.BICUBIC, center=(lab.x, lab.y), expand=False)
+            temp = temp.rotate(lab.rotation, resample=Image.Resampling.BICUBIC, center=(lab.x, lab.y), expand=False)
             img.alpha_composite(temp)
 
         # icons (simple raster equivalents of your SVG primitives)
@@ -282,10 +282,10 @@ class Exporter:
 
     @staticmethod
     def svg(params: Params) -> Path:
-        def _svg_cap(cap: str) -> str:
+        def _svg_cap(cap: CapStyle) -> str:
             # Tk: "butt" | "round" | "projecting"
             # SVG: "butt" | "round" | "square"
-            return "square" if cap == "projecting" else cap
+            return "square" if cap == CapStyle.PROJECTING else cap.value
 
         W, H = params.width, params.height
         parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']

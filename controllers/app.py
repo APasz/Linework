@@ -15,7 +15,7 @@ from disk.formats import Formats
 from disk.storage import IO
 from models.anchors import Anchor
 from models.colour import Colours as Cols
-from models.linestyle import LineStyle
+from models.linestyle import CapStyle, LineStyle
 from models.params import Params
 from ui.status import Status
 
@@ -199,10 +199,8 @@ class App:
             ),
         )
         self.root.bind("<KeyRelease-Shift_R>", lambda e: self.status.release("shift"))
-        self.root.bind("<bracketleft>", lambda e: self._nudge_line_style(-1))
-        self.root.bind("<bracketright>", lambda e: self._nudge_line_style(+1))
-        self.root.bind("<period>", lambda e: self._nudge_rotation(+15))
-        self.root.bind("<comma>", lambda e: self._nudge_rotation(-15))
+        self.root.bind("<bracketleft>", lambda e: self._nudge(False))
+        self.root.bind("<bracketright>", lambda e: self._nudge(True))
         self.canvas.bind("<Double-1>", lambda e: (self._edit_selected(), "break")[-1])
         self.root.bind("<Return>", lambda e: self._edit_selected())
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -373,38 +371,42 @@ class App:
         self.status.set(f"Exported: {out}")
 
     # --------- helpers ---------
-    def _nudge_rotation(self, delta_deg: float):
+    def _nudge(self, cw: bool):
         k, i = self._selected()
-        if k == "icon" and i is not None:
+        if i is None:
+            return
+        if cw:
+            delta_deg = 15
+            step = 1
+        else:
+            delta_deg = -15
+            step = -1
+        if k == "icon":
             self.params.icons[i].rotation = round((self.params.icons[i].rotation + delta_deg) % 360)
             self.layers.redraw("icons")
             self.mark_dirty()
-        elif k == "label" and i is not None:
+        elif k == "label":
             self.params.labels[i].rotation = round((self.params.labels[i].rotation + delta_deg) % 360)
             self.layers.redraw("labels")
             self.mark_dirty()
-
-    def _nudge_line_style(self, step: int):
-        k, i = self._selected()
-        if k != "line" or i is None:
-            return
-        ln = self.params.lines[i]
-        order = [
-            LineStyle.SOLID,
-            LineStyle.SHORT,
-            LineStyle.DASH,
-            LineStyle.DASH_DOT,
-            LineStyle.DASH_DOT_DOT,
-            LineStyle.LONG,
-            LineStyle.DOT,
-        ]
-        try:
-            j = order.index(getattr(ln, "style", LineStyle.SOLID))
-        except ValueError:
-            j = 0
-        ln.style = order[(j + step) % len(order)]
-        self.layers.redraw("lines")
-        self.mark_dirty()
+        elif k == "line":
+            ln = self.params.lines[i]
+            order = [
+                LineStyle.SOLID,
+                LineStyle.SHORT,
+                LineStyle.DASH,
+                LineStyle.DASH_DOT,
+                LineStyle.DASH_DOT_DOT,
+                LineStyle.LONG,
+                LineStyle.DOT,
+            ]
+            try:
+                j = order.index(getattr(ln, "style", LineStyle.SOLID))
+            except ValueError:
+                j = 0
+            ln.style = order[(j + step) % len(order)]
+            self.layers.redraw("lines")
+            self.mark_dirty()
 
     def _selected(self):
         return self.selection_kind, self.selection_index
@@ -476,7 +478,7 @@ class App:
             ln.x2 = int(data["x2"])
             ln.y2 = int(data["y2"])
             ln.width = int(data["width"])
-            ln.capstyle = str(data["capstyle"])
+            ln.capstyle = CapStyle(str(data["capstyle"])) if data["capstyle"] != "round" else CapStyle.ROUND
             ln.style = LineStyle(str(data["style"])) if data["style"] != "solid" else LineStyle.SOLID
             ln.col = Cols.get(data["colour"]) or ln.col
             # ln.dash_offset = int(data.get("dash_offset", 0))

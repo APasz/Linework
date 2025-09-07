@@ -15,6 +15,12 @@ class LineStyle(enum.StrEnum):
     DASH_DOT_DOT = "dashdotdot"
 
 
+class CapStyle(enum.StrEnum):
+    ROUND = "round"
+    BUTT = "butt"
+    PROJECTING = "projecting"
+
+
 # Base patterns defined in *stroke-width units*
 # (i.e., multiply by actual width in px to get real pixel pattern)
 _BASE: dict[LineStyle | None, tuple[float, ...]] = {

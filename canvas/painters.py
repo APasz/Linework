@@ -60,7 +60,7 @@ class Painters_Impl:
             lin.y2,
             fill=lin.col.hex,
             width=lin.width,
-            capstyle=lin.capstyle,
+            capstyle=lin.capstyle.value,
             dash=scaled_pattern(getattr(lin, "style", None), lin.width) or [],
             tags=tag,
         )
