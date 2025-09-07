@@ -37,8 +37,9 @@ class Painters_Impl:
     def paint_grid(self, canvas: tk.Canvas):
         p = self.s.params
         g = p.grid_size
-        if g <= 0:
+        if not p.grid_visible or g <= 0:
             return
+
         w, h = p.width, p.height
         for x in range(0, w + 1, g):
             canvas.create_line(x, 0, x, h, fill=p.grid_colour.hex, tags=(L_GRID,))
