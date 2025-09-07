@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
-from canvas.hit_test import hit_under_cursor
+from canvas.hit_test import test_hit
 from canvas.layers import L_PREV, Layer_Manager, LayerName
 from controllers.commands import Add_Icon, Add_Label, Add_Line, Command_Stack, Move_Icon, Move_Label
 from models.geo import Line, Point
@@ -31,8 +31,9 @@ class Applike(Protocol):
     snapping: Callable[..., bool]
 
     def snap(self, x: int, y: int, /) -> tuple[int, int]: ...
-    def layers_redraw(self, *layers: LayerName) -> None: ...
+    def layers_redraw(self, *layers: LayerName): ...
     def prompt_text(self, title: str, prompt: str, /) -> str | None: ...
+    def _set_selected(self, kind: str | None, idx: int | None): ...
 
 
 # ---- base tool ----
@@ -40,10 +41,10 @@ class Tool(Protocol):
     name: str
     cursor: str | None
 
-    def on_press(self, app: Applike, evt: tk.Event, /) -> None: ...
-    def on_motion(self, app: Applike, evt: tk.Event, /) -> None: ...
-    def on_release(self, app: Applike, evt: tk.Event, /) -> None: ...
-    def on_cancel(self, app: Applike) -> None: ...
+    def on_press(self, app: Applike, evt: tk.Event, /): ...
+    def on_motion(self, app: Applike, evt: tk.Event, /): ...
+    def on_release(self, app: Applike, evt: tk.Event, /): ...
+    def on_cancel(self, app: Applike): ...
 
 
 # ---- DrawTool ----
@@ -229,7 +230,7 @@ class Label_Tool:
     name: str = "label"
     cursor: str | None = "xterm"
 
-    def on_press(self, app: Applike, evt: tk.Event) -> None:
+    def on_press(self, app: Applike, evt: tk.Event):
         x, y = app.snap(evt.x, evt.y)
         text = app.prompt_text("New Label", "Text:")
         if not text:
@@ -239,9 +240,9 @@ class Label_Tool:
         app.mark_dirty()
         app.status.temp(f"Label @ ({x},{y})")
 
-    def on_motion(self, app: Applike, evt: tk.Event) -> None: ...
-    def on_release(self, app: Applike, evt: tk.Event) -> None: ...
-    def on_cancel(self, app: Applike) -> None: ...
+    def on_motion(self, app: Applike, evt: tk.Event): ...
+    def on_release(self, app: Applike, evt: tk.Event): ...
+    def on_cancel(self, app: Applike): ...
 
 
 # ---- IconTool ----
@@ -251,16 +252,16 @@ class Icon_Tool:
     name: str = "icon"
     cursor: str | None = "hand2"
 
-    def on_press(self, app: Applike, e: tk.Event) -> None:
+    def on_press(self, app: Applike, e: tk.Event):
         x, y = app.snap(e.x, e.y)
         ico = Icon(x=x, y=y, name=self.get_icon_name(), col=app.params.brush_colour, size=16, rotation=0)
         app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers_redraw("icons")))
         app.mark_dirty()
         app.status.temp(f"Icon @ ({x},{y})")
 
-    def on_motion(self, app: Applike, e: tk.Event) -> None: ...
-    def on_release(self, app: Applike, e: tk.Event) -> None: ...
-    def on_cancel(self, app: Applike) -> None: ...
+    def on_motion(self, app: Applike, e: tk.Event): ...
+    def on_release(self, app: Applike, e: tk.Event): ...
+    def on_cancel(self, app: Applike): ...
 
 
 # ---- SelectTool (drag labels/icons) ----
@@ -268,60 +269,89 @@ class Icon_Tool:
 class Select_Tool:
     name: str = "select"
     cursor: str | None = "arrow"
-    _drag_kind: Literal["label", "icon", ""] = ""
-    _drag_token: int | None = None
+    _drag_kind: Literal["label", "icon", "line", ""] = ""
+    _drag_canvas_id: int | None = None  # for labels
+    _drag_index: int | None = None  # model index for the selection
+    _drag_icon_ids: tuple[int, ...] | None = None  # concrete item ids of the icon
     _start_xy: tuple[int, int] | None = None
+    _press_center: tuple[int, int] | None = None
+    _dragged: bool = False
 
-    def on_press(self, app: Applike, e: tk.Event) -> None:
-        hit = hit_under_cursor(app.canvas, e.x, e.y)
+    def _centre_of_tag(self, canvas: tk.Canvas, tag: str) -> tuple[int, int] | None:
+        bbox = canvas.bbox(tag) or (lambda ids: canvas.bbox(ids[0]) if ids else None)(canvas.find_withtag(tag))
+        if not bbox:
+            return None
+        return ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
+
+    def on_press(self, app: Applike, evt: tk.Event):
+        hit = test_hit(app.canvas, evt.x, evt.y)
+        self._dragged = False
+        self._press_center = None
+
         if not hit:
-            # clicked empty space -> abort any pending drag
             self._drag_kind = ""
-            self._drag_token = None
+            self._drag_canvas_id = None
+            self._drag_index = None
+            self._drag_icon_ids = None
             self._start_xy = None
             return
-        # ensure release comes back to this canvas
+
         app.canvas.focus_set()
         try:
             app.canvas.grab_set()
         except tk.TclError:
             pass
 
-        self._drag_kind = hit.kind  # pyright: ignore[reportAttributeAccessIssue] # "label" | "icon"
-        self._drag_token = hit.token
-        self._start_xy = (e.x, e.y)
+        app._set_selected(hit.kind, hit.tag_idx)
+        self._drag_kind = hit.kind
+        self._drag_canvas_id = hit.canvas_idx
+        self._drag_index = hit.tag_idx
+        self._start_xy = (evt.x, evt.y)
 
-    def on_motion(self, app: Applike, e: tk.Event) -> None:
+        if self._drag_kind == "icon" and self._drag_index is not None:
+            tag = f"icon:{self._drag_index}"
+            self._drag_icon_ids = tuple(app.canvas.find_withtag(tag))
+            centre = self._centre_of_tag(app.canvas, tag)
+            if centre:
+                self._press_center = centre
+        elif self._drag_kind == "label" and self._drag_canvas_id is not None:
+            coords = app.canvas.coords(self._drag_canvas_id)
+            if coords:
+                self._press_center = (int(round(coords[0])), int(round(coords[1])))
+
+    def on_motion(self, app: Applike, evt: tk.Event):
         if not self._start_xy or not self._drag_kind:
             return
-        dx, dy = e.x - self._start_xy[0], e.y - self._start_xy[1]
-        if self._drag_kind == "label":
-            app.canvas.move(self._drag_token, dx, dy)  # token is canvas id
-        elif self._drag_kind == "icon":
-            tag = f"icon:{self._drag_token}"  # token is index
-            app.canvas.move(tag, dx, dy)
-        self._start_xy = (e.x, e.y)
+        dx, dy = evt.x - self._start_xy[0], evt.y - self._start_xy[1]
+        if dx or dy:
+            self._dragged = True
+        if self._drag_kind == "label" and self._drag_canvas_id is not None:
+            app.canvas.move(self._drag_canvas_id, dx, dy)
+        elif self._drag_kind == "icon" and self._drag_index is not None:
+            app.canvas.move(f"icon:{self._drag_index}", dx, dy)
+        self._start_xy = (evt.x, evt.y)
 
-    def on_release(self, app: Applike, e: tk.Event) -> None:
-        # always release the grab so the pointer is “dropped”
+    def on_release(self, app: Applike, e: tk.Event):
         try:
             app.canvas.grab_release()
         except tk.TclError:
             pass
-
         if not self._drag_kind:
             return
 
         if self._drag_kind == "label":
-            cid = int(self._drag_token or 1)
+            cid = int(self._drag_canvas_id or 0)
             coords = app.canvas.coords(cid)
-            if coords:
-                x, y = coords[:2]
-                sx, sy = app.snap(int(round(x)), int(round(y)))
-            else:
-                # label item not found (e.g., layer redraw); use pointer
-                sx, sy = app.snap(e.x, e.y)
+            end_center = (int(round(coords[0])), int(round(coords[1]))) if coords else (e.x, e.y)
 
+            if not (self._dragged and self._moved_enough(self._press_center, end_center)):
+                # click only → do nothing; keep off-grid positions
+                self._reset()
+                return
+
+            sx, sy = self._maybe_snap_point(
+                app, end_center[0], end_center[1], kind="label", index=self._label_index_from_canvas(app, cid)
+            )
             idx = self._label_index_from_canvas(app, cid)
             old = (app.params.labels[idx].x, app.params.labels[idx].y)
             if (sx, sy) != old:
@@ -333,67 +363,37 @@ class Select_Tool:
                 app.layers_redraw("labels")
 
         elif self._drag_kind == "icon":
-            # 1) start from the index we captured on press
-            idx = int(self._drag_token or -1)
-
-            def _valid(i: int) -> bool:
-                return 0 <= i < len(app.params.icons)
-
-            # 2) if it's no longer valid, attempt to re-derive from tags under cursor
-            if not _valid(idx):
-                derived = None
-                for item in app.canvas.find_withtag("current"):
-                    for t in app.canvas.gettags(item):
-                        if t.startswith("icon:"):
-                            try:
-                                cand = int(t.split(":", 1)[1])
-                                if _valid(cand):
-                                    derived = cand
-                                    break
-                            except ValueError:
-                                pass
-                    if derived is not None:
-                        break
-                if derived is None:
-                    # last resort: scan any icon tag present on the canvas
-                    for item in app.canvas.find_withtag("icon"):
-                        for t in app.canvas.gettags(item):
-                            if t.startswith("icon:"):
-                                try:
-                                    cand = int(t.split(":", 1)[1])
-                                    if _valid(cand):
-                                        derived = cand
-                                        break
-                                except ValueError:
-                                    pass
-                        if derived is not None:
-                            break
-                if derived is None:
-                    # can't resolve a valid model index; normalise redraw and abort
-                    app.layers_redraw("icons")
-                    self._drag_kind = ""
-                    self._drag_token = None
-                    self._start_xy = None
-                    return
-                idx = derived
-
-            tag = f"icon:{idx}"
-
-            # 3) compute final center safely
-            bbox = app.canvas.bbox(tag)
-            if bbox is None:
-                ids = app.canvas.find_withtag(tag)
-                if ids:
-                    bbox = app.canvas.bbox(ids[0])
-
-            if bbox is None:
-                # fallback to mouse position
-                cx, cy = e.x, e.y
+            # compute end center from the ids we actually dragged
+            if self._drag_icon_ids:
+                bbox = None
+                for cid in self._drag_icon_ids:
+                    b = app.canvas.bbox(cid)
+                    if b:
+                        bbox = (
+                            b
+                            if bbox is None
+                            else (min(bbox[0], b[0]), min(bbox[1], b[1]), max(bbox[2], b[2]), max(bbox[3], b[3]))
+                        )
+                if bbox:
+                    end_center = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
+                else:
+                    end_center = (e.x, e.y)
             else:
-                cx = (bbox[0] + bbox[2]) // 2
-                cy = (bbox[1] + bbox[3]) // 2
+                end_center = (e.x, e.y)
 
-            sx, sy = app.snap(cx, cy)
+            if not (self._dragged and self._moved_enough(self._press_center, end_center)):
+                self._reset()
+                return
+
+            # resolve model index from dragged ids
+            idx = self._infer_index_from_ids(app.canvas, self._drag_icon_ids or (), "icon")
+            if idx is None:
+                idx = self._nearest_icon_index(app, end_center[0], end_center[1])
+                if idx is None:
+                    self._reset()
+                    return
+
+            sx, sy = self._maybe_snap_point(app, end_center[0], end_center[1], kind="icon", index=idx)
             old = (app.params.icons[idx].x, app.params.icons[idx].y)
             if (sx, sy) != old:
                 app.cmd.push_and_do(
@@ -403,14 +403,19 @@ class Select_Tool:
             else:
                 app.layers_redraw("icons")
 
-        self._drag_kind = ""
-        self._drag_token = None
-        self._start_xy = None
+        self._reset()
 
-    def on_cancel(self, app: Applike) -> None:
+    def on_cancel(self, app: Applike):
+        self._reset()
+
+    def _reset(self):
         self._drag_kind = ""
-        self._drag_token = None
+        self._drag_canvas_id = None
+        self._drag_index = None
+        self._drag_icon_ids = None
         self._start_xy = None
+        self._press_center = None
+        self._dragged = False
 
     # helper: map canvas text id -> label index (rebuild cheaply)
     def _label_index_from_canvas(self, app: Applike, cid: int) -> int:
@@ -434,3 +439,53 @@ class Select_Tool:
             if d < best_d:
                 best_d, best_i = d, i
         return best_i
+
+    def _infer_index_from_ids(self, canvas: tk.Canvas, ids: tuple[int, ...], prefix: str) -> int | None:
+        """Return the most common '<prefix>:K' tag index across these item ids."""
+        counts: dict[int, int] = {}
+        needle = prefix + ":"
+        for cid in ids:
+            for t in canvas.gettags(cid):
+                if t.startswith(needle):
+                    try:
+                        k = int(t.split(":", 1)[1])
+                        counts[k] = counts.get(k, 0) + 1
+                    except ValueError:
+                        pass
+        if not counts:
+            return None
+        # majority vote
+        return max(counts.items(), key=lambda kv: kv[1])[0]
+
+    def _nearest_icon_index(self, app: Applike, cx: int, cy: int) -> int | None:
+        best_i, best_d = None, float("inf")
+        for i, ico in enumerate(app.params.icons):
+            d = (ico.x - cx) * (ico.x - cx) + (ico.y - cy) * (ico.y - cy)
+            if d < best_d:
+                best_d, best_i = d, i
+        return best_i
+
+    def _moved_enough(self, a: tuple[int, int] | None, b: tuple[int, int] | None, tol: int = 1) -> bool:
+        if not a or not b:
+            return False
+        return abs(a[0] - b[0]) > tol or abs(a[1] - b[1]) > tol
+
+    def _snap_enabled_for(self, app: Applike, evt: tk.Event | None, kind: str, index: int) -> bool:
+        # App-wide toggle
+        base = app.snapping()
+        # Ctrl inverts (hold to bypass, or hold to force if base==False)
+        ctrl = (getattr(evt, "state", 0) & 0x0004) != 0  # ControlMask bit on X11/Windows; tweak on mac if needed
+        want = base ^ ctrl
+        # Per-object preference (only matters if want==True)
+        if not want:
+            return False
+        if kind == "label":
+            return bool(getattr(app.params.labels[index], "snap", True))
+        if kind == "icon":
+            return bool(getattr(app.params.icons[index], "snap", True))
+        return True
+
+    def _maybe_snap_point(self, app: Applike, x: int, y: int, *, kind: str, index: int, evt: tk.Event | None = None):
+        if self._snap_enabled_for(app, evt, kind, index):
+            return app.snap(x, y)
+        return (x, y)

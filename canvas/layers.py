@@ -14,10 +14,10 @@ LayerName = Literal["grid", "lines", "labels", "icons"]
 
 
 class Painters(Protocol):
-    def paint_grid(self, canvas: tk.Canvas, /) -> None: ...
-    def paint_lines(self, canvas: tk.Canvas, /) -> None: ...
-    def paint_labels(self, canvas: tk.Canvas, /) -> None: ...
-    def paint_icons(self, canvas: tk.Canvas, /) -> None: ...
+    def paint_grid(self, canvas: tk.Canvas, /): ...
+    def paint_lines(self, canvas: tk.Canvas, /): ...
+    def paint_labels(self, canvas: tk.Canvas, /): ...
+    def paint_icons(self, canvas: tk.Canvas, /): ...
 
 
 class Layer_Manager:
@@ -37,36 +37,36 @@ class Layer_Manager:
         self.canvas.tag_raise(L_PREV)
 
     # --- clears ---
-    def clear(self, layer: LayerName) -> None:
+    def clear(self, layer: LayerName):
         if not layer:
             return
         self.canvas.delete(self._tag(layer))
 
-    def clear_many(self, layers: Iterable[LayerName]) -> None:
+    def clear_many(self, layers: Iterable[LayerName]):
         for layer in layers:
             self.clear(layer)
 
-    def clear_all(self) -> None:
+    def clear_all(self):
         # nukes all known layers; don’t use canvas.delete("all") so you can keep temp overlays if you want
         for layer in self.ORDER:
             self.clear(layer)
 
-    def clear_preview(self) -> None:
+    def clear_preview(self):
         self.canvas.delete(L_PREV)
 
     # --- redraws ---
-    def redraw(self, layer: LayerName) -> None:
+    def redraw(self, layer: LayerName):
         if not layer:
             return
         self.clear(layer)
         self._paint(layer)
         self._enforce_z()
 
-    def redraw_many(self, layers: Iterable[LayerName]) -> None:
+    def redraw_many(self, layers: Iterable[LayerName]):
         for layer in layers:
             self.redraw(layer)
 
-    def redraw_all(self) -> None:
+    def redraw_all(self):
         # draw in z-order
         self.clear_all()
         for layer in self.ORDER:
@@ -82,7 +82,7 @@ class Layer_Manager:
             "grid": L_GRID,
         }[layer]
 
-    def _paint(self, layer: LayerName) -> None:
+    def _paint(self, layer: LayerName):
         if layer == "lines":
             self.painters.paint_lines(self.canvas)
         elif layer == "labels":

@@ -13,16 +13,18 @@ from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool
 from disk.export import Exporter
 from disk.formats import Formats
 from disk.storage import IO
+from models.anchors import Anchor
 from models.colour import Colours as Cols
 from models.linestyle import LineStyle
 from models.params import Params
-from ui.header import create_header
 from ui.status import Status
-from ui.toolbar import create_toolbar
+
+from ui import toolbar, header
+from controllers import editors
 
 
 class App:
-    def __init__(self, root: tk.Tk, project_path: Path | None = None) -> None:
+    def __init__(self, root: tk.Tk, project_path: Path | None = None):
         self.root = root
         self.root.title("Linework")
 
@@ -44,7 +46,7 @@ class App:
             style.theme_use("Alt")
 
         # ---- UI state vars ----
-        self.var_drag_to_draw = tk.BooleanVar(value=False)
+        self.var_drag_to_draw = tk.BooleanVar(value=True)
         self.var_snapping = tk.BooleanVar(value=True)
         self.var_grid = tk.IntVar(value=self.params.grid_size)
         self.var_width_px = tk.IntVar(value=self.params.width)
@@ -55,6 +57,8 @@ class App:
         self.var_colour.trace_add("write", self.apply_colour)
         self.var_line_style = tk.StringVar(value=self.params.line_style.value)
         self.var_dash_offset = tk.IntVar(value=self.params.line_dash_offset)
+        self.selection_kind: str | None = None  # "line" | "label" | "icon"
+        self.selection_index: int | None = None
 
         self.mode = tk.StringVar(value="draw")
         self.var_icon = tk.StringVar(value="signal")
@@ -67,7 +71,7 @@ class App:
         )
 
         # ---- header & toolbar ----
-        create_header(
+        header.create_header(
             self.root,
             mode_var=self.mode,
             icon_var=self.var_icon,
@@ -81,7 +85,7 @@ class App:
             on_save_as=self.save_project_as,
             on_export=self.export_image,
         )
-        tbar = create_toolbar(
+        tbar = toolbar.create_toolbar(
             self.root,
             grid_var=self.var_grid,
             brush_var=self.var_brush_w,
@@ -165,7 +169,9 @@ class App:
         # shortcuts
         self.root.bind("<KeyPress-g>", self.on_toggle_grid)
         self.root.bind("<KeyPress-G>", self.on_toggle_grid)
+        self.root.bind("<KeyPress-z>", self.on_undo)
         self.root.bind("<KeyPress-Z>", self.on_undo)
+        self.root.bind("<KeyPress-y>", self.on_redo)
         self.root.bind("<KeyPress-Y>", self.on_redo)
         self.root.bind("<KeyPress-c>", self.on_clear)
         self.root.bind("<KeyPress-C>", self.on_clear)
@@ -193,6 +199,12 @@ class App:
             ),
         )
         self.root.bind("<KeyRelease-Shift_R>", lambda e: self.status.release("shift"))
+        self.root.bind("<bracketleft>", lambda e: self._nudge_line_style(-1))
+        self.root.bind("<bracketright>", lambda e: self._nudge_line_style(+1))
+        self.root.bind("<period>", lambda e: self._nudge_rotation(+15))
+        self.root.bind("<comma>", lambda e: self._nudge_rotation(-15))
+        self.canvas.bind("<Double-1>", lambda e: (self._edit_selected(), "break")[-1])
+        self.root.bind("<Return>", lambda e: self._edit_selected())
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # watch mode changes
@@ -208,7 +220,7 @@ class App:
 
         return sd.askstring(title, prompt, parent=self.root)
 
-    def layers_redraw(self, *layers: LayerName) -> None:
+    def layers_redraw(self, *layers: LayerName):
         if layers:
             for name in layers:
                 self.layers.redraw(name)
@@ -361,6 +373,116 @@ class App:
         self.status.set(f"Exported: {out}")
 
     # --------- helpers ---------
+    def _nudge_rotation(self, delta_deg: float):
+        k, i = self._selected()
+        if k == "icon" and i is not None:
+            self.params.icons[i].rotation = round((self.params.icons[i].rotation + delta_deg) % 360)
+            self.layers.redraw("icons")
+            self.mark_dirty()
+        elif k == "label" and i is not None:
+            self.params.labels[i].rotation = round((self.params.labels[i].rotation + delta_deg) % 360)
+            self.layers.redraw("labels")
+            self.mark_dirty()
+
+    def _nudge_line_style(self, step: int):
+        k, i = self._selected()
+        if k != "line" or i is None:
+            return
+        ln = self.params.lines[i]
+        order = [
+            LineStyle.SOLID,
+            LineStyle.SHORT,
+            LineStyle.DASH,
+            LineStyle.DASH_DOT,
+            LineStyle.DASH_DOT_DOT,
+            LineStyle.LONG,
+            LineStyle.DOT,
+        ]
+        try:
+            j = order.index(getattr(ln, "style", LineStyle.SOLID))
+        except ValueError:
+            j = 0
+        ln.style = order[(j + step) % len(order)]
+        self.layers.redraw("lines")
+        self.mark_dirty()
+
+    def _selected(self):
+        return self.selection_kind, self.selection_index
+
+    def _set_selected(self, kind: str | None, idx: int | None):
+        self.selection_kind, self.selection_index = kind, idx
+
+    def _edit_selected(self):
+        k, i = self._selected()
+        if k is None or i is None:
+            return
+
+        if k == "label":
+            lab = self.params.labels[i]
+            data = editors.edit_label(self.root, lab)
+            if not data:
+                return
+
+            if data.get("snap"):
+                data["x"], data["y"] = self.snap(int(data["x"]), int(data["y"]))
+
+            # apply
+            lab.text = data["text"]
+            lab.x = int(data["x"])
+            lab.y = int(data["y"])
+            lab.snap = bool(data.get("snap_flag", getattr(lab, "snap", True)))
+            lab.size = int(data["size"])
+            lab.rotation = int(data.get("rotation", 0))
+            lab.anchor = Anchor.parse(data["anchor"]) or lab.anchor
+            lab.col = Cols.get(data["colour"]) or lab.col
+            self.layers.redraw("labels")
+            self.mark_dirty()
+
+        elif k == "icon":
+            ico = self.params.icons[i]
+            # pass your available icon names (static or dynamic)
+            data = editors.edit_icon(self.root, ico, icon_name_choices=["signal", "buffer", "crossing", "switch"])
+            if not data:
+                return
+
+            if data.get("snap"):
+                data["x"], data["y"] = self.snap(int(data["x"]), int(data["y"]))
+
+            # apply
+            ico.name = data["name"]
+            ico.x = int(data["x"])
+            ico.y = int(data["y"])
+            ico.snap = bool(data.get("snap_flag", getattr(ico, "snap", True)))
+            ico.size = int(data["size"])
+            ico.rotation = int(data.get("rotation", 0))
+            ico.anchor = Anchor.parse(data["anchor"]) or ico.anchor
+            ico.col = Cols.get(data["colour"]) or ico.col
+            self.layers.redraw("icons")
+            self.mark_dirty()
+
+        elif k == "line":
+            ln = self.params.lines[i]
+            data = editors.edit_line(self.root, ln)
+            if not data:
+                return
+
+            if data.get("snap"):
+                data["x1"], data["y1"] = self.snap(int(data["x1"]), int(data["y1"]))
+                data["x2"], data["y2"] = self.snap(int(data["x2"]), int(data["y2"]))
+
+            # apply
+            ln.x1 = int(data["x1"])
+            ln.y1 = int(data["y1"])
+            ln.x2 = int(data["x2"])
+            ln.y2 = int(data["y2"])
+            ln.width = int(data["width"])
+            ln.capstyle = str(data["capstyle"])
+            ln.style = LineStyle(str(data["style"])) if data["style"] != "solid" else LineStyle.SOLID
+            ln.col = Cols.get(data["colour"]) or ln.col
+            # ln.dash_offset = int(data.get("dash_offset", 0))
+            self.layers.redraw("lines")
+            self.mark_dirty()
+
     def _nearest_multiple(self, n: int, m: int) -> int:
         return n if m <= 0 else round(n / m) * m
 

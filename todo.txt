@@ -1,6 +1,2 @@
-editable lines
-save/load
-labels/icons
-parallel line drawing
-snap 45°/90°
+custom icons from svg/png/etc
 arcs

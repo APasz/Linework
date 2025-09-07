@@ -66,11 +66,11 @@ class Composite_Spinbox(ttk.Frame):
     def get(self) -> str:
         return self.var.get()
 
-    def set(self, value) -> None:
+    def set(self, value):
         self.var.set(str(value))
         self._validate_and_clamp(call_command=False)
 
-    def set_justify(self, just: Literal["left", "center", "right"]) -> None:
+    def set_justify(self, just: Literal["left", "center", "right"]):
         self.entry.configure(justify=just)
 
     def configure(

@@ -53,27 +53,27 @@ class Status:
         self._suffix_key = "__suffix__"
 
     # ---- base ----
-    def set(self, text: str) -> None:
+    def set(self, text: str):
         self._base_left = text
         self._render()
 
     # ---- suffix sugar ----
-    def set_suffix(self, text: str) -> None:
+    def set_suffix(self, text: str):
         if text:
             self.hold(self._suffix_key, text, priority=-10, side="right")
         else:
             self.release(self._suffix_key)
 
-    def clear_suffix(self) -> None:
+    def clear_suffix(self):
         self.release(self._suffix_key)
 
     # ---- held overlays (persistent until release) ----
-    def hold(self, key: str, text: str, *, priority: int = 0, side: Side = "left") -> None:
+    def hold(self, key: str, text: str, *, priority: int = 0, side: Side = "left"):
         self._seq += 1
         self._held[key] = _Overlay(key=key, text=text, priority=priority, side=side, seq=self._seq)
         self._render()
 
-    def release(self, key: str) -> None:
+    def release(self, key: str):
         if key in self._held:
             del self._held[key]
             if self._temp_key == key:
@@ -81,7 +81,7 @@ class Status:
             self._render()
 
     # ---- temporary overlays (auto-clear) ----
-    def temp(self, text: str, ms: int = 1200, *, priority: int = 50, side: Side = "left") -> None:
+    def temp(self, text: str, ms: int = 1200, *, priority: int = 50, side: Side = "left"):
         # cancel previous timer
         if self._temp_after:
             try:
@@ -96,13 +96,13 @@ class Status:
         self._temp_key = key
         self._temp_after = self._root.after(ms, self._clear_temp)
 
-    def _clear_temp(self) -> None:
+    def _clear_temp(self):
         if self._temp_key:
             self.release(self._temp_key)
         self._temp_after = None
 
     # ---- clear all ----
-    def clear(self) -> None:
+    def clear(self):
         self._base_left = ""
         self._held.clear()
         if self._temp_after:
@@ -115,7 +115,7 @@ class Status:
         self._render()
 
     # ---- render ----
-    def _render(self) -> None:
+    def _render(self):
         left = self._pick_side("left") or self._base_left
         right = self._pick_side("right") or ""
 

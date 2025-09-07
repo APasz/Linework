@@ -25,28 +25,30 @@ def _enc_anchor(anchor: Anchor) -> dict[str, Any]:
     return {"value": anchor.value}
 
 
-def _enc_line(line: Line) -> dict[str, Any]:
+def _enc_line(lin: Line) -> dict[str, Any]:
     return {
-        "x1": line.x1,
-        "y1": line.y1,
-        "x2": line.x2,
-        "y2": line.y2,
-        "col": _enc_colour(line.col),
-        "width": line.width,
-        "cap": line.capstyle,
-        "style": str(getattr(line, "style", "solid")),
-        "dash_offset": int(getattr(line, "dash_offset", 0)),
+        "x1": lin.x1,
+        "y1": lin.y1,
+        "x2": lin.x2,
+        "y2": lin.y2,
+        "col": _enc_colour(lin.col),
+        "width": lin.width,
+        "cap": lin.capstyle,
+        "style": str(getattr(lin, "style", "solid")),
+        "dash_offset": int(getattr(lin, "dash_offset", 0)),
     }
 
 
-def _enc_label(label: Label) -> dict[str, Any]:
+def _enc_label(lab: Label) -> dict[str, Any]:
     return {
-        "x": label.x,
-        "y": label.y,
-        "text": label.text,
-        "col": _enc_colour(label.col),
-        "anchor": _enc_anchor(label.anchor),
-        "size": label.size,
+        "x": lab.x,
+        "y": lab.y,
+        "text": lab.text,
+        "col": _enc_colour(lab.col),
+        "anchor": _enc_anchor(lab.anchor),
+        "size": lab.size,
+        "rotation": lab.rotation,
+        "snap": lab.snap,
     }
 
 
@@ -59,6 +61,7 @@ def _enc_icon(ico: Icon) -> dict[str, Any]:
         "anchor": _enc_anchor(ico.anchor),
         "size": ico.size,
         "rotation": ico.rotation,
+        "snap": ico.snap,
     }
 
 
@@ -77,9 +80,9 @@ def params_to_dict(params: Params) -> dict[str, Any]:
         "grid_visible": params.grid_visible,
         "output_file": str(params.output_file),
         "output_type": str(params.output_type),
-        "lines": [_enc_line(line) for line in params.lines],
-        "labels": [_enc_label(lb) for lb in params.labels],
-        "icons": [_enc_icon(ic) for ic in params.icons],
+        "lines": [_enc_line(lin) for lin in params.lines],
+        "labels": [_enc_label(lab) for lab in params.labels],
+        "icons": [_enc_icon(ico) for ico in params.icons],
     }
 
 
@@ -130,6 +133,8 @@ def _dec_label(dic: dict[str, Any]) -> Label:
         _dec_colour(dic["col"]),
         _dec_anchor(dic.get("anchor", Anchor.NW)),
         int(dic.get("size", 12)),
+        int(dic.get("rotation", 0)),
+        bool(dic.get("snap", True)),
     )
 
 
@@ -142,6 +147,7 @@ def _dec_icon(dic: dict[str, Any]) -> Icon:
         _dec_anchor(dic.get("anchor", Anchor.SE)),
         int(dic.get("size", 16)),
         int(dic.get("rotation", 0)),
+        bool(dic.get("snap", True)),
     )
 
 
@@ -171,9 +177,9 @@ def dict_to_params(dic: dict[str, Any]) -> Params:
         grid_visible=bool(dic["grid_visible"]),
         output_file=Path(dic.get("output_file", "output")),
         output_type=Formats(dic.get("output_type", "webp")),
-        lines=[_dec_line(x) for x in dic.get("lines", [])],
-        labels=[_dec_label(x) for x in dic.get("labels", [])],
-        icons=[_dec_icon(x) for x in dic.get("icons", [])],
+        lines=[_dec_line(lin) for lin in dic.get("lines", [])],
+        labels=[_dec_label(lab) for lab in dic.get("labels", [])],
+        icons=[_dec_icon(ico) for ico in dic.get("icons", [])],
     )
     return params
 
@@ -183,7 +189,7 @@ def dict_to_params(dic: dict[str, Any]) -> Params:
 
 class IO:
     @staticmethod
-    def save_params(params: Params, path: Path) -> None:
+    def save_params(params: Params, path: Path):
         path.write_text(json.dumps(params_to_dict(params), indent=4))
 
     @staticmethod

@@ -5,7 +5,7 @@ from models.anchors import Anchor
 from models.colour import Colour
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(slots=True)
 class Label:
     x: int
     y: int
@@ -14,9 +14,10 @@ class Label:
     anchor: Anchor = Anchor.NW
     size: int = 12
     rotation: int = 0
+    snap: bool = True
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(slots=True)
 class Icon:
     x: int
     y: int
@@ -25,3 +26,4 @@ class Icon:
     anchor: Anchor = Anchor.SE
     size: int = 16
     rotation: int = 0
+    snap: bool = True

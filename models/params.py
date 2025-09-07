@@ -10,7 +10,7 @@ from models.objects import Icon, Label
 
 
 class Params(BaseModel):
-    width: int = 600
+    width: int = 1200
     height: int = 600
     bg_mode: Colour = Colours.white
     brush_width: int = 5

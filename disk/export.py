@@ -7,7 +7,9 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
+
 from disk.formats import Formats
+from models.geo import Line
 from models.linestyle import scaled_pattern, svg_dasharray
 from models.objects import Icon, Label
 from models.params import Params
@@ -139,6 +141,7 @@ class Exporter:
 
         # lines with capstyle emulation
         for line in getattr(params, "lines", []):
+            line: Line
             x1, y1, x2, y2, w = line.x1, line.y1, line.x2, line.y2, line.width
             fill = line.col.rgba
             r = w / 2.0
@@ -224,13 +227,16 @@ class Exporter:
 
         for lab in getattr(params, "labels", []):
             lab: Label
-            draw.text(
-                (lab.x, lab.y),
-                lab.text,
-                fill=lab.col.rgba,
-                font=_font(lab.size),
-                anchor=lab.anchor.pil,
-            )
+            font = _font(lab.size)
+            txt = lab.text
+            if not txt:
+                continue
+
+            # Render onto its own image, rotate, then paste with alpha
+            temp = Image.new("RGBA", (params.width, params.height), (0, 0, 0, 0))
+            ImageDraw.Draw(temp).text((lab.x, lab.y), txt, fill=lab.col.rgba, font=font, anchor=lab.anchor.pil)
+            temp = temp.rotate(lab.rotation, resample=Image.BICUBIC, center=(lab.x, lab.y), expand=False)
+            img.alpha_composite(temp)
 
         # icons (simple raster equivalents of your SVG primitives)
         for ico in getattr(params, "icons", []):
@@ -310,7 +316,7 @@ class Exporter:
 
             parts.append(
                 f'<line x1="{line.x1}" y1="{line.y1}" x2="{line.x2}" y2="{line.y2}" '
-                f'stroke="{line.col.hex}" stroke-linecap="{line.capstyle}" stroke-width="{line.width}"{dash_attr}/>'
+                f'stroke="{line.col.hex}" stroke-linecap="{_svg_cap(line.capstyle)}" stroke-width="{line.width}"{dash_attr}/>'
             )
 
         # labels
@@ -319,7 +325,8 @@ class Exporter:
             ta, db = lab.anchor.svg
             parts.append(
                 f'<text x="{lab.x}" y="{lab.y}" fill="{lab.col.hex}" font-size="{lab.size}" '
-                f'text-anchor="{ta}" dominant-baseline="{db}">{_escape(lab.text)}</text>'
+                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({-lab.rotation} {lab.x} {lab.y})">'
+                f"{_escape(lab.text)}</text>"
             )
 
         # icons

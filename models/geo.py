@@ -5,7 +5,7 @@ from models.colour import Colour
 from models.linestyle import LineStyle
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(slots=True)
 class Line:
     x1: int
     y1: int
@@ -18,7 +18,7 @@ class Line:
     dash_offset: int = 0
 
 
-@dataclass(slots=True, frozen=True)
+@dataclass(slots=True)
 class Point:
     x: int
     y: int
