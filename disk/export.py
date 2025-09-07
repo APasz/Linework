@@ -7,12 +7,37 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-
 from disk.formats import Formats
 from models.geo import Line
 from models.linestyle import CapStyle, scaled_pattern, svg_dasharray
 from models.objects import Icon, Label
 from models.params import Params
+
+
+# ------------------------- Low-level helpers (shared) ------------------------- #
+
+
+def _unit(x1: float, y1: float, x2: float, y2: float) -> tuple[float, float, float]:
+    dx, dy = (x2 - x1), (y2 - y1)
+    L = hypot(dx, dy)
+    if L <= 0:
+        return 0.0, 0.0, 0.0
+    return dx / L, dy / L, L
+
+
+def _col_and_opacity(col) -> tuple[str, str]:
+    """
+    Return (svg_hex, extra_opacity_attr) for SVG. For PIL, you already have RGBA on the Colour object.
+    """
+    hex_rgb = col.hex  # "#rrggbb"
+    if getattr(col, "alpha", 255) < 255:
+        op = f' opacity="{col.alpha / 255:.3f}"'
+    else:
+        op = ""
+    return hex_rgb, op
+
+
+# ----------------------------- PIL dashed stroker ---------------------------- #
 
 
 def _stroke_dashed_line(
@@ -22,27 +47,25 @@ def _stroke_dashed_line(
     x2: float,
     y2: float,
     width: int,
-    rgba,
+    rgba: tuple[int, int, int, int],
     dash: tuple[int, ...],
     offset: int = 0,
     capstyle: CapStyle = CapStyle.ROUND,  # "butt" | "round" | "projecting"
-):
+) -> None:
     """
-    Draw a dashed line with cap emulation for PIL:
+    Draw a (possibly dashed) line with cap emulation for PIL:
         - butt: plain segments
         - round: circles at ends of each on-segment (and ends of solid)
         - projecting: extend each on-segment by r at both ends along the tangent
     """
-    # quick solid path (no dash):
-    dx, dy = x2 - x1, y2 - y1
-    L = hypot(dx, dy)
+    ux, uy, L = _unit(x1, y1, x2, y2)
     if L <= 0:
         return
 
-    ux, uy = dx / L, dy / L
     r = width / 2.0
 
-    if not dash:  # solid
+    # SOLID fast-path
+    if not dash:
         if capstyle == CapStyle.PROJECTING:
             xa, ya = x1 - ux * r, y1 - uy * r
             xb, yb = x2 + ux * r, y2 + uy * r
@@ -54,14 +77,14 @@ def _stroke_dashed_line(
                 draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=rgba)
         return
 
-    # dashed path
+    # DASHPATH
     pat = list(dash)
     if len(pat) % 2 == 1:
         pat *= 2
     total = sum(pat) or 1
     off = offset % total
 
-    # advance into the pattern by offset
+    # advance into pattern by offset
     i = 0
     while off > 0 and pat:
         step = min(off, pat[0])
@@ -71,14 +94,14 @@ def _stroke_dashed_line(
             pat.pop(0)
             i += 1
 
-    pos = 0.0
-    on = i % 2 == 0
     seq = pat if pat else list(dash)
     if len(seq) % 2 == 1:
         seq *= 2
 
+    pos = 0.0
+    on = i % 2 == 0
     idx = 0
-    max_iters = 200000  # safety
+    max_iters = 200000
 
     while pos < L and idx < max_iters:
         seg_len = min(seq[idx % len(seq)], int(L - pos + 0.5))
@@ -91,14 +114,13 @@ def _stroke_dashed_line(
         xB, yB = x1 + ux * b, y1 + uy * b
 
         if on:
-            # heuristic: if on-length is smaller than stroke width → draw a dot
+            # very short dash → draw a dot
             if seg_len <= width * 0.8:
                 cx = (xA + xB) * 0.5
                 cy = (yA + yB) * 0.5
                 draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=rgba)
             else:
                 if capstyle == CapStyle.PROJECTING:
-                    # extend along the direction, but clip to [0, L]
                     a_ext = max(0.0, a - r)
                     b_ext = min(L, b + r)
                     xA2, yA2 = x1 + ux * a_ext, y1 + uy * a_ext
@@ -115,135 +137,296 @@ def _stroke_dashed_line(
         on = not on
 
 
+# ------------------------------- Exporter class ------------------------------ #
+
+
 class Exporter:
+    """
+    Public API:
+        - Exporter.output(params) → Path
+            Dispatches based on params.output_file suffix
+    """
+
+    # Keep a Formats-keyed dispatch for simplicity: "png" | "webp" | "svg"
+    supported: dict[Formats, Callable[[Params], Path]] = {}
+
     @classmethod
     def output(cls, params: Params) -> Path:
-        func = cls.supported.get(params.output_type)
-        if not func:
-            raise ValueError(f"Unsupported output type: {params.output_type}")
+        fmt = Formats.check(params.output_file)
+        func = cls.supported.get(fmt) if fmt else None
+        if not fmt or not func:
+            raise ValueError(f"Unsupported output type: {params.output_file.suffix}")
         return func(params)
+
+    @classmethod
+    def match_supported(cls) -> dict[Formats, Callable[[Params], Path]]:
+        """
+        Build the string-keyed dispatch: {"png": png, "webp": webp, "svg": svg}
+        """
+        sups: dict[Formats, Callable[[Params], Path]] = {}
+        for fmt in Formats:
+            handler = getattr(cls, fmt.name, None)
+            if not callable(handler):
+                raise NotImplementedError(f"Exporter missing handler for '{fmt.name}'")
+            sups[fmt] = handler  # pyright: ignore[reportArgumentType]
+        cls.supported = sups
+        return sups
+
+    # ---------- Raster draw (PIL) ---------- #
 
     @staticmethod
     def _draw(params: Params) -> Image.Image:
         img = Image.new("RGBA", (params.width, params.height), params.bg_mode.rgba)
         draw = ImageDraw.Draw(img)
 
-        def _unit(dx, dy) -> tuple[float, float]:
-            L = hypot(dx, dy)
-            return (dx / L, dy / L) if L else (0.0, 0.0)
+        _draw_grid(draw, params)
+        _draw_lines(draw, params)
+        _draw_labels(img, params)
+        _draw_icons(img, params)
 
-        # grid
+        return img
+
+    @classmethod
+    def webp(cls, params: Params) -> Path:
+        frame = cls._draw(params)
+        frame.save(params.output_file, format="WEBP", lossless=True, method=6)
+        return params.output_file
+
+    @classmethod
+    def png(cls, params: Params) -> Path:
+        frame = cls._draw(params)
+        frame.save(params.output_file, format="PNG")
+        return params.output_file
+
+    # ---------- SVG ---------- #
+
+    @staticmethod
+    def svg(params: Params) -> Path:
+        W, H = params.width, params.height
+        parts: list[str] = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']
+
+        # background
+        if params.bg_mode.alpha != 0:
+            fill, op = _col_and_opacity(params.bg_mode)
+            parts.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="{fill}"{op}/>')
+
+        # grid (behind)
         if params.grid_visible and params.grid_size > 0:
-            for x in range(0, params.width + 1, params.grid_size):
-                draw.line([(x, 0), (x, params.height)], fill=params.grid_colour.rgba, width=1)
-            for y in range(0, params.height + 1, params.grid_size):
-                draw.line([(0, y), (params.width, y)], fill=params.grid_colour.rgba, width=1)
+            gc, gop = _col_and_opacity(params.grid_colour)
+            parts.append('<g shape-rendering="crispEdges">')
+            for x in range(0, W + 1, params.grid_size):
+                parts.append(f'<line x1="{x}" y1="0" x2="{x}" y2="{H}" stroke="{gc}" stroke-width="1"{gop}/>')
+            for y in range(0, H + 1, params.grid_size):
+                parts.append(f'<line x1="0" y1="{y}" x2="{W}" y2="{y}" stroke="{gc}" stroke-width="1"{gop}/>')
+            parts.append("</g>")
 
-        # lines with capstyle emulation
-        for line in getattr(params, "lines", []):
-            line: Line
-            x1, y1, x2, y2, w = line.x1, line.y1, line.x2, line.y2, line.width
-            fill = line.col.rgba
-            r = w / 2.0
+        # lines
+        for lin in getattr(params, "lines", []):
+            lin: Line
+            stroke, sop = _col_and_opacity(lin.col)
+            arr = svg_dasharray(getattr(lin, "style", None), lin.width)  # "6,3" or ""
+            dash_attr = f' stroke-dasharray="{arr}"' if arr else ""
+            off = getattr(lin, "dash_offset", 0)
+            off_attr = f' stroke-dashoffset="{off}"' if arr and off else ""
 
-            dash = scaled_pattern(getattr(line, "style", None), line.width)
+            parts.append(
+                f'<line x1="{lin.x1}" y1="{lin.y1}" x2="{lin.x2}" y2="{lin.y2}" '
+                f'stroke="{stroke}" stroke-width="{lin.width}" stroke-linecap="{_svg_cap(lin.capstyle)}" '
+                f'stroke-linejoin="round"{sop}{dash_attr}{off_attr}/>'
+            )
 
-            if dash:
-                # --- dashed branch ---
-                # For "projecting" (square) caps, extend endpoints by half width, but KEEP it dashed.
-                if line.capstyle == CapStyle.PROJECTING:
-                    ux = uy = 0.0
-                    dx, dy = (x2 - x1), (y2 - y1)
-                    L = hypot(dx, dy)
-                    if L > 0:
-                        ux, uy = dx / L, dy / L
-                    x1e, y1e = x1 - ux * r, y1 - uy * r
-                    x2e, y2e = x2 + ux * r, y2 + uy * r
-                else:
-                    x1e, y1e, x2e, y2e = x1, y1, x2, y2
-
-                _stroke_dashed_line(
-                    draw,
-                    line.x1,
-                    line.y1,
-                    line.x2,
-                    line.y2,
-                    line.width,
-                    line.col.rgba,
-                    dash or (),
-                    getattr(line, "dash_offset", 0),
-                    line.capstyle,
-                )
-                # Note: we do NOT draw a second solid stroke here,
-                # otherwise we’d obliterate the dash pattern.
-                # (Per-dash round caps are non-trivial to emulate; Tk/SVG handle that natively.)
-            else:
-                # --- solid branch (keep your original cap emulation) ---
-                if line.capstyle == CapStyle.PROJECTING:
-                    ux = uy = 0.0
-                    dx, dy = (x2 - x1), (y2 - y1)
-                    L = hypot(dx, dy)
-                    if L > 0:
-                        ux, uy = dx / L, dy / L
-                    x1e, y1e = x1 - ux * r, y1 - uy * r
-                    x2e, y2e = x2 + ux * r, y2 + uy * r
-                    draw.line([(x1e, y1e), (x2e, y2e)], fill=fill, width=w)
-                elif line.capstyle == CapStyle.ROUND:
-                    draw.line([(x1, y1), (x2, y2)], fill=fill, width=w)
-                    draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=fill)
-                    draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=fill)
-                else:  # butt
-                    draw.line([(x1, y1), (x2, y2)], fill=fill, width=w)
-
-        # labels (default font)
-        _TTF_CANDIDATES = ("DejaVuSans.ttf", "DejaVuSansMono.ttf")
-        _font_cache: dict[int, "ImageFont.FreeTypeFont | ImageFont.ImageFont | None"] = {}
-
-        def _font(sz: int):
-            """Return a cached PIL ImageFont (TTF if available, else default bitmap)."""
-            f = _font_cache.get(sz)
-            if f is not None:
-                return f
-
-            # Try TrueType faces first
-            got = None
-            if hasattr(ImageFont, "truetype"):
-                for name in _TTF_CANDIDATES:
-                    try:
-                        got = ImageFont.truetype(name, sz)
-                        break
-                    except Exception:
-                        pass
-
-            # Fallback to the default bitmap font (fixed size)
-            if got is None:
-                try:
-                    got = ImageFont.load_default()
-                except Exception:
-                    got = None
-
-            _font_cache[sz] = got
-            return got
-
+        # labels (rotated around their (x,y))
         for lab in getattr(params, "labels", []):
             lab: Label
-            font = _font(lab.size)
-            txt = lab.text
-            if not txt:
-                continue
+            fill, fop = _col_and_opacity(lab.col)
+            ta, db = lab.anchor.svg  # ("start"/"middle"/"end", baseline)
+            rot = -int(getattr(lab, "rotation", 0) or 0)
+            parts.append(
+                f'<text x="{lab.x}" y="{lab.y}" fill="{fill}" font-size="{lab.size}" '
+                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({rot} {lab.x} {lab.y})"{fop}>'
+                f"{_escape(lab.text)}</text>"
+            )
 
-            # Render onto its own image, rotate, then paste with alpha
-            temp = Image.new("RGBA", (params.width, params.height), (0, 0, 0, 0))
-            ImageDraw.Draw(temp).text((lab.x, lab.y), txt, fill=lab.col.rgba, font=font, anchor=lab.anchor.pil)
-            temp = temp.rotate(lab.rotation, resample=Image.Resampling.BICUBIC, center=(lab.x, lab.y), expand=False)
-            img.alpha_composite(temp)
-
-        # icons (simple raster equivalents of your SVG primitives)
+        # icons (draw in local space at origin, rotate, then translate)
         for ico in getattr(params, "icons", []):
             ico: Icon
-            s = ico.size
-            x, y = ico.x, ico.y
-            col = ico.col.rgba
+            col, cop = _col_and_opacity(ico.col)
+            x, y, s = ico.x, ico.y, ico.size
+            rot = int(getattr(ico, "rotation", 0) or 0)
+
+            parts.append(f'<g transform="translate({x} {y}) rotate({rot})">')
+            if ico.name == "signal":
+                r = s // 2
+                parts.append(f'<circle cx="0" cy="0" r="{r}" fill="{col}"{cop}/>')
+                parts.append(f'<rect x="{-r // 3}" y="{r}" width="{2 * (r // 3)}" height="{s}" fill="{col}"{cop}/>')
+            elif ico.name == "buffer":
+                w = s
+                h = s // 2
+                parts.append(
+                    f'<rect x="{-w // 2}" y="{-h // 2}" width="{w}" height="{h}" '
+                    f'fill="none" stroke="{col}" stroke-width="2"{cop}/>'
+                )
+            elif ico.name == "crossing":
+                Ls = s
+                parts.append(f'<line x1="{-Ls}" y1="{-Ls}" x2="{Ls}" y2="{Ls}" stroke="{col}" stroke-width="2"{cop}/>')
+                parts.append(f'<line x1="{-Ls}" y1="{Ls}" x2="{Ls}" y2="{-Ls}" stroke="{col}" stroke-width="2"{cop}/>')
+            elif ico.name == "switch":
+                Ls = s
+                parts.append(f'<line x1="0" y1="0" x2="{Ls}" y2="0" stroke="{col}" stroke-width="2"{cop}/>')
+                parts.append(f'<line x1="0" y1="0" x2="{Ls}" y2="{Ls // 2}" stroke="{col}" stroke-width="2"{cop}/>')
+            else:
+                r = s // 3
+                parts.append(f'<circle cx="0" cy="0" r="{r}" fill="{col}"{cop}/>')
+            parts.append("</g>")
+
+        parts.append("</svg>")
+        with open(params.output_file, "w", encoding="utf-8") as f:
+            f.write("\n".join(parts))
+        return params.output_file
+
+
+# -------------------------- Raster sub-painters (PIL) ------------------------- #
+
+
+def _draw_grid(draw: ImageDraw.ImageDraw, params: Params) -> None:
+    if not (params.grid_visible and params.grid_size > 0):
+        return
+    for x in range(0, params.width + 1, params.grid_size):
+        draw.line([(x, 0), (x, params.height)], fill=params.grid_colour.rgba, width=1)
+    for y in range(0, params.height + 1, params.grid_size):
+        draw.line([(0, y), (params.width, y)], fill=params.grid_colour.rgba, width=1)
+
+
+def _draw_lines(draw: ImageDraw.ImageDraw, params: Params) -> None:
+    for lin in getattr(params, "lines", []):
+        lin: Line
+        w = lin.width
+        dash = scaled_pattern(getattr(lin, "style", None), w)
+        if dash:
+            # dashed path with per-cap emulation
+            # extend endpoints if projecting, but KEEP dashed
+            ux, uy, L = _unit(lin.x1, lin.y1, lin.x2, lin.y2)
+            if lin.capstyle == CapStyle.PROJECTING and L > 0:
+                r = w / 2.0
+                x1e, y1e = lin.x1 - ux * r, lin.y1 - uy * r
+                x2e, y2e = lin.x2 + ux * r, lin.y2 + uy * r
+            else:
+                x1e, y1e, x2e, y2e = lin.x1, lin.y1, lin.x2, lin.y2
+
+            _stroke_dashed_line(
+                draw,
+                x1e,
+                y1e,
+                x2e,
+                y2e,
+                w,
+                lin.col.rgba,
+                dash,
+                getattr(lin, "dash_offset", 0),
+                lin.capstyle,
+            )
+        else:
+            # solid path + cap emulation
+            ux, uy, L = _unit(lin.x1, lin.y1, lin.x2, lin.y2)
+            r = w / 2.0
+            if lin.capstyle == CapStyle.PROJECTING and L > 0:
+                xa, ya = lin.x1 - ux * r, lin.y1 - uy * r
+                xb, yb = lin.x2 + ux * r, lin.y2 + uy * r
+                draw.line([(xa, ya), (xb, yb)], fill=lin.col.rgba, width=w)
+            elif lin.capstyle == CapStyle.ROUND:
+                draw.line([(lin.x1, lin.y1), (lin.x2, lin.y2)], fill=lin.col.rgba, width=w)
+                draw.ellipse([lin.x1 - r, lin.y1 - r, lin.x1 + r, lin.y1 + r], fill=lin.col.rgba)
+                draw.ellipse([lin.x2 - r, lin.y2 - r, lin.x2 + r, lin.y2 + r], fill=lin.col.rgba)
+            else:
+                draw.line([(lin.x1, lin.y1), (lin.x2, lin.y2)], fill=lin.col.rgba, width=w)
+
+
+def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont | None], Any]:
+    _TTF_CANDIDATES = ("DejaVuSans.ttf", "DejaVuSansMono.ttf")
+    cache: dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont | None] = {}
+
+    def _font(sz: int):
+        f = cache.get(sz)
+        if f is not None:
+            return f
+        got = None
+        if hasattr(ImageFont, "truetype"):
+            for name in _TTF_CANDIDATES:
+                try:
+                    got = ImageFont.truetype(name, sz)
+                    break
+                except Exception:
+                    pass
+        if got is None:
+            try:
+                got = ImageFont.load_default()
+            except Exception:
+                got = None
+        cache[sz] = got
+        return got
+
+    return cache, _font
+
+
+def _draw_labels(img: Image.Image, params: Params) -> None:
+    _, _font = _font_cache_factory()
+    for lab in getattr(params, "labels", []):
+        lab: Label
+        txt = lab.text
+        if not txt:
+            continue
+        font = _font(lab.size)
+        temp = Image.new("RGBA", (params.width, params.height), (0, 0, 0, 0))
+        ImageDraw.Draw(temp).text((lab.x, lab.y), txt, fill=lab.col.rgba, font=font, anchor=lab.anchor.pil)
+        temp = temp.rotate(
+            int(getattr(lab, "rotation", 0) or 0),
+            resample=Image.Resampling.BICUBIC,
+            center=(lab.x, lab.y),
+            expand=False,
+        )
+        img.alpha_composite(temp)
+
+
+def _draw_icons(img: Image.Image, params: Params) -> None:
+    draw = ImageDraw.Draw(img)
+    for ico in getattr(params, "icons", []):
+        ico: Icon
+        rot = int(getattr(ico, "rotation", 0) or 0)
+        s, x, y, col = ico.size, ico.x, ico.y, ico.col.rgba
+
+        if rot % 360 != 0:
+            # Draw into a local layer centered at (0,0), rotate, then paste at (x,y)
+            box = max(s * 3, 64)
+            layer = Image.new("RGBA", (box, box), (0, 0, 0, 0))
+            ld = ImageDraw.Draw(layer)
+            cx = cy = box // 2
+
+            def P(px: int, py: int) -> tuple[int, int]:
+                return (cx + px, cy + py)
+
+            if ico.name == "signal":
+                r = s // 2
+                ld.ellipse([P(-r, -r), P(r, r)], fill=col)
+                ld.rectangle([P(-r // 3, r), P(r // 3, r + s)], fill=col)
+            elif ico.name == "buffer":
+                w, h = s, s // 2
+                ld.rectangle([P(-w // 2, -h // 2), P(w // 2, h // 2)], outline=col, width=2)
+            elif ico.name == "crossing":
+                Ls = s
+                ld.line([P(-Ls, -Ls), P(Ls, Ls)], fill=col, width=2)
+                ld.line([P(-Ls, Ls), P(Ls, -Ls)], fill=col, width=2)
+            elif ico.name == "switch":
+                Ls = s
+                ld.line([P(0, 0), P(Ls, 0)], fill=col, width=2)
+                ld.line([P(0, 0), P(Ls, Ls // 2)], fill=col, width=2)
+            else:
+                r = s // 3
+                ld.ellipse([P(-r, -r), P(r, r)], fill=col)
+
+            layer = layer.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
+            lw, lh = layer.size
+            img.alpha_composite(layer, (int(x - lw // 2), int(y - lh // 2)))
+        else:
             if ico.name == "signal":
                 r = s // 2
                 draw.ellipse([x - r, y - r, x + r, y + r], fill=col)
@@ -253,137 +436,30 @@ class Exporter:
                 h = s // 2
                 draw.rectangle([x - w // 2, y - h // 2, x + w // 2, y + h // 2], outline=col, width=2)
             elif ico.name == "crossing":
-                L = s
-                draw.line([x - L, y - L, x + L, y + L], fill=col, width=2)
-                draw.line([x - L, y + L, x + L, y - L], fill=col, width=2)
+                Ls = s
+                draw.line([x - Ls, y - Ls, x + Ls, y + Ls], fill=col, width=2)
+                draw.line([x - Ls, y + Ls, x + Ls, y - Ls], fill=col, width=2)
             elif ico.name == "switch":
-                L = s
-                draw.line([x, y, x + L, y], fill=col, width=2)
-                draw.line([x, y, x + L, y + L // 2], fill=col, width=2)
+                Ls = s
+                draw.line([x, y, x + Ls, y], fill=col, width=2)
+                draw.line([x, y, x + Ls, y + Ls // 2], fill=col, width=2)
             else:
                 r = s // 3
                 draw.ellipse([x - r, y - r, x + r, y + r], fill=col)
 
-        return img
 
-    @classmethod
-    def _generic(cls, params: Params, save_kwargs: dict[str, Any] | None = None) -> Path:
-        frame = cls._draw(params)
-        frame.save(params.output_file, format=str(params.output_type).upper(), **(save_kwargs or {}))
-        return params.output_file
+# ------------------------------- SVG helpers -------------------------------- #
 
-    @classmethod
-    def webp(cls, params: Params) -> Path:
-        return cls._generic(params, {"lossless": True, "method": 6})
 
-    @classmethod
-    def png(cls, params: Params) -> Path:
-        return cls._generic(params)
-
-    @staticmethod
-    def svg(params: Params) -> Path:
-        def _svg_cap(cap: CapStyle) -> str:
-            # Tk: "butt" | "round" | "projecting"
-            # SVG: "butt" | "round" | "square"
-            return "square" if cap == CapStyle.PROJECTING else cap.value
-
-        W, H = params.width, params.height
-        parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']
-
-        if params.bg_mode.alpha != 0:
-            parts.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="{params.bg_mode.hex}"/>')
-
-        if params.grid_visible and params.grid_size > 0:
-            for x in range(0, W + 1, params.grid_size):
-                parts.append(
-                    f'<line x1="{x}" y1="0" x2="{x}" y2="{H}" stroke="{params.grid_colour.hex}" stroke-width="1"/>'
-                )
-            for y in range(0, H + 1, params.grid_size):
-                parts.append(
-                    f'<line x1="0" y1="{y}" x2="{W}" y2="{y}" stroke="{params.grid_colour.hex}" stroke-width="1"/>'
-                )
-
-        # lines
-        for line in getattr(params, "lines", []):
-            dash_attr = ""
-            arr = svg_dasharray(getattr(line, "style", None), line.width)
-            if arr:
-                dash_attr = f' stroke-dasharray="{arr}"'
-                # (optional) include dash offset if you keep it in the model:
-                off = getattr(line, "dash_offset", 0)
-                if off:
-                    dash_attr += f' stroke-dashoffset="{off}"'
-
-            parts.append(
-                f'<line x1="{line.x1}" y1="{line.y1}" x2="{line.x2}" y2="{line.y2}" '
-                f'stroke="{line.col.hex}" stroke-linecap="{_svg_cap(line.capstyle)}" stroke-width="{line.width}"{dash_attr}/>'
-            )
-
-        # labels
-        for lab in getattr(params, "labels", []):
-            lab: Label
-            ta, db = lab.anchor.svg
-            parts.append(
-                f'<text x="{lab.x}" y="{lab.y}" fill="{lab.col.hex}" font-size="{lab.size}" '
-                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({-lab.rotation} {lab.x} {lab.y})">'
-                f"{_escape(lab.text)}</text>"
-            )
-
-        # icons
-        for ico in getattr(params, "icons", []):
-            ico: Icon
-            x, y, s, col = ico.x, ico.y, ico.size, ico.col.hex
-            if ico.name == "signal":
-                r = s // 2
-                parts.append(f'<circle cx="{x}" cy="{y}" r="{r}" fill="{col}"/>')
-                parts.append(f'<rect x="{x - r // 3}" y="{y + r}" width="{2 * (r // 3)}" height="{s}" fill="{col}"/>')
-            elif ico.name == "buffer":
-                w = s
-                h = s // 2
-                parts.append(
-                    f'<rect x="{x - w // 2}" y="{y - h // 2}" width="{w}" height="{h}" fill="none" stroke="{col}" stroke-width="2"/>'
-                )
-            elif ico.name == "crossing":
-                L = s
-                parts.append(
-                    f'<line x1="{x - L}" y1="{y - L}" x2="{x + L}" y2="{y + L}" stroke="{col}" stroke-width="2"/>'
-                )
-                parts.append(
-                    f'<line x1="{x - L}" y1="{y + L}" x2="{x + L}" y2="{y - L}" stroke="{col}" stroke-width="2"/>'
-                )
-            elif ico.name == "switch":
-                L = s
-                parts.append(f'<line x1="{x}" y1="{y}" x2="{x + L}" y2="{y}" stroke="{col}" stroke-width="2"/>')
-                parts.append(
-                    f'<line x1="{x}" y1="{y}" x2="{x + L}" y2="{y + L // 2}" stroke="{col}" stroke-width="2"/>'
-                )
-            else:
-                r = s // 3
-                parts.append(f'<circle cx="{x}" cy="{y}" r="{r}" fill="{col}"/>')
-
-        parts.append("</svg>")
-        with open(params.output_file, "w", encoding="utf-8") as f:
-            f.write("\n".join(parts))
-        return params.output_file
-
-    @classmethod
-    def match_supported(cls) -> dict[str, Callable[[Params], Path]]:
-        sups = {}
-        for fmt in Formats:
-            func = getattr(cls, fmt, None)
-            if not func:
-                raise AttributeError(f"Output format handler '{fmt}' not implemented in Exporter")
-            if not callable(func):
-                raise TypeError(f"Handler for '{fmt}' is not callable")
-            sups[fmt] = func
-        cls.supported = sups
-        return sups
-
-    supported: dict[str, Callable[[Params], Path]] = {}
+def _svg_cap(cap: CapStyle) -> str:
+    # Tk: "butt" | "round" | "projecting"
+    # SVG: "butt" | "round" | "square"
+    return "square" if cap == CapStyle.PROJECTING else cap.value
 
 
 def _escape(string: str) -> str:
     return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# initialize dispatch map
 Exporter.match_supported()

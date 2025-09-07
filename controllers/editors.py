@@ -10,8 +10,8 @@ from models.geo import Line
 
 
 # helpers
-def _colour_choices() -> list[str]:
-    return Cols.option_str(min_trans=0)  # or whatever you expose to users
+def _colour_choices(min_trans=25) -> list[str]:
+    return Cols.option_str(min_trans=min_trans)
 
 
 def _cap_choices() -> list[str]:
@@ -19,7 +19,7 @@ def _cap_choices() -> list[str]:
 
 
 def _style_choices() -> list[str]:
-    return [s.value for s in LineStyle]  # uses StrEnum values
+    return [s.value for s in LineStyle]
 
 
 def _anchor_choices_tk() -> list[str]:

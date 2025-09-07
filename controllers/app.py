@@ -334,13 +334,12 @@ class App:
     # --------- persistence ---------
     def export_image(self):
         # default file name & type based on params
-        def_ext = f".{self.params.output_type}"
-        initialfile = self.params.output_file.with_suffix(def_ext).name
-        # dialog
+        initialfile = self.params.output_file.name
+
         path = filedialog.asksaveasfilename(
             parent=self.root,
             title="Export",
-            defaultextension=def_ext,
+            defaultextension=self.params.output_file.suffix,
             filetypes=[(t.upper(), f"*.{t.lower()}") for t in Formats],  # e.g. WEBP/PNG/SVG
             initialdir=self.params.output_file.parent,
             initialfile=initialfile,
@@ -362,7 +361,7 @@ class App:
             messagebox.showerror("Export failed", str(e))
             return
 
-        # Optional: persist export settings back to the current PROJECT, not config.json
+        # persist export settings back to the current project
         try:
             IO.save_params(self.params, self.project_path)
         except Exception:

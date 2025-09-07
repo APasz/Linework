@@ -21,8 +21,7 @@ class Params(BaseModel):
     grid_colour: Colour = Colours.gray
     grid_visible: bool = True
     grid_lines_ids: list[int] = Field(default_factory=list)
-    output_file: Path = Path("output")
-    output_type: Formats = Formats.webp
+    output_file: Path = Path("output.webp")
     lines: list[Line] = Field(default_factory=list)
     labels: list[Label] = Field(default_factory=list)
     icons: list[Icon] = Field(default_factory=list)

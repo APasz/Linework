@@ -9,7 +9,7 @@ from models.anchors import Anchor
 from models.colour import Colour
 from models.colour import Colours as Cols
 from models.geo import Line
-from models.linestyle import LineStyle
+from models.linestyle import CapStyle, LineStyle
 from models.objects import Icon, Label
 from models.params import Params
 
@@ -33,7 +33,7 @@ def _enc_line(lin: Line) -> dict[str, Any]:
         "y2": lin.y2,
         "col": _enc_colour(lin.col),
         "width": lin.width,
-        "cap": lin.capstyle,
+        "cap": lin.capstyle.value,
         "style": str(getattr(lin, "style", "solid")),
         "dash_offset": int(getattr(lin, "dash_offset", 0)),
     }
@@ -79,7 +79,6 @@ def params_to_dict(params: Params) -> dict[str, Any]:
         "grid_colour": _enc_colour(params.grid_colour),
         "grid_visible": params.grid_visible,
         "output_file": str(params.output_file),
-        "output_type": str(params.output_type),
         "lines": [_enc_line(lin) for lin in params.lines],
         "labels": [_enc_label(lab) for lab in params.labels],
         "icons": [_enc_icon(ico) for ico in params.icons],
@@ -119,7 +118,7 @@ def _dec_line(dic: dict[str, Any]) -> Line:
         dic["y2"],
         _dec_colour(dic["col"]),
         int(dic["width"]),
-        dic.get("cap", "round"),
+        CapStyle(dic.get("cap", "round")),
         style=style,
         dash_offset=int(dic.get("dash_offset", 0)),
     )
@@ -176,7 +175,6 @@ def dict_to_params(dic: dict[str, Any]) -> Params:
         grid_colour=_dec_colour(dic["grid_colour"]),
         grid_visible=bool(dic["grid_visible"]),
         output_file=Path(dic.get("output_file", "output")),
-        output_type=Formats(dic.get("output_type", "webp")),
         lines=[_dec_line(lin) for lin in dic.get("lines", [])],
         labels=[_dec_label(lab) for lab in dic.get("labels", [])],
         icons=[_dec_icon(ico) for ico in dic.get("icons", [])],
