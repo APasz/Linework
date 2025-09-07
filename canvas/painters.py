@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import tkinter as tk
-from typing import Protocol
+from typing import Any, Protocol
 
 from canvas.layers import L_GRID, L_ICONS, L_LABELS, L_LINES
 from models.geo import Line
+from models.linestyle import scaled_pattern
 from models.objects import Icon, Label
 from models.params import Params
 
@@ -38,17 +39,18 @@ class Painters_Impl:
 
     # ------- lines -------
     def paint_lines(self, canvas: tk.Canvas) -> None:
-        for ln in self.s.lines():
-            canvas.create_line(
-                ln.x1,
-                ln.y1,
-                ln.x2,
-                ln.y2,
-                fill=ln.col.hex,
-                width=ln.width,
-                capstyle=ln.capstyle,
-                tags=("line", L_LINES),
-            )
+        for idx, lin in enumerate(self.s.lines()):
+            dash = scaled_pattern(getattr(lin, "style", None), lin.width)
+            kws: dict[str, Any] = {
+                "fill": lin.col.hex,
+                "width": lin.width,
+                "capstyle": lin.capstyle,
+                "tags": ("line", L_LINES),
+            }
+            if dash:
+                kws["dash"] = dash
+
+            canvas.create_line(lin.x1, lin.y1, lin.x2, lin.y2, **kws)
 
     # ------- labels -------
     def paint_labels(self, canvas: tk.Canvas) -> None:

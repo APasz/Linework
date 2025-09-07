@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 import tkinter as tk
+from collections.abc import Iterable
 from typing import Literal, Protocol
 
 L_GRID: str = "layer:grid"

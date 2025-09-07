@@ -8,9 +8,109 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont
 
 from disk.formats import Formats
-from models.geo import Line
+from models.linestyle import scaled_pattern, svg_dasharray
 from models.objects import Icon, Label
 from models.params import Params
+
+
+def _stroke_dashed_line(
+    draw: ImageDraw.ImageDraw,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    width: int,
+    rgba,
+    dash: tuple[int, ...],
+    offset: int = 0,
+    capstyle: str = "butt",  # "butt" | "round" | "projecting"
+):
+    """
+    Draw a dashed line with cap emulation for PIL:
+        - butt: plain segments
+        - round: circles at ends of each on-segment (and ends of solid)
+        - projecting: extend each on-segment by r at both ends along the tangent
+    """
+    # quick solid path (no dash):
+    dx, dy = x2 - x1, y2 - y1
+    L = hypot(dx, dy)
+    if L <= 0:
+        return
+
+    ux, uy = dx / L, dy / L
+    r = width / 2.0
+
+    if not dash:  # solid
+        if capstyle == "projecting":
+            xa, ya = x1 - ux * r, y1 - uy * r
+            xb, yb = x2 + ux * r, y2 + uy * r
+            draw.line([(xa, ya), (xb, yb)], fill=rgba, width=width)
+        else:
+            draw.line([(x1, y1), (x2, y2)], fill=rgba, width=width)
+            if capstyle == "round":
+                draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=rgba)
+                draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=rgba)
+        return
+
+    # dashed path
+    pat = list(dash)
+    if len(pat) % 2 == 1:
+        pat *= 2
+    total = sum(pat) or 1
+    off = offset % total
+
+    # advance into the pattern by offset
+    i = 0
+    while off > 0 and pat:
+        step = min(off, pat[0])
+        pat[0] -= step
+        off -= step
+        if pat[0] == 0:
+            pat.pop(0)
+            i += 1
+
+    pos = 0.0
+    on = i % 2 == 0
+    seq = pat if pat else list(dash)
+    if len(seq) % 2 == 1:
+        seq *= 2
+
+    idx = 0
+    max_iters = 200000  # safety
+
+    while pos < L and idx < max_iters:
+        seg_len = min(seq[idx % len(seq)], int(L - pos + 0.5))
+        if seg_len <= 0:
+            break
+
+        a = pos
+        b = pos + seg_len
+        xA, yA = x1 + ux * a, y1 + uy * a
+        xB, yB = x1 + ux * b, y1 + uy * b
+
+        if on:
+            # heuristic: if on-length is smaller than stroke width → draw a dot
+            if seg_len <= width * 0.8:
+                cx = (xA + xB) * 0.5
+                cy = (yA + yB) * 0.5
+                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=rgba)
+            else:
+                if capstyle == "projecting":
+                    # extend along the direction, but clip to [0, L]
+                    a_ext = max(0.0, a - r)
+                    b_ext = min(L, b + r)
+                    xA2, yA2 = x1 + ux * a_ext, y1 + uy * a_ext
+                    xB2, yB2 = x1 + ux * b_ext, y1 + uy * b_ext
+                    draw.line([(xA2, yA2), (xB2, yB2)], fill=rgba, width=width)
+                else:
+                    draw.line([(xA, yA), (xB, yB)], fill=rgba, width=width)
+                    if capstyle == "round":
+                        draw.ellipse([xA - r, yA - r, xA + r, yA + r], fill=rgba)
+                        draw.ellipse([xB - r, yB - r, xB + r, yB + r], fill=rgba)
+
+        pos += seg_len
+        idx += 1
+        on = not on
 
 
 class Exporter:
@@ -39,22 +139,58 @@ class Exporter:
 
         # lines with capstyle emulation
         for line in getattr(params, "lines", []):
-            line: Line
             x1, y1, x2, y2, w = line.x1, line.y1, line.x2, line.y2, line.width
             fill = line.col.rgba
             r = w / 2.0
 
-            if line.capstyle == "projecting":
-                ux, uy = _unit(x2 - x1, y2 - y1)
-                x1e, y1e = x1 - ux * r, y1 - uy * r
-                x2e, y2e = x2 + ux * r, y2 + uy * r
-                draw.line([(x1e, y1e), (x2e, y2e)], fill=fill, width=w)
-            elif line.capstyle == "round":
-                draw.line([(x1, y1), (x2, y2)], fill=fill, width=w)
-                draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=fill)
-                draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=fill)
-            else:  # butt
-                draw.line([(x1, y1), (x2, y2)], fill=fill, width=w)
+            dash = scaled_pattern(getattr(line, "style", None), line.width)
+
+            if dash:
+                # --- dashed branch ---
+                # For "projecting" (square) caps, extend endpoints by half width, but KEEP it dashed.
+                if line.capstyle == "projecting":
+                    ux = uy = 0.0
+                    dx, dy = (x2 - x1), (y2 - y1)
+                    L = hypot(dx, dy)
+                    if L > 0:
+                        ux, uy = dx / L, dy / L
+                    x1e, y1e = x1 - ux * r, y1 - uy * r
+                    x2e, y2e = x2 + ux * r, y2 + uy * r
+                else:
+                    x1e, y1e, x2e, y2e = x1, y1, x2, y2
+
+                _stroke_dashed_line(
+                    draw,
+                    line.x1,
+                    line.y1,
+                    line.x2,
+                    line.y2,
+                    line.width,
+                    line.col.rgba,
+                    dash or (),
+                    getattr(line, "dash_offset", 0),
+                    line.capstyle,
+                )
+                # Note: we do NOT draw a second solid stroke here,
+                # otherwise we’d obliterate the dash pattern.
+                # (Per-dash round caps are non-trivial to emulate; Tk/SVG handle that natively.)
+            else:
+                # --- solid branch (keep your original cap emulation) ---
+                if line.capstyle == "projecting":
+                    ux = uy = 0.0
+                    dx, dy = (x2 - x1), (y2 - y1)
+                    L = hypot(dx, dy)
+                    if L > 0:
+                        ux, uy = dx / L, dy / L
+                    x1e, y1e = x1 - ux * r, y1 - uy * r
+                    x2e, y2e = x2 + ux * r, y2 + uy * r
+                    draw.line([(x1e, y1e), (x2e, y2e)], fill=fill, width=w)
+                elif line.capstyle == "round":
+                    draw.line([(x1, y1), (x2, y2)], fill=fill, width=w)
+                    draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=fill)
+                    draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=fill)
+                else:  # butt
+                    draw.line([(x1, y1), (x2, y2)], fill=fill, width=w)
 
         # labels (default font)
         _TTF_CANDIDATES = ("DejaVuSans.ttf", "DejaVuSansMono.ttf")
@@ -127,7 +263,7 @@ class Exporter:
     @classmethod
     def _generic(cls, params: Params, save_kwargs: dict[str, Any] | None = None) -> Path:
         frame = cls._draw(params)
-        frame.save(params.output_file, format=params.output_type.upper(), **(save_kwargs or {}))
+        frame.save(params.output_file, format=str(params.output_type).upper(), **(save_kwargs or {}))
         return params.output_file
 
     @classmethod
@@ -140,6 +276,11 @@ class Exporter:
 
     @staticmethod
     def svg(params: Params) -> Path:
+        def _svg_cap(cap: str) -> str:
+            # Tk: "butt" | "round" | "projecting"
+            # SVG: "butt" | "round" | "square"
+            return "square" if cap == "projecting" else cap
+
         W, H = params.width, params.height
         parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']
 
@@ -158,10 +299,18 @@ class Exporter:
 
         # lines
         for line in getattr(params, "lines", []):
-            line: Line
+            dash_attr = ""
+            arr = svg_dasharray(getattr(line, "style", None), line.width)
+            if arr:
+                dash_attr = f' stroke-dasharray="{arr}"'
+                # (optional) include dash offset if you keep it in the model:
+                off = getattr(line, "dash_offset", 0)
+                if off:
+                    dash_attr += f' stroke-dashoffset="{off}"'
+
             parts.append(
                 f'<line x1="{line.x1}" y1="{line.y1}" x2="{line.x2}" y2="{line.y2}" '
-                f'stroke="{line.col.hex}" stroke-linecap="{line.capstyle}" stroke-width="{line.width}"/>'
+                f'stroke="{line.col.hex}" stroke-linecap="{line.capstyle}" stroke-width="{line.width}"{dash_attr}/>'
             )
 
         # labels

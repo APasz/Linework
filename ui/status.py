@@ -1,8 +1,9 @@
 # ui/status.py
 from __future__ import annotations
+
 import tkinter as tk
 from dataclasses import dataclass, field
-from typing import Optional, Literal, Dict, Tuple
+from typing import Literal
 
 Side = Literal["left", "right"]
 
@@ -11,7 +12,7 @@ Side = Literal["left", "right"]
 class _Overlay:
     # sort by (-priority, seq) so higher priority appears first,
     # and among equals, earlier seq wins
-    sort_key: Tuple[int, int] = field(init=False, repr=False)
+    sort_key: tuple[int, int] = field(init=False, repr=False)
     key: str
     text: str
     priority: int = 0
@@ -44,9 +45,9 @@ class Status:
         self._base_left: str = ""
         self._seq = 0
 
-        self._held: Dict[str, _Overlay] = {}
-        self._temp_key: Optional[str] = None
-        self._temp_after: Optional[str] = None
+        self._held: dict[str, _Overlay] = {}
+        self._temp_key: str | None = None
+        self._temp_after: str | None = None
 
         # default “suffix” slot (right channel)
         self._suffix_key = "__suffix__"

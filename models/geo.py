@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from models.colour import Colour
+from models.linestyle import LineStyle
 
 
 @dataclass(slots=True, frozen=True)
@@ -13,6 +14,8 @@ class Line:
     col: Colour
     width: int
     capstyle: Literal["round", "projecting", "butt"] = "round"
+    style: LineStyle = LineStyle.SOLID
+    dash_offset: int = 0
 
 
 @dataclass(slots=True, frozen=True)

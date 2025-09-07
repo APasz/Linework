@@ -14,10 +14,11 @@ from disk.export import Exporter
 from disk.formats import Formats
 from disk.storage import IO
 from models.colour import Colours as Cols
+from models.linestyle import LineStyle
 from models.params import Params
 from ui.header import create_header
-from ui.toolbar import create_toolbar
 from ui.status import Status
+from ui.toolbar import create_toolbar
 
 
 class App:
@@ -52,6 +53,8 @@ class App:
         self.var_bg = tk.StringVar(value=self.params.bg_mode.name)
         self.var_colour = tk.StringVar(value=self.params.brush_colour.name)
         self.var_colour.trace_add("write", self.apply_colour)
+        self.var_line_style = tk.StringVar(value=self.params.line_style.value)
+        self.var_dash_offset = tk.IntVar(value=self.params.line_dash_offset)
 
         self.mode = tk.StringVar(value="draw")
         self.var_icon = tk.StringVar(value="signal")
@@ -64,7 +67,7 @@ class App:
         )
 
         # ---- header & toolbar ----
-        hdr = create_header(
+        create_header(
             self.root,
             mode_var=self.mode,
             icon_var=self.var_icon,
@@ -87,6 +90,9 @@ class App:
             bg_var=self.var_bg,
             drag_to_draw_var=self.var_drag_to_draw,
             snapping_var=self.var_snapping,
+            style_var=self.var_line_style,
+            offset_var=self.var_dash_offset,
+            on_style_change=self.on_style_change,
             on_grid_change=self.on_grid_change,
             on_brush_change=self.on_brush_change,
             on_canvas_size_change=self.on_canvas_size_change,
@@ -216,6 +222,19 @@ class App:
         return round(x / grid) * grid, round(y / grid) * grid
 
     # --------- UI callbacks ---------
+    def on_style_change(self, *_):
+        try:
+            self.params.line_style = LineStyle(self.var_line_style.get())
+        except Exception:
+            self.params.line_style = LineStyle.SOLID
+        try:
+            self.params.line_dash_offset = max(0, int(self.var_dash_offset.get()))
+        except ValueError:
+            pass
+        # If you want existing lines to stay unchanged, don't redraw them here.
+        # But the preview needs the new style, so no-op is fine.
+        self.status.set(f"Line style: {self.params.line_style.value}")
+
     def _on_mode_change(self, *_):
         self.current_tool = self.tools[self.mode.get()]
         self.canvas.config(cursor=self.current_tool.cursor or "")
@@ -447,6 +466,8 @@ class App:
         self.var_brush_w.set(self.params.brush_width)
         self.var_bg.set(self.params.bg_mode.name)
         self.var_colour.set(self.params.brush_colour.name)
+        self.var_line_style.set(self.params.line_style.value)
+        self.var_dash_offset.set(self.params.line_dash_offset)
         self.canvas.config(width=self.params.width, height=self.params.height)
         self._apply_size_increments(self.params.grid_size)
         self.layers.redraw_all()
@@ -468,6 +489,8 @@ class App:
         self.var_brush_w.set(self.params.brush_width)
         self.var_bg.set(self.params.bg_mode.name)
         self.var_colour.set(self.params.brush_colour.name)
+        self.var_line_style.set(self.params.line_style.value)
+        self.var_dash_offset.set(self.params.line_dash_offset)
         self.canvas.config(width=self.params.width, height=self.params.height)
         self.layers.redraw_all()
         self.mark_clean()

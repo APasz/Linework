@@ -16,7 +16,7 @@ class Anchor(Enum):
     S = "s"
     SE = "se"
 
-    # ---- parsing / normalization ----
+    # ---- parsing / normalisation ----
     @classmethod
     def parse(cls, value: str | Anchor | None) -> "Anchor":
         if isinstance(value, Anchor):

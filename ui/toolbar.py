@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from tkinter import ttk
 
 from models.colour import Colours as Cols
+from models.linestyle import LineStyle
 from ui.palette import Palette_Handles, create_palette
 from ui.widgets.composite_spinbox import Composite_Spinbox
 
@@ -18,6 +19,9 @@ class Toolbar_Handles:
     spin_h: Composite_Spinbox
     cb_bg: ttk.Combobox
     cb_dtd: ttk.Checkbutton
+    cb_snap: ttk.Checkbutton
+    cb_style: ttk.Combobox
+    # spin_offset: Composite_Spinbox
     palette: Palette_Handles
 
 
@@ -42,11 +46,14 @@ def create_toolbar(
     bg_var: tk.StringVar,
     drag_to_draw_var: tk.BooleanVar,
     snapping_var: tk.BooleanVar,
+    style_var: tk.StringVar,
+    offset_var: tk.IntVar,
     on_grid_change,
     on_brush_change,
     on_canvas_size_change,
     on_palette_select,
     on_palette_set_bg,
+    on_style_change,
     selected_colour_name: str,
 ):
     """Builds the toolbar strip and returns widget handles."""
@@ -109,7 +116,21 @@ def create_toolbar(
         ),
         "Snap:",
     )
-    # Palette on right
+    styles = [s.value for s in LineStyle]
+    cb_style = _add_labeled(
+        frame,
+        lambda p: ttk.Combobox(p, values=styles, state="readonly", width=9, textvariable=style_var),
+        "Style:",
+    )
+    cb_style.bind("<<ComboboxSelected>>", lambda _e: on_style_change())
+    # spin_off = _add_labeled(
+    #    frame,
+    #    lambda p: Composite_Spinbox(
+    #        p, from_=0, to=999, increment=1, width=3, textvariable=offset_var, command=on_style_change
+    #    ),
+    #    "Offset:",
+    # )
+
     pal = create_palette(
         frame,
         colours=Cols.option_col(min_trans=255),
@@ -130,5 +151,8 @@ def create_toolbar(
         spin_h=sbox_h,
         cb_bg=cbox_bg,
         cb_dtd=cbut_dtd,
+        cb_snap=cbut_snap,
+        cb_style=cb_style,
+        # spin_offset=spin_off,
         palette=pal,
     )

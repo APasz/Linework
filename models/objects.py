@@ -12,15 +12,16 @@ class Label:
     text: str
     col: Colour
     anchor: Anchor = Anchor.NW
-    size: int = 12  # px
+    size: int = 12
+    rotation: int = 0
 
 
 @dataclass(slots=True, frozen=True)
 class Icon:
     x: int
     y: int
-    name: Literal["signal", "switch", "buffer", "crossing"]  # start simple; add more later
+    name: Literal["signal", "switch", "buffer", "crossing"]
     col: Colour
     anchor: Anchor = Anchor.SE
     size: int = 16
-    rotation: int = 0  # degrees
+    rotation: int = 0

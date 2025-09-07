@@ -9,6 +9,7 @@ from models.anchors import Anchor
 from models.colour import Colour
 from models.colour import Colours as Cols
 from models.geo import Line
+from models.linestyle import LineStyle
 from models.objects import Icon, Label
 from models.params import Params
 
@@ -33,6 +34,8 @@ def _enc_line(line: Line) -> dict[str, Any]:
         "col": _enc_colour(line.col),
         "width": line.width,
         "cap": line.capstyle,
+        "style": str(getattr(line, "style", "solid")),
+        "dash_offset": int(getattr(line, "dash_offset", 0)),
     }
 
 
@@ -67,6 +70,8 @@ def params_to_dict(params: Params) -> dict[str, Any]:
         "bg_mode": _enc_colour(params.bg_mode),
         "brush_width": params.brush_width,
         "brush_colour": _enc_colour(params.brush_colour),
+        "line_style": str(params.line_style),
+        "line_dash_offset": int(params.line_dash_offset),
         "grid_size": params.grid_size,
         "grid_colour": _enc_colour(params.grid_colour),
         "grid_visible": params.grid_visible,
@@ -97,8 +102,23 @@ def _dec_anchor(val: Any) -> Anchor:
 
 
 def _dec_line(dic: dict[str, Any]) -> Line:
+    from models.linestyle import LineStyle
+
+    style_raw = dic.get("style", "solid")
+    try:
+        style = LineStyle(style_raw)
+    except Exception:
+        style = LineStyle.SOLID
     return Line(
-        dic["x1"], dic["y1"], dic["x2"], dic["y2"], _dec_colour(dic["col"]), int(dic["width"]), dic.get("cap", "round")
+        dic["x1"],
+        dic["y1"],
+        dic["x2"],
+        dic["y2"],
+        _dec_colour(dic["col"]),
+        int(dic["width"]),
+        dic.get("cap", "round"),
+        style=style,
+        dash_offset=int(dic.get("dash_offset", 0)),
     )
 
 
@@ -132,12 +152,20 @@ def dict_to_params(dic: dict[str, Any]) -> Params:
 
     from models.params import Params  # avoid cycles
 
+    style_raw = dic.get("line_style", "solid")
+    try:
+        line_style = LineStyle(style_raw)
+    except Exception:
+        line_style = LineStyle.SOLID
+
     params = Params(
         width=int(dic["width"]),
         height=int(dic["height"]),
         bg_mode=_dec_colour(dic["bg_mode"]),
         brush_width=int(dic["brush_width"]),
         brush_colour=_dec_colour(dic["brush_colour"]),
+        line_style=line_style,
+        line_dash_offset=int(dic.get("line_dash_offset", 0)),
         grid_size=int(dic["grid_size"]),
         grid_colour=_dec_colour(dic["grid_colour"]),
         grid_visible=bool(dic["grid_visible"]),

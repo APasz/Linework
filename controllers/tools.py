@@ -1,18 +1,19 @@
 from __future__ import annotations
 
+import math
 import tkinter as tk
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from canvas.hit_test import hit_under_cursor
 from canvas.layers import L_PREV, Layer_Manager, LayerName
 from controllers.commands import Add_Icon, Add_Label, Add_Line, Command_Stack, Move_Icon, Move_Label
 from models.geo import Line, Point
+from models.linestyle import scaled_pattern
 from models.objects import Icon, Label
 from models.params import Params
 from ui.status import Status
-import math
 
 SHIFT_MASK = 0x0001  # Tk modifier mask for Shift
 
@@ -82,21 +83,29 @@ class Draw_Tool(Tool):
         if evt is not None and self._dir_snap_on(app, evt):
             x2, y2 = self._snap_directional(app, x2, y2, self.start)
 
-        p = app.params
+        params = app.params
         x1, y1 = self.start.x, self.start.y
+
+        dash = scaled_pattern(params.line_style, params.brush_width)
+
+        # Annotate as Any so Pylance doesn’t over-constrain values due to "tags"
+        opts: dict[str, Any] = {
+            "fill": params.brush_colour.hex,
+            "width": params.brush_width,
+            "capstyle": self.start.capstyle,
+            "tags": (L_PREV,),
+        }
+        if dash:
+            opts["dash"] = dash
+            if params.line_dash_offset:
+                opts["dashoffset"] = int(params.line_dash_offset)
+
         if self.preview_id is None:
-            self.preview_id = app.canvas.create_line(
-                x1,
-                y1,
-                x2,
-                y2,
-                fill=p.brush_colour.hex,
-                width=p.brush_width,
-                capstyle=self.start.capstyle,
-                tags=(L_PREV,),
-            )
+            self.preview_id = app.canvas.create_line(x1, y1, x2, y2, **opts)
         else:
             app.canvas.coords(self.preview_id, x1, y1, x2, y2)
+            reapply: dict[str, Any] = {k: v for k, v in opts.items() if k != "tags"}
+            app.canvas.itemconfig(self.preview_id, **reapply)
             app.canvas.tag_raise(L_PREV)
 
     def _commit_segment(self, app: Applike, x2: int, y2: int, evt: tk.Event | None = None):
@@ -111,17 +120,19 @@ class Draw_Tool(Tool):
             app.status.temp("Ignored zero-length segment", ms=1000, priority=50, side="left")
             return
 
-        p = app.params
+        params = app.params
         ln = Line(
             x1=self.start.x,
             y1=self.start.y,
             x2=x2,
             y2=y2,
-            col=p.brush_colour,
-            width=p.brush_width,
+            col=params.brush_colour,
+            width=params.brush_width,
             capstyle=self.start.capstyle,
+            style=params.line_style,
+            dash_offset=params.line_dash_offset,
         )
-        app.cmd.push_and_do(Add_Line(p, ln, on_after=lambda: app.layers_redraw("lines")))
+        app.cmd.push_and_do(Add_Line(params, ln, on_after=lambda: app.layers_redraw("lines")))
         app.mark_dirty()
         self._clear_preview(app)
         self.start = None
@@ -144,7 +155,7 @@ class Draw_Tool(Tool):
         if dx == 0 and dy == 0:
             return sx, sy
 
-        # 2) quantize angle to nearest 45°
+        # 2) quantise angle to nearest 45°
         ang = math.atan2(dy, dx)  # [-pi, pi]
         step = math.pi / 4.0  # 45°
         qang = round(ang / step) * step  # nearest octant
@@ -358,7 +369,7 @@ class Select_Tool:
                         if derived is not None:
                             break
                 if derived is None:
-                    # we can't resolve a valid model index; normalize redraw and abort
+                    # can't resolve a valid model index; normalise redraw and abort
                     app.layers_redraw("icons")
                     self._drag_kind = ""
                     self._drag_token = None

@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from disk.formats import Formats
 from models.colour import Colour, Colours
 from models.geo import Line
+from models.linestyle import LineStyle
 from models.objects import Icon, Label
 
 
@@ -12,8 +13,10 @@ class Params(BaseModel):
     width: int = 600
     height: int = 600
     bg_mode: Colour = Colours.white
-    brush_width: int = 10
+    brush_width: int = 5
     brush_colour: Colour = Colours.black
+    line_style: LineStyle = LineStyle.SOLID
+    line_dash_offset: int = 0
     grid_size: int = 40
     grid_colour: Colour = Colours.gray
     grid_visible: bool = True
