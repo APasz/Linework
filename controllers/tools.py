@@ -123,10 +123,8 @@ class Draw_Tool(Tool):
 
         params = app.params
         ln = Line(
-            x1=self.start.x,
-            y1=self.start.y,
-            x2=x2,
-            y2=y2,
+            a=self.start,
+            b=Point(x2, y2),
             col=params.brush_colour,
             width=params.brush_width,
             capstyle=self.start.capstyle,

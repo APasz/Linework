@@ -96,10 +96,10 @@ def edit_line(parent: tk.Misc, ln: Line) -> dict[str, Any] | None:
         # {"name": "dash_offset", "label": "Dash offset", "kind": "int", "min": 0},
     ]
     init = {
-        "x1": ln.x1,
-        "y1": ln.y1,
-        "x2": ln.x2,
-        "y2": ln.y2,
+        "x1": ln.a.x,
+        "y1": ln.a.y,
+        "x2": ln.b.x,
+        "y2": ln.b.y,
         "snap": False,
         "width": ln.width,
         "capstyle": ln.capstyle,

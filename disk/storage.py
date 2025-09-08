@@ -4,11 +4,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from disk.formats import Formats
 from models.anchors import Anchor
 from models.colour import Colour
 from models.colour import Colours as Cols
-from models.geo import Line
+from models.geo import Line, Point
 from models.linestyle import CapStyle, LineStyle
 from models.objects import Icon, Label
 from models.params import Params
@@ -25,12 +24,14 @@ def _enc_anchor(anchor: Anchor) -> dict[str, Any]:
     return {"value": anchor.value}
 
 
+def _enc_point(point: Point) -> dict[str, Any]:
+    return {"x": point.x, "y": point.y, "capstyle": point.capstyle}
+
+
 def _enc_line(lin: Line) -> dict[str, Any]:
     return {
-        "x1": lin.x1,
-        "y1": lin.y1,
-        "x2": lin.x2,
-        "y2": lin.y2,
+        "a": _enc_point(lin.a),
+        "b": _enc_point(lin.b),
         "col": _enc_colour(lin.col),
         "width": lin.width,
         "cap": lin.capstyle.value,
@@ -103,6 +104,12 @@ def _dec_anchor(val: Any) -> Anchor:
     return Anchor.C
 
 
+def _dec_point(val: Any) -> Point:
+    if isinstance(val, dict):
+        return Point(val.get("x", -1), val.get("y", -1), val.get("capstyle", CapStyle.ROUND))
+    raise ValueError("Line Point data is incorrect")
+
+
 def _dec_line(dic: dict[str, Any]) -> Line:
     from models.linestyle import LineStyle
 
@@ -112,10 +119,8 @@ def _dec_line(dic: dict[str, Any]) -> Line:
     except Exception:
         style = LineStyle.SOLID
     return Line(
-        dic["x1"],
-        dic["y1"],
-        dic["x2"],
-        dic["y2"],
+        _dec_point(dic["a"]),
+        _dec_point(dic["b"]),
         _dec_colour(dic["col"]),
         int(dic["width"]),
         CapStyle(dic.get("cap", "round")),

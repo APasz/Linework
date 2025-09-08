@@ -472,10 +472,10 @@ class App:
                 data["x2"], data["y2"] = self.snap(int(data["x2"]), int(data["y2"]))
 
             # apply
-            ln.x1 = int(data["x1"])
-            ln.y1 = int(data["y1"])
-            ln.x2 = int(data["x2"])
-            ln.y2 = int(data["y2"])
+            ln.a.x = int(data["x1"])
+            ln.a.y = int(data["y1"])
+            ln.b.x = int(data["x2"])
+            ln.b.y = int(data["y2"])
             ln.width = int(data["width"])
             ln.capstyle = CapStyle(str(data["capstyle"])) if data["capstyle"] != "round" else CapStyle.ROUND
             ln.style = LineStyle(str(data["style"])) if data["style"] != "solid" else LineStyle.SOLID

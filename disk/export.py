@@ -230,7 +230,7 @@ class Exporter:
             off_attr = f' stroke-dashoffset="{off}"' if arr and off else ""
 
             parts.append(
-                f'<line x1="{lin.x1}" y1="{lin.y1}" x2="{lin.x2}" y2="{lin.y2}" '
+                f'<line x1="{lin.a.x}" y1="{lin.a.y}" x2="{lin.b.x}" y2="{lin.b.y}" '
                 f'stroke="{stroke}" stroke-width="{lin.width}" stroke-linecap="{_svg_cap(lin.capstyle)}" '
                 f'stroke-linejoin="round"{sop}{dash_attr}{off_attr}/>'
             )
@@ -305,13 +305,13 @@ def _draw_lines(draw: ImageDraw.ImageDraw, params: Params) -> None:
         if dash:
             # dashed path with per-cap emulation
             # extend endpoints if projecting, but KEEP dashed
-            ux, uy, L = _unit(lin.x1, lin.y1, lin.x2, lin.y2)
+            ux, uy, L = _unit(lin.a.x, lin.a.y, lin.b.x, lin.b.y)
             if lin.capstyle == CapStyle.PROJECTING and L > 0:
                 r = w / 2.0
-                x1e, y1e = lin.x1 - ux * r, lin.y1 - uy * r
-                x2e, y2e = lin.x2 + ux * r, lin.y2 + uy * r
+                x1e, y1e = lin.a.x - ux * r, lin.a.y - uy * r
+                x2e, y2e = lin.b.x + ux * r, lin.b.y + uy * r
             else:
-                x1e, y1e, x2e, y2e = lin.x1, lin.y1, lin.x2, lin.y2
+                x1e, y1e, x2e, y2e = lin.b.x, lin.b.y, lin.b.x, lin.b.y
 
             _stroke_dashed_line(
                 draw,
@@ -327,18 +327,18 @@ def _draw_lines(draw: ImageDraw.ImageDraw, params: Params) -> None:
             )
         else:
             # solid path + cap emulation
-            ux, uy, L = _unit(lin.x1, lin.y1, lin.x2, lin.y2)
+            ux, uy, L = _unit(lin.a.x, lin.a.y, lin.b.x, lin.b.y)
             r = w / 2.0
             if lin.capstyle == CapStyle.PROJECTING and L > 0:
-                xa, ya = lin.x1 - ux * r, lin.y1 - uy * r
-                xb, yb = lin.x2 + ux * r, lin.y2 + uy * r
+                xa, ya = lin.a.x - ux * r, lin.a.y - uy * r
+                xb, yb = lin.b.x + ux * r, lin.b.y + uy * r
                 draw.line([(xa, ya), (xb, yb)], fill=lin.col.rgba, width=w)
             elif lin.capstyle == CapStyle.ROUND:
-                draw.line([(lin.x1, lin.y1), (lin.x2, lin.y2)], fill=lin.col.rgba, width=w)
-                draw.ellipse([lin.x1 - r, lin.y1 - r, lin.x1 + r, lin.y1 + r], fill=lin.col.rgba)
-                draw.ellipse([lin.x2 - r, lin.y2 - r, lin.x2 + r, lin.y2 + r], fill=lin.col.rgba)
+                draw.line([(lin.a.x, lin.a.y), (lin.b.x, lin.b.y)], fill=lin.col.rgba, width=w)
+                draw.ellipse([lin.a.x - r, lin.a.y - r, lin.a.x + r, lin.a.y + r], fill=lin.col.rgba)
+                draw.ellipse([lin.b.x - r, lin.b.y - r, lin.b.x + r, lin.b.y + r], fill=lin.col.rgba)
             else:
-                draw.line([(lin.x1, lin.y1), (lin.x2, lin.y2)], fill=lin.col.rgba, width=w)
+                draw.line([(lin.a.x, lin.a.y), (lin.b.x, lin.b.y)], fill=lin.col.rgba, width=w)
 
 
 def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont | None], Any]:

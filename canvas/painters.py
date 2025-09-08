@@ -55,10 +55,10 @@ class Painters_Impl:
     def _paint_line(self, canvas: tk.Canvas, lin: Line, idx: int):
         tag = ("line", L_LINES, f"line:{idx}")
         canvas.create_line(
-            lin.x1,
-            lin.y1,
-            lin.x2,
-            lin.y2,
+            lin.a.x,
+            lin.a.y,
+            lin.b.x,
+            lin.b.y,
             fill=lin.col.hex,
             width=lin.width,
             capstyle=lin.capstyle.value,
