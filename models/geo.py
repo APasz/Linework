@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from models.colour import Colour
-from models.linestyle import LineStyle, CapStyle
+from models.linestyle import CapStyle, LineStyle
 
 
 @dataclass(slots=True)

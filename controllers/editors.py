@@ -1,12 +1,13 @@
-# controllers/editors.py
 from __future__ import annotations
+
 import tkinter as tk
 from typing import Any
-from ui.edit_dialog import GenericEditDialog
+
 from models.colour import Colours as Cols
-from models.linestyle import LineStyle
-from models.objects import Label, Icon
 from models.geo import Line
+from models.linestyle import LineStyle
+from models.objects import Icon, Label
+from ui.edit_dialog import GenericEditDialog
 
 
 # helpers

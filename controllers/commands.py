@@ -8,9 +8,8 @@ from models.geo import Line
 from models.objects import Icon, Label
 from models.params import Params
 
+
 # ---- Command infra ----
-
-
 class Command(Protocol):
     def do(self): ...
     def undo(self): ...
@@ -44,8 +43,6 @@ class Command_Stack:
 
 
 # ---- Concrete commands ----
-
-
 @dataclass
 class Add_Line:
     params: Params

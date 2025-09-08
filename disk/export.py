@@ -15,8 +15,6 @@ from models.params import Params
 
 
 # ------------------------- Low-level helpers (shared) ------------------------- #
-
-
 def _unit(x1: float, y1: float, x2: float, y2: float) -> tuple[float, float, float]:
     dx, dy = (x2 - x1), (y2 - y1)
     L = hypot(dx, dy)
@@ -38,8 +36,6 @@ def _col_and_opacity(col) -> tuple[str, str]:
 
 
 # ----------------------------- PIL dashed stroker ---------------------------- #
-
-
 def _stroke_dashed_line(
     draw: ImageDraw.ImageDraw,
     x1: float,
@@ -138,8 +134,6 @@ def _stroke_dashed_line(
 
 
 # ------------------------------- Exporter class ------------------------------ #
-
-
 class Exporter:
     """
     Public API:
@@ -147,7 +141,6 @@ class Exporter:
             Dispatches based on params.output_file suffix
     """
 
-    # Keep a Formats-keyed dispatch for simplicity: "png" | "webp" | "svg"
     supported: dict[Formats, Callable[[Params], Path]] = {}
 
     @classmethod
@@ -173,7 +166,6 @@ class Exporter:
         return sups
 
     # ---------- Raster draw (PIL) ---------- #
-
     @staticmethod
     def _draw(params: Params) -> Image.Image:
         img = Image.new("RGBA", (params.width, params.height), params.bg_mode.rgba)
@@ -199,7 +191,6 @@ class Exporter:
         return params.output_file
 
     # ---------- SVG ---------- #
-
     @staticmethod
     def svg(params: Params) -> Path:
         W, H = params.width, params.height
@@ -235,7 +226,7 @@ class Exporter:
                 f'stroke-linejoin="round"{sop}{dash_attr}{off_attr}/>'
             )
 
-        # labels (rotated around their (x,y))
+        # labels
         for lab in getattr(params, "labels", []):
             lab: Label
             fill, fop = _col_and_opacity(lab.col)
@@ -247,7 +238,7 @@ class Exporter:
                 f"{_escape(lab.text)}</text>"
             )
 
-        # icons (draw in local space at origin, rotate, then translate)
+        # icons
         for ico in getattr(params, "icons", []):
             ico: Icon
             col, cop = _col_and_opacity(ico.col)
@@ -286,8 +277,6 @@ class Exporter:
 
 
 # -------------------------- Raster sub-painters (PIL) ------------------------- #
-
-
 def _draw_grid(draw: ImageDraw.ImageDraw, params: Params) -> None:
     if not (params.grid_visible and params.grid_size > 0):
         return
@@ -395,7 +384,6 @@ def _draw_icons(img: Image.Image, params: Params) -> None:
         s, x, y, col = ico.size, ico.x, ico.y, ico.col.rgba
 
         if rot % 360 != 0:
-            # Draw into a local layer centered at (0,0), rotate, then paste at (x,y)
             box = max(s * 3, 64)
             layer = Image.new("RGBA", (box, box), (0, 0, 0, 0))
             ld = ImageDraw.Draw(layer)
@@ -449,8 +437,6 @@ def _draw_icons(img: Image.Image, params: Params) -> None:
 
 
 # ------------------------------- SVG helpers -------------------------------- #
-
-
 def _svg_cap(cap: CapStyle) -> str:
     # Tk: "butt" | "round" | "projecting"
     # SVG: "butt" | "round" | "square"
@@ -461,5 +447,4 @@ def _escape(string: str) -> str:
     return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-# initialize dispatch map
 Exporter.match_supported()

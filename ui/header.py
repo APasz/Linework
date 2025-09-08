@@ -25,7 +25,7 @@ def _add_labeled(master: ttk.Frame, make_widget, text: str = "", right_label: bo
 def create_header(
     master,
     mode_var: tk.StringVar,  # "draw" | "label" | "icon" | "select"
-    icon_var: tk.StringVar,  # current icon name
+    icon_var: tk.StringVar,
     on_toggle_grid,
     on_undo,
     on_redo,

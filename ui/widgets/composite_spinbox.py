@@ -98,9 +98,9 @@ class Composite_Spinbox(ttk.Frame):
         if "command" in kw:
             self._command = kw.pop("command")
         if "state" in kw:
-            self.state(kw.pop("state"))  # delegate to your state handler
+            self.state(kw.pop("state"))
 
-        # Forward the rest to ttk.Frame
+        # Forward rest to ttk.Frame
         if kw:
             return super().configure(**kw)
         return None
@@ -135,7 +135,6 @@ class Composite_Spinbox(ttk.Frame):
         # keep ints pretty; floats if increment isn’t integral
         if isinstance(self._inc, int) or (isinstance(self._inc, float) and self._inc.is_integer()):
             return str(int(round(v)))
-        # keep a reasonable precision for floats
         return f"{v:.6g}"
 
     def _validate_and_clamp(self, call_command=True):

@@ -12,7 +12,8 @@ from models.colour import Colours as Cols
 @dataclass
 class Palette_Handles:
     frame: ttk.Frame
-    set_selected: Callable[[str], None]  # call with colour name
+    set_selected: Callable[[str], None]
+    "call with colour name"
 
 
 class Colour_Palette(ttk.Frame):

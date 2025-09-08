@@ -27,15 +27,15 @@ class _Overlay:
 class Status:
     """
     Weighted, ordered status:
-      - set(text) -> base left text
-      - hold(key, text, priority=0, side='left')
-      - release(key)
-      - temp(text, ms=1200, priority=50, side='left')
-      - set_suffix(text) -> sugar for hold('suffix', text, side='right', priority=-10)
+        - set(text) -> base left text
+        - hold(key, text, priority=0, side='left')
+        - release(key)
+        - temp(text, ms=1200, priority=50, side='left')
+        - set_suffix(text) -> sugar for hold('suffix', text, side='right', priority=-10)
     Render rule:
-      For each side (left/right), show the highest-priority overlay if any,
-      else the base (left) + optional right overlay.
-      If both sides have overlays, left | right are joined with an em dash.
+        For each side (left/right), show the highest-priority overlay if any,
+        else the base (left) + optional right overlay.
+        If both sides have overlays, left | right are joined with an em dash.
     """
 
     def __init__(self, root: tk.Misc):

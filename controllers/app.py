@@ -8,6 +8,7 @@ import sv_ttk
 
 from canvas.layers import L_GRID, Layer_Manager, LayerName
 from canvas.painters import Painters_Impl
+from controllers import editors
 from controllers.commands import Command_Stack
 from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool
 from disk.export import Exporter
@@ -17,10 +18,8 @@ from models.anchors import Anchor
 from models.colour import Colours as Cols
 from models.linestyle import CapStyle, LineStyle
 from models.params import Params
+from ui import header, toolbar
 from ui.status import Status
-
-from ui import toolbar, header
-from controllers import editors
 
 
 class App:

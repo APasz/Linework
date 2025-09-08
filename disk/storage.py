@@ -187,9 +187,6 @@ def dict_to_params(dic: dict[str, Any]) -> Params:
     return params
 
 
-# ---------- Public API ----------
-
-
 class IO:
     @staticmethod
     def save_params(params: Params, path: Path):
@@ -199,9 +196,6 @@ class IO:
     def load_params(path: Path) -> Params:
         raw = json.loads(path.read_text()) if path.exists() else {"version": SCHEMA_VERSION}
         return dict_to_params(raw)
-
-
-# ---------- Migration hook ----------
 
 
 def _migrate(data: dict[str, Any], from_version: int) -> dict[str, Any]:

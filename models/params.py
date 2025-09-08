@@ -2,7 +2,6 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from disk.formats import Formats
 from models.colour import Colour, Colours
 from models.geo import Line
 from models.linestyle import LineStyle
