@@ -4,8 +4,6 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from typing import Any
 
-Number = int | float
-
 
 class GenericEditDialog(simpledialog.Dialog):
     """Schema-based modal editor. Returns a dict on success via self.result."""

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Protocol
 
-from models.geo import Line
-from models.objects import Icon, Label
+from models.geo import Icon, Label, Line, Point
 from models.params import Params
 
 
@@ -47,7 +46,7 @@ class Command_Stack:
 class Add_Line:
     params: Params
     line: Line
-    on_after: Callable[[], None]  # e.g., lambda: app.layers.redraw("lines")
+    on_after: Callable[[], None]  # e.g., lambda: app.layers.redraw(Layer_Name.lines)
 
     def do(self):
         self.params.lines.append(self.line)
@@ -64,10 +63,6 @@ class Add_Line:
                     del self.params.lines[idx]
                     break
         self.on_after()
-
-    @classmethod
-    def from_points(cls, params: Params, x1, y1, x2, y2, col, width, capstyle, on_after):
-        return cls(params, Line(x1, y1, x2, y2, col, width, capstyle), on_after=on_after)
 
 
 @dataclass
@@ -110,18 +105,20 @@ class Add_Icon:
 class Move_Label:
     params: Params
     index: int
-    old_xy: tuple[int, int]
-    new_xy: tuple[int, int]
+    old_point: Point
+    new_point: Point
     on_after: Callable[[], None]
 
     def do(self):
         lab = self.params.labels[self.index]
-        self.params.labels[self.index] = replace(lab, x=self.new_xy[0], y=self.new_xy[1])
+        lab.p = self.new_point
+        self.params.labels[self.index] = lab
         self.on_after()
 
     def undo(self):
         lab = self.params.labels[self.index]
-        self.params.labels[self.index] = replace(lab, x=self.old_xy[0], y=self.old_xy[1])
+        lab.p = self.old_point
+        self.params.labels[self.index] = lab
         self.on_after()
 
 
@@ -129,16 +126,18 @@ class Move_Label:
 class Move_Icon:
     params: Params
     index: int
-    old_xy: tuple[int, int]
-    new_xy: tuple[int, int]
+    old_point: Point
+    new_point: Point
     on_after: Callable[[], None]
 
     def do(self):
         ico = self.params.icons[self.index]
-        self.params.icons[self.index] = replace(ico, x=self.new_xy[0], y=self.new_xy[1])
+        ico.p = self.new_point
+        self.params.icons[self.index] = ico
         self.on_after()
 
     def undo(self):
         ico = self.params.icons[self.index]
-        self.params.icons[self.index] = replace(ico, x=self.old_xy[0], y=self.old_xy[1])
+        ico.p = self.old_point
+        self.params.icons[self.index] = ico
         self.on_after()

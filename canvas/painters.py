@@ -4,11 +4,10 @@ import math
 import tkinter as tk
 from typing import Protocol
 
-from canvas.layers import L_GRID, L_ICONS, L_LABELS, L_LINES
-from models.geo import Line
-from models.linestyle import scaled_pattern
-from models.objects import Icon, Label
+from canvas.layers import L_GRID, L_ICONS, L_LABELS, L_LINES, Hit_Kind
+from models.geo import Icon, Label, Line
 from models.params import Params
+from models.styling import scaled_pattern
 
 
 class Scene(Protocol):
@@ -53,7 +52,7 @@ class Painters_Impl:
             self._paint_line(canvas, lin, idx)
 
     def _paint_line(self, canvas: tk.Canvas, lin: Line, idx: int):
-        tag = ("line", L_LINES, f"line:{idx}")
+        tag = (Hit_Kind.line.value, L_LINES, f"{Hit_Kind.line.value}:{idx}")
         canvas.create_line(
             lin.a.x,
             lin.a.y,
@@ -72,10 +71,10 @@ class Painters_Impl:
             self._paint_label(canvas, lab, idx)
 
     def _paint_label(self, canvas: tk.Canvas, lab: Label, idx: int):
-        tag = ("label", L_LABELS, f"label:{idx}")
+        tag = (Hit_Kind.label.value, L_LABELS, f"{Hit_Kind.label.value}:{idx}")
         canvas.create_text(
-            lab.x,
-            lab.y,
+            lab.p.x,
+            lab.p.y,
             text=lab.text,
             fill=lab.col.hex,
             anchor=lab.anchor.tk,
@@ -90,9 +89,9 @@ class Painters_Impl:
             self._paint_icon(canvas, ico, idx)
 
     def _paint_icon(self, canvas: tk.Canvas, ico: Icon, idx: int):
-        tag = ("icon", L_ICONS, f"icon:{idx}")
-        s, x, y, col = ico.size, ico.x, ico.y, ico.col.hex
-        x, y, s, col, rot = ico.x, ico.y, ico.size, ico.col.hex, float(ico.rotation or 0)
+        tag = (Hit_Kind.icon.value, L_ICONS, f"{Hit_Kind.icon.value}:{idx}")
+        s, x, y, col = ico.size, ico.p.x, ico.p.y, ico.col.hex
+        x, y, s, col, rot = ico.p.x, ico.p.y, ico.size, ico.col.hex, float(ico.rotation or 0)
         if ico.name == "signal":
             r = s // 2
             canvas.create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags=tag)

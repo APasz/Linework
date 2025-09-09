@@ -4,16 +4,15 @@ import math
 import tkinter as tk
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from enum import StrEnum
+from typing import Any, Protocol
 
-from canvas.hit_test import test_hit
-from canvas.layers import L_PREV, Layer_Manager, LayerName
+from canvas.layers import L_PREV, Hit_Kind, Layer_Manager, Layer_Name, test_hit
 from controllers.commands import Add_Icon, Add_Label, Add_Line, Command_Stack, Move_Icon, Move_Label
-from models.geo import Line, Point
-from models.linestyle import scaled_pattern
-from models.objects import Icon, Label
+from models.geo import Icon, Label, Line, Point
 from models.params import Params
-from ui.status import Status
+from models.styling import TkCursor, scaled_pattern
+from ui.bars import Bars, Side
 
 SHIFT_MASK = 0x0001  # Tk modifier mask for Shift
 
@@ -24,22 +23,30 @@ class Applike(Protocol):
     canvas: tk.Canvas
     params: Params
     cmd: Command_Stack
-    status: Status
+    status: Bars.Status
     layers: Layer_Manager
     mark_dirty: Callable
     drag_to_draw: Callable[..., bool]
-    snapping: Callable[..., bool]
+    cardinal: Callable[..., bool]
 
-    def snap(self, x: int, y: int, /) -> tuple[int, int]: ...
-    def layers_redraw(self, *layers: LayerName): ...
+    def snap(self, point: Point, /) -> Point: ...
+    def layers_redraw(self, *layers: Layer_Name): ...
     def prompt_text(self, title: str, prompt: str, /) -> str | None: ...
-    def _set_selected(self, kind: str | None, idx: int | None): ...
+    def _set_selected(self, kind: Hit_Kind, idx: int | None): ...
+
+
+class Tool_Name(StrEnum):
+    draw = "draw"
+    label = "label"
+    icon = "icon"
+    select = "select"
 
 
 # ---- base tool ----
 class Tool(Protocol):
-    name: str
-    cursor: str | None
+    name: Tool_Name
+    cursor: TkCursor | None
+    kind: Hit_Kind
 
     def on_press(self, app: Applike, evt: tk.Event, /): ...
     def on_motion(self, app: Applike, evt: tk.Event, /): ...
@@ -49,8 +56,9 @@ class Tool(Protocol):
 
 # ---- DrawTool ----
 class Draw_Tool(Tool):
-    name = "draw"
-    cursor = "crosshair"
+    name: Tool_Name = Tool_Name.draw
+    cursor: TkCursor | None = TkCursor.CROSSHAIR
+    kind: Hit_Kind = Hit_Kind.line
 
     def __init__(self):
         self.start: Point | None = None
@@ -58,19 +66,20 @@ class Draw_Tool(Tool):
         self._is_dragging: bool = False  # only used in drag-to-draw mode
 
     # --- utilities ---
-    def _snap(self, app: Applike, x: int, y: int) -> tuple[int, int]:
+    def _snap(self, app: Applike, point: Point) -> Point:
         g = app.params.grid_size
         W, H = app.params.width, app.params.height
+        X, Y = point.x, point.y
         if g > 0:
-            sx, sy = round(x / g) * g, round(y / g) * g
+            sx, sy = round(X / g) * g, round(Y / g) * g
             max_x, max_y = (W // g) * g, (H // g) * g
             sx = 0 if sx < 0 else max_x if sx > max_x else sx
             sy = 0 if sy < 0 else max_y if sy > max_y else sy
-            return sx, sy
+            return Point(x=sx, y=sy)
         # no grid: clamp to canvas
-        x = 0 if x < 0 else W if x > W else x
-        y = 0 if y < 0 else H if y > H else y
-        return x, y
+        x = 0 if X < 0 else W if X > W else X
+        y = 0 if Y < 0 else H if Y > H else Y
+        return Point(x=x, y=y)
 
     def _clear_preview(self, app: Applike):
         if self.preview_id:
@@ -78,81 +87,77 @@ class Draw_Tool(Tool):
             self.preview_id = None
         app.layers.clear_preview()
 
-    def _update_preview_to(self, app: Applike, x2: int, y2: int, evt: tk.Event | None = None):
+    def _update_preview_to(self, app: Applike, end: Point, evt: tk.Event | None = None):
         if not self.start:
             return
         if evt is not None and self._dir_snap_on(app, evt):
-            x2, y2 = self._snap_directional(app, x2, y2, self.start)
+            end = self._snap_directional(app, end, self.start)
 
-        params = app.params
-        x1, y1 = self.start.x, self.start.y
-
-        dash = scaled_pattern(params.line_style, params.brush_width)
+        dash = scaled_pattern(app.params.line_style, app.params.brush_width)
 
         # Annotate as Any so Pylance doesn’t over-constrain values due to "tags"
         opts: dict[str, Any] = {
-            "fill": params.brush_colour.hex,
-            "width": params.brush_width,
+            "fill": app.params.brush_colour.hex,
+            "width": app.params.brush_width,
             "capstyle": self.start.capstyle,
             "tags": (L_PREV,),
         }
         if dash:
             opts["dash"] = dash
-            if params.line_dash_offset:
-                opts["dashoffset"] = int(params.line_dash_offset)
+            if app.params.line_dash_offset:
+                opts["dashoffset"] = int(app.params.line_dash_offset)
 
         if self.preview_id is None:
-            self.preview_id = app.canvas.create_line(x1, y1, x2, y2, **opts)
+            self.preview_id = app.canvas.create_line(self.start.x, self.start.y, end.x, end.y, **opts)
         else:
-            app.canvas.coords(self.preview_id, x1, y1, x2, y2)
+            app.canvas.coords(self.preview_id, self.start.x, self.start.y, end.x, end.y)
             reapply: dict[str, Any] = {k: v for k, v in opts.items() if k != "tags"}
             app.canvas.itemconfig(self.preview_id, **reapply)
             app.canvas.tag_raise(L_PREV)
 
-    def _commit_segment(self, app: Applike, x2: int, y2: int, evt: tk.Event | None = None):
+    def _commit_segment(self, app: Applike, end: Point, evt: tk.Event | None = None):
         if not self.start:
             return
         if evt is not None and self._dir_snap_on(app, evt):
-            x2, y2 = self._snap_directional(app, x2, y2, self.start)
+            end = self._snap_directional(app, end, self.start)
 
-        if x2 == self.start.x and y2 == self.start.y:
+        if end.x == self.start.x and end.y == self.start.y:
             self._clear_preview(app)
             self.start = None
-            app.status.temp("Ignored zero-length segment", ms=1000, priority=50, side="left")
+            app.status.temp("Ignored zero-length segment", ms=1000, priority=50, side=Side.centre)
             return
 
-        params = app.params
         ln = Line(
             a=self.start,
-            b=Point(x2, y2),
-            col=params.brush_colour,
-            width=params.brush_width,
+            b=end,
+            col=app.params.brush_colour,
+            width=app.params.brush_width,
             capstyle=self.start.capstyle,
-            style=params.line_style,
-            dash_offset=params.line_dash_offset,
+            style=app.params.line_style,
+            dash_offset=app.params.line_dash_offset,
         )
-        app.cmd.push_and_do(Add_Line(params, ln, on_after=lambda: app.layers_redraw("lines")))
+        app.cmd.push_and_do(Add_Line(app.params, ln, on_after=lambda: app.layers_redraw(Layer_Name.lines)))
         app.mark_dirty()
         self._clear_preview(app)
         self.start = None
 
     def _dir_snap_on(self, app: Applike, evt: tk.Event) -> bool:
-        """Return True if direction snapping should be applied for this event."""
-        base = app.snapping()  # your UI toggle
+        """Return True if direction cardial should be applied for this event."""
+        base = app.cardinal()  # your UI toggle
         shift = bool(getattr(evt, "state", 0) & SHIFT_MASK)
         return (not base) if shift else base  # Shift inverts
 
-    def _snap_directional(self, app: Applike, x: int, y: int, start: Point) -> tuple[int, int]:
+    def _snap_directional(self, app: Applike, point: Point, start: Point) -> Point:
         """
         Snap (x,y) to grid/clamp, then constrain the vector from start -> (x,y)
         to the nearest 45° octant. Finally re-snap/clamp to grid.
         """
         # 1) normal grid snap + clamp
-        sx, sy = self._snap(app, x, y)
+        spoint = self._snap(app, point)
 
-        dx, dy = sx - start.x, sy - start.y
+        dx, dy = spoint.x - start.x, spoint.y - start.y
         if dx == 0 and dy == 0:
-            return sx, sy
+            return spoint
 
         # 2) quantise angle to nearest 45°
         ang = math.atan2(dy, dx)  # [-pi, pi]
@@ -165,53 +170,64 @@ class Draw_Tool(Tool):
         qy = start.y + r * math.sin(qang)
 
         # 3) final snap/clamp to grid/canvas (and cast to int)
-        qxs, qys = self._snap(app, int(round(qx)), int(round(qy)))
-        return qxs, qys
+        return self._snap(app, Point(x=round(qx), y=round(qy)))
 
     # --- Tool interface ---
     def on_press(self, app: Applike, evt: tk.Event):
-        x, y = self._snap(app, evt.x, evt.y)
+        point = self._snap(app, Point(x=evt.x, y=evt.y))
         if app.drag_to_draw():
             # drag mode: press sets start; release will commit
             if self.start is None:
-                self.start = Point(x, y)
+                self.start = point
                 self._is_dragging = True
                 r = max(2, app.params.brush_width // 2)
                 app.canvas.create_oval(
-                    x - r, y - r, x + r, y + r, outline="", fill=app.params.brush_colour.hex, tags=(L_PREV,)
+                    point.x - r,
+                    point.y - r,
+                    point.x + r,
+                    point.y + r,
+                    outline="",
+                    fill=app.params.brush_colour.hex,
+                    tags=(L_PREV,),
                 )
         else:
             # click-click: press toggles between set-start and commit
             if self.start is None:
-                self.start = Point(x, y)
+                self.start = point
                 r = max(2, app.params.brush_width // 2)
                 app.canvas.create_oval(
-                    x - r, y - r, x + r, y + r, outline="", fill=app.params.brush_colour.hex, tags=(L_PREV,)
+                    point.x - r,
+                    point.y - r,
+                    point.x + r,
+                    point.y + r,
+                    outline="",
+                    fill=app.params.brush_colour.hex,
+                    tags=(L_PREV,),
                 )
             else:
                 # second click commits at this snapped press position
-                self._commit_segment(app, x, y, evt)
+                self._commit_segment(app, point, evt)
 
     def on_motion(self, app: Applike, evt: tk.Event):
         if self.start is None:
             return
-        x2, y2 = self._snap(app, evt.x, evt.y)
-        self._update_preview_to(app, x2, y2, evt)
-        app.status.hold("drawline", f"({self.start.x},{self.start.y}) → ({x2},{y2})")
+        point = self._snap(app, Point(x=evt.x, y=evt.y))
+        self._update_preview_to(app, point, evt)
+        app.status.hold("drawline", f"({self.start.x},{self.start.y}) → ({point.x},{point.y})")
 
     def on_hover(self, app: Applike, evt: tk.Event):
         if self.start is None or app.drag_to_draw():
             return
-        x2, y2 = self._snap(app, evt.x, evt.y)
-        self._update_preview_to(app, x2, y2, evt)
-        app.status.hold("drawline", f"({self.start.x},{self.start.y}) → ({x2},{y2})")
+        point = self._snap(app, Point(x=evt.x, y=evt.y))
+        self._update_preview_to(app, point, evt)
+        app.status.hold("drawline", f"({self.start.x},{self.start.y}) → ({point.x},{point.y})")
 
     def on_release(self, app: Applike, evt: tk.Event):
         if self.start is None:
             return
         if app.drag_to_draw():
-            x2, y2 = self._snap(app, evt.x, evt.y)
-            self._commit_segment(app, x2, y2, evt)
+            point = self._snap(app, Point(x=evt.x, y=evt.y))
+            self._commit_segment(app, point, evt)
             self._is_dragging = False
         app.status.release("drawline")
 
@@ -225,18 +241,20 @@ class Draw_Tool(Tool):
 # ---- LabelTool ----
 @dataclass
 class Label_Tool:
-    name: str = "label"
-    cursor: str | None = "xterm"
+    name: Tool_Name = Tool_Name.label
+    cursor: TkCursor | None = TkCursor.XTERM
+    kind: Hit_Kind = Hit_Kind.label
 
     def on_press(self, app: Applike, evt: tk.Event):
-        x, y = app.snap(evt.x, evt.y)
+        point = app.snap(Point(x=evt.x, y=evt.y))
+
         text = app.prompt_text("New Label", "Text:")
         if not text:
             return
-        lab = Label(x=x, y=y, text=text, col=app.params.brush_colour, size=12)
-        app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers_redraw("labels")))
+        lab = Label(p=point, text=text, col=app.params.brush_colour, size=12)
+        app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers_redraw(Layer_Name.labels)))
         app.mark_dirty()
-        app.status.temp(f"Label @ ({x},{y})")
+        app.status.temp(f"Label @ ({point.x},{point.y})", 2500)
 
     def on_motion(self, app: Applike, evt: tk.Event): ...
     def on_release(self, app: Applike, evt: tk.Event): ...
@@ -247,39 +265,41 @@ class Label_Tool:
 @dataclass
 class Icon_Tool:
     get_icon_name: Callable
-    name: str = "icon"
-    cursor: str | None = "hand2"
+    name: Tool_Name = Tool_Name.icon
+    cursor: TkCursor | None = TkCursor.HAND2
+    kind: Hit_Kind = Hit_Kind.icon
 
-    def on_press(self, app: Applike, e: tk.Event):
-        x, y = app.snap(e.x, e.y)
-        ico = Icon(x=x, y=y, name=self.get_icon_name(), col=app.params.brush_colour, size=16, rotation=0)
-        app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers_redraw("icons")))
+    def on_press(self, app: Applike, evt: tk.Event):
+        point = app.snap(Point(x=evt.x, y=evt.y))
+
+        ico = Icon(p=point, name=self.get_icon_name(), col=app.params.brush_colour, size=16, rotation=0)
+        app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers_redraw(Layer_Name.icons)))
         app.mark_dirty()
-        app.status.temp(f"Icon @ ({x},{y})")
+        app.status.temp(f"Icon @ ({point.x},{point.y})", 2500)
 
-    def on_motion(self, app: Applike, e: tk.Event): ...
-    def on_release(self, app: Applike, e: tk.Event): ...
+    def on_motion(self, app: Applike, evt: tk.Event): ...
+    def on_release(self, app: Applike, evt: tk.Event): ...
     def on_cancel(self, app: Applike): ...
 
 
 # ---- SelectTool (drag labels/icons) ----
 @dataclass
 class Select_Tool:
-    name: str = "select"
-    cursor: str | None = "arrow"
-    _drag_kind: Literal["label", "icon", "line", ""] = ""
+    name: Tool_Name = Tool_Name.select
+    cursor: TkCursor | None = TkCursor.ARROW
+    _drag_kind: Hit_Kind = Hit_Kind.miss
     _drag_canvas_id: int | None = None  # for labels
     _drag_index: int | None = None  # model index for the selection
     _drag_icon_ids: tuple[int, ...] | None = None  # concrete item ids of the icon
-    _start_xy: tuple[int, int] | None = None
-    _press_center: tuple[int, int] | None = None
+    _start_pos: Point | None = None
+    _press_center: Point | None = None
     _dragged: bool = False
 
-    def _centre_of_tag(self, canvas: tk.Canvas, tag: str) -> tuple[int, int] | None:
+    def _centre_of_tag(self, canvas: tk.Canvas, tag: str) -> Point | None:
         bbox = canvas.bbox(tag) or (lambda ids: canvas.bbox(ids[0]) if ids else None)(canvas.find_withtag(tag))
         if not bbox:
             return None
-        return ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
+        return Point(x=round((bbox[0] + bbox[2]) / 2), y=round((bbox[1] + bbox[3]) / 2))
 
     def on_press(self, app: Applike, evt: tk.Event):
         hit = test_hit(app.canvas, evt.x, evt.y)
@@ -287,11 +307,11 @@ class Select_Tool:
         self._press_center = None
 
         if not hit:
-            self._drag_kind = ""
+            self._drag_kind = Hit_Kind.miss
             self._drag_canvas_id = None
             self._drag_index = None
             self._drag_icon_ids = None
-            self._start_xy = None
+            self._start_pos = None
             return
 
         app.canvas.focus_set()
@@ -304,32 +324,32 @@ class Select_Tool:
         self._drag_kind = hit.kind
         self._drag_canvas_id = hit.canvas_idx
         self._drag_index = hit.tag_idx
-        self._start_xy = (evt.x, evt.y)
+        self._start_pos = Point(x=evt.x, y=evt.y)
 
-        if self._drag_kind == "icon" and self._drag_index is not None:
-            tag = f"icon:{self._drag_index}"
+        if self._drag_kind == Hit_Kind.icon and self._drag_index is not None:
+            tag = f"{Hit_Kind.icon.value}:{self._drag_index}"
             self._drag_icon_ids = tuple(app.canvas.find_withtag(tag))
             centre = self._centre_of_tag(app.canvas, tag)
             if centre:
                 self._press_center = centre
-        elif self._drag_kind == "label" and self._drag_canvas_id is not None:
+        elif self._drag_kind == Hit_Kind.label and self._drag_canvas_id is not None:
             coords = app.canvas.coords(self._drag_canvas_id)
             if coords:
-                self._press_center = (int(round(coords[0])), int(round(coords[1])))
+                self._press_center = Point(x=round(coords[0]), y=round(coords[1]))
 
     def on_motion(self, app: Applike, evt: tk.Event):
-        if not self._start_xy or not self._drag_kind:
+        if not self._start_pos or not self._drag_kind:
             return
-        dx, dy = evt.x - self._start_xy[0], evt.y - self._start_xy[1]
+        dx, dy = evt.x - self._start_pos.x, evt.y - self._start_pos.y
         if dx or dy:
             self._dragged = True
-        if self._drag_kind == "label" and self._drag_canvas_id is not None:
+        if self._drag_kind == Hit_Kind.label and self._drag_canvas_id is not None:
             app.canvas.move(self._drag_canvas_id, dx, dy)
-        elif self._drag_kind == "icon" and self._drag_index is not None:
-            app.canvas.move(f"icon:{self._drag_index}", dx, dy)
-        self._start_xy = (evt.x, evt.y)
+        elif self._drag_kind == Hit_Kind.icon and self._drag_index is not None:
+            app.canvas.move(f"{Hit_Kind.icon.value}:{self._drag_index}", dx, dy)
+        self._start_pos = Point(x=evt.x, y=evt.y)
 
-    def on_release(self, app: Applike, e: tk.Event):
+    def on_release(self, app: Applike, evt: tk.Event):
         try:
             app.canvas.grab_release()
         except tk.TclError:
@@ -337,30 +357,30 @@ class Select_Tool:
         if not self._drag_kind:
             return
 
-        if self._drag_kind == "label":
+        if self._drag_kind == Hit_Kind.label:
             cid = int(self._drag_canvas_id or 0)
             coords = app.canvas.coords(cid)
-            end_center = (int(round(coords[0])), int(round(coords[1]))) if coords else (e.x, e.y)
+            end_center = Point(x=round(coords[0]), y=round(coords[1])) if coords else Point(x=evt.x, y=evt.y)
 
             if not (self._dragged and self._moved_enough(self._press_center, end_center)):
                 # click only → do nothing; keep off-grid positions
                 self._reset()
                 return
 
-            sx, sy = self._maybe_snap_point(
-                app, end_center[0], end_center[1], kind="label", index=self._label_index_from_canvas(app, cid)
+            spoint = self._maybe_snap_point(
+                app, end_center, kind=Hit_Kind.label, index=self._label_index_from_canvas(app, cid), evt=evt
             )
             idx = self._label_index_from_canvas(app, cid)
-            old = (app.params.labels[idx].x, app.params.labels[idx].y)
-            if (sx, sy) != old:
+            old = app.params.labels[idx].p
+            if spoint != old:
                 app.cmd.push_and_do(
-                    Move_Label(app.params, idx, old, (sx, sy), on_after=lambda: app.layers_redraw("labels"))
+                    Move_Label(app.params, idx, old, spoint, on_after=lambda: app.layers_redraw(Layer_Name.labels))
                 )
                 app.mark_dirty()
             else:
-                app.layers_redraw("labels")
+                app.layers_redraw(Layer_Name.labels)
 
-        elif self._drag_kind == "icon":
+        elif self._drag_kind == Hit_Kind.icon:
             # compute end center from the ids we actually dragged
             if self._drag_icon_ids:
                 bbox = None
@@ -373,33 +393,35 @@ class Select_Tool:
                             else (min(bbox[0], b[0]), min(bbox[1], b[1]), max(bbox[2], b[2]), max(bbox[3], b[3]))
                         )
                 if bbox:
-                    end_center = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
+                    end_center = Point(x=round((bbox[0] + bbox[2]) / 2), y=round((bbox[1] + bbox[3]) / 2))
                 else:
-                    end_center = (e.x, e.y)
+                    end_center = Point(x=evt.x, y=evt.y)
             else:
-                end_center = (e.x, e.y)
+                end_center = Point(x=evt.x, y=evt.y)
 
             if not (self._dragged and self._moved_enough(self._press_center, end_center)):
                 self._reset()
                 return
 
             # resolve model index from dragged ids
-            idx = self._infer_index_from_ids(app.canvas, self._drag_icon_ids or (), "icon")
+            idx = self._drag_index
             if idx is None:
-                idx = self._nearest_icon_index(app, end_center[0], end_center[1])
-                if idx is None:
-                    self._reset()
-                    return
+                idx = self._infer_index_from_ids(app.canvas, self._drag_icon_ids or (), Hit_Kind.icon)
+            if idx is None:
+                idx = self._nearest_icon_index(app, end_center)
+            if idx is None:
+                self._reset()
+                return
 
-            sx, sy = self._maybe_snap_point(app, end_center[0], end_center[1], kind="icon", index=idx)
-            old = (app.params.icons[idx].x, app.params.icons[idx].y)
-            if (sx, sy) != old:
+            spoint = self._maybe_snap_point(app, end_center, kind=Hit_Kind.icon, index=idx, evt=evt)
+            old = app.params.icons[idx].p
+            if spoint != old:
                 app.cmd.push_and_do(
-                    Move_Icon(app.params, idx, old, (sx, sy), on_after=lambda: app.layers_redraw("icons"))
+                    Move_Icon(app.params, idx, old, spoint, on_after=lambda: app.layers_redraw(Layer_Name.icons))
                 )
                 app.mark_dirty()
             else:
-                app.layers_redraw("icons")
+                app.layers_redraw(Layer_Name.icons)
 
         self._reset()
 
@@ -407,11 +429,11 @@ class Select_Tool:
         self._reset()
 
     def _reset(self):
-        self._drag_kind = ""
+        self._drag_kind = Hit_Kind.miss
         self._drag_canvas_id = None
         self._drag_index = None
         self._drag_icon_ids = None
-        self._start_xy = None
+        self._start_pos = None
         self._press_center = None
         self._dragged = False
 
@@ -422,26 +444,26 @@ class Select_Tool:
         # so we re-hit labels by position/text match:
         tags = app.canvas.gettags(cid)
         for tag in tags:
-            if tag.startswith("label:"):
+            if tag.startswith(f"{Hit_Kind.label.value}:"):
                 return int(tag.split(":", 1)[1])
 
         x, y = app.canvas.coords(cid)[:2]
         text = app.canvas.itemcget(cid, "text")
         for i, lab in enumerate(app.params.labels):
-            if lab.text == text and abs(lab.x - x) < 2 and abs(lab.y - y) < 2:
+            if lab.text == text and abs(lab.p.x - x) < 2 and abs(lab.p.y - y) < 2:
                 return i
         # fallback: nearest by distance
         best_i, best_d = 0, 1e9
         for i, lab in enumerate(app.params.labels):
-            d = (lab.x - x) ** 2 + (lab.y - y) ** 2
+            d = (lab.p.x - x) ** 2 + (lab.p.y - y) ** 2
             if d < best_d:
                 best_d, best_i = d, i
         return best_i
 
-    def _infer_index_from_ids(self, canvas: tk.Canvas, ids: tuple[int, ...], prefix: str) -> int | None:
+    def _infer_index_from_ids(self, canvas: tk.Canvas, ids: tuple[int, ...], prefix: Hit_Kind) -> int | None:
         """Return the most common '<prefix>:K' tag index across these item ids."""
         counts: dict[int, int] = {}
-        needle = prefix + ":"
+        needle = prefix.value + ":"
         for cid in ids:
             for t in canvas.gettags(cid):
                 if t.startswith(needle):
@@ -455,35 +477,37 @@ class Select_Tool:
         # majority vote
         return max(counts.items(), key=lambda kv: kv[1])[0]
 
-    def _nearest_icon_index(self, app: Applike, cx: int, cy: int) -> int | None:
+    def _nearest_icon_index(self, app: Applike, point: Point) -> int | None:
         best_i, best_d = None, float("inf")
         for i, ico in enumerate(app.params.icons):
-            d = (ico.x - cx) * (ico.x - cx) + (ico.y - cy) * (ico.y - cy)
+            d = (ico.p.x - point.x) * (ico.p.x - point.x) + (ico.p.y - point.y) * (ico.p.y - point.y)
             if d < best_d:
                 best_d, best_i = d, i
         return best_i
 
-    def _moved_enough(self, a: tuple[int, int] | None, b: tuple[int, int] | None, tol: int = 1) -> bool:
+    def _moved_enough(self, a: Point | None, b: Point | None, tol: int = 1) -> bool:
         if not a or not b:
             return False
-        return abs(a[0] - b[0]) > tol or abs(a[1] - b[1]) > tol
+        return abs(a.x - b.x) > tol or abs(a.y - b.y) > tol
 
-    def _snap_enabled_for(self, app: Applike, evt: tk.Event | None, kind: str, index: int) -> bool:
+    def _snap_enabled_for(self, app: Applike, kind: Hit_Kind, index: int, evt: tk.Event | None) -> bool:
         # App-wide toggle
-        base = app.snapping()
+        base = app.cardinal()
         # Ctrl inverts (hold to bypass, or hold to force if base==False)
         ctrl = (getattr(evt, "state", 0) & 0x0004) != 0  # ControlMask bit on X11/Windows; tweak on mac if needed
         want = base ^ ctrl
         # Per-object preference (only matters if want==True)
         if not want:
             return False
-        if kind == "label":
+        if kind == Hit_Kind.label:
             return bool(getattr(app.params.labels[index], "snap", True))
-        if kind == "icon":
+        if kind == Hit_Kind.icon:
             return bool(getattr(app.params.icons[index], "snap", True))
         return True
 
-    def _maybe_snap_point(self, app: Applike, x: int, y: int, *, kind: str, index: int, evt: tk.Event | None = None):
-        if self._snap_enabled_for(app, evt, kind, index):
-            return app.snap(x, y)
-        return (x, y)
+    def _maybe_snap_point(
+        self, app: Applike, point: Point, *, kind: Hit_Kind, index: int, evt: tk.Event | None = None
+    ) -> Point:
+        if self._snap_enabled_for(app, kind, index, evt):
+            return app.snap(point)
+        return point

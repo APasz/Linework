@@ -1,18 +1,18 @@
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
-from models.colour import Colour, Colours
-from models.geo import Line
-from models.linestyle import LineStyle
-from models.objects import Icon, Label
+from models.geo import Icon, Label, Line
+from models.styling import Colour, Colours, LineStyle, Model
+
+SCHEMA_VERSION = 1
 
 
-class Params(BaseModel):
+class Params(Model):
     width: int = 1200
     height: int = 600
     bg_mode: Colour = Colours.white
-    brush_width: int = 5
+    brush_width: int = 10
     brush_colour: Colour = Colours.black
     line_style: LineStyle = LineStyle.SOLID
     line_dash_offset: int = 0
@@ -24,5 +24,4 @@ class Params(BaseModel):
     lines: list[Line] = Field(default_factory=list)
     labels: list[Label] = Field(default_factory=list)
     icons: list[Icon] = Field(default_factory=list)
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    version: int = Field(default=SCHEMA_VERSION)

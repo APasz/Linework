@@ -6,20 +6,17 @@ from tkinter import filedialog, messagebox, ttk
 
 import sv_ttk
 
-from canvas.layers import L_GRID, Layer_Manager, LayerName
+from canvas.layers import L_GRID, Hit_Kind, Layer_Manager, Layer_Name
 from canvas.painters import Painters_Impl
 from controllers import editors
 from controllers.commands import Command_Stack
-from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool
-from disk.export import Exporter
-from disk.formats import Formats
+from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool, Tool_Name
+from disk.export import Exporter, Formats
 from disk.storage import IO
-from models.anchors import Anchor
-from models.colour import Colours as Cols
-from models.linestyle import CapStyle, LineStyle
+from models.geo import Point
 from models.params import Params
-from ui import header, toolbar
-from ui.status import Status
+from models.styling import Anchor, CapStyle, Colours, LineStyle
+from ui.bars import Bars, Side
 
 
 class App:
@@ -46,7 +43,7 @@ class App:
 
         # ---- UI state vars ----
         self.var_drag_to_draw = tk.BooleanVar(value=True)
-        self.var_snapping = tk.BooleanVar(value=True)
+        self.var_cardinal = tk.BooleanVar(value=True)
         self.var_grid = tk.IntVar(value=self.params.grid_size)
         self.var_width_px = tk.IntVar(value=self.params.width)
         self.var_height_px = tk.IntVar(value=self.params.height)
@@ -54,9 +51,9 @@ class App:
         self.var_bg = tk.StringVar(value=self.params.bg_mode.name)
         self.var_colour = tk.StringVar(value=self.params.brush_colour.name)
         self.var_colour.trace_add("write", self.apply_colour)
-        self.var_line_style = tk.StringVar(value=self.params.line_style.value)
+        self.var_line_style = tk.StringVar(value=self.params.line_style)
         self.var_dash_offset = tk.IntVar(value=self.params.line_dash_offset)
-        self.selection_kind: str | None = None  # "line" | "label" | "icon"
+        self.selection_kind: Hit_Kind = Hit_Kind.miss  # "line" | "label" | "icon" | ""
         self.selection_index: int | None = None
 
         self.mode = tk.StringVar(value="draw")
@@ -65,12 +62,12 @@ class App:
         self.var_drag_to_draw.trace_add(
             "write", lambda *_: self.status.temp("Mode: drag to draw" if self.drag_to_draw() else "Mode: click-click")
         )
-        self.var_snapping.trace_add(
-            "write", lambda *_: self.status.temp("Mode: Snapping" if self.snapping() else "Mode: No Snap")
+        self.var_cardinal.trace_add(
+            "write", lambda *_: self.status.temp("Mode: Cardinal" if self.cardinal() else "Mode: No Cardinal")
         )
 
         # ---- header & toolbar ----
-        header.create_header(
+        Bars.create_header(
             self.root,
             mode_var=self.mode,
             icon_var=self.var_icon,
@@ -84,7 +81,7 @@ class App:
             on_save_as=self.save_project_as,
             on_export=self.export_image,
         )
-        tbar = toolbar.create_toolbar(
+        tbar = Bars.create_toolbar(
             self.root,
             grid_var=self.var_grid,
             brush_var=self.var_brush_w,
@@ -92,7 +89,7 @@ class App:
             height_var=self.var_height_px,
             bg_var=self.var_bg,
             drag_to_draw_var=self.var_drag_to_draw,
-            snapping_var=self.var_snapping,
+            cardinal_var=self.var_cardinal,
             style_var=self.var_line_style,
             offset_var=self.var_dash_offset,
             on_style_change=self.on_style_change,
@@ -105,12 +102,12 @@ class App:
         )
 
         # ---- canvas ----
-        display_bg = Cols.sys.dark_gray.hex if self.params.bg_mode.alpha == 0 else self.params.bg_mode.hex
+        display_bg = Colours.sys.dark_gray.hex if self.params.bg_mode.alpha == 0 else self.params.bg_mode.hex
         self.canvas = tk.Canvas(self.root, width=self.params.width, height=self.params.height, bg=display_bg)
         self.canvas.pack(fill="both", expand=False)
 
         # ---- status bar ----
-        self.status = Status(self.root)
+        self.status = Bars.Status(self.root)
         ttk.Label(self.root, textvariable=self.status.var, anchor="w").pack(fill="x")
         self.status.set("Ready")
 
@@ -141,16 +138,15 @@ class App:
         # ---- commands & tools ----
         self.cmd = Command_Stack()
         self.tools = {
-            "draw": Draw_Tool(),
-            "label": Label_Tool(),
-            "icon": Icon_Tool(get_icon_name=lambda: self.var_icon.get()),
-            "select": Select_Tool(),
+            Draw_Tool.name: Draw_Tool(),
+            Label_Tool.name: Label_Tool(),
+            Icon_Tool.name: Icon_Tool(get_icon_name=lambda: self.var_icon.get()),
+            Select_Tool.name: Select_Tool(),
         }
-        self.current_tool = self.tools[self.mode.get()]
-        self.canvas.config(cursor=self.current_tool.cursor or "")
+        self.current_tool = self.tools[Tool_Name(self.mode.get())]
+        self.canvas.config(cursor=self.current_tool.cursor.value if self.current_tool.cursor else "")
 
         tags = list(self.canvas.bindtags())
-        # default order is (item, 'Canvas', 'all'); put Canvas first
         if "Canvas" in tags:
             tags.remove("Canvas")
             tags.insert(0, "Canvas")
@@ -182,9 +178,9 @@ class App:
             "<KeyPress-Shift_L>",
             lambda e: self.status.hold(
                 "shift",
-                f"Snap {'OFF' if self.snapping() else 'ON'}",
+                f"Cardinal {'OFF' if self.cardinal() else 'ON'}",
                 priority=100,
-                side="right",
+                side=Side.right,
             ),
         )
         self.root.bind("<KeyRelease-Shift_L>", lambda e: self.status.release("shift"))
@@ -192,9 +188,9 @@ class App:
             "<KeyPress-Shift_R>",
             lambda e: self.status.hold(
                 "shift",
-                f"Snap {'OFF' if self.snapping() else 'ON'}",
+                f"Cardinal {'OFF' if self.cardinal() else 'ON'}",
                 priority=100,
-                side="right",
+                side=Side.right,
             ),
         )
         self.root.bind("<KeyRelease-Shift_R>", lambda e: self.status.release("shift"))
@@ -217,18 +213,24 @@ class App:
 
         return sd.askstring(title, prompt, parent=self.root)
 
-    def layers_redraw(self, *layers: LayerName):
+    def layers_redraw(self, *layers: Layer_Name):
         if layers:
             for name in layers:
                 self.layers.redraw(name)
         else:
             self.layers.redraw_all()
 
-    def snap(self, x: int, y: int) -> tuple[int, int]:
-        grid = self.params.grid_size
-        if grid <= 0:
-            return x, y
-        return round(x / grid) * grid, round(y / grid) * grid
+    def snap(self, point: Point) -> Point:
+        g = self.params.grid_size
+        if g <= 0:
+            return point
+        # nearest multiple of g
+        x = round(point.x / g) * g
+        y = round(point.y / g) * g
+        # clamp to canvas if you want to be nice
+        x = 0 if x < 0 else self.params.width if x > self.params.width else x
+        y = 0 if y < 0 else self.params.height if y > self.params.height else y
+        return Point(x=x, y=y)
 
     # --------- UI callbacks ---------
     def on_style_change(self, *_):
@@ -245,8 +247,8 @@ class App:
         self.status.set(f"Line style: {self.params.line_style.value}")
 
     def _on_mode_change(self, *_):
-        self.current_tool = self.tools[self.mode.get()]
-        self.canvas.config(cursor=self.current_tool.cursor or "")
+        self.current_tool = self.tools[Tool_Name(self.mode.get())]
+        self.canvas.config(cursor=self.current_tool.cursor.value if self.current_tool.cursor else "")
         self.status.temp(self.mode.get().title())
         self.status.clear_suffix()
 
@@ -256,10 +258,10 @@ class App:
     def toggle_grid(self):
         self.params.grid_visible = not self.params.grid_visible
         if self.params.grid_visible:
-            self.layers.redraw("grid")
+            self.layers.redraw(Layer_Name.grid)
             self.canvas.tag_lower(L_GRID)
         else:
-            self.layers.clear("grid")
+            self.layers.clear(Layer_Name.grid)
         self.status.temp("Grid ON" if self.params.grid_visible else "Grid OFF")
         self.mark_dirty()
 
@@ -295,17 +297,24 @@ class App:
         self.mark_dirty()
 
     def apply_bg(self, *_):
-        col = Cols.get(self.var_bg.get()) or Cols.white
+        raw = (self.var_bg.get().strip() if self.var_bg else "") or "white"
+        try:
+            col = Colours.parse_colour(raw)
+        except ValueError:
+            col = Colours.white
         self.params.bg_mode = col
-        display_bg = Cols.sys.dark_gray if col.alpha == 0 else col
+        display_bg = Colours.sys.dark_gray if col.alpha == 0 else col
         self.canvas.config(bg=display_bg.hex)
-
-        self.layers.redraw("grid")  # grid colour may need contrast
+        self.layers.redraw(Layer_Name.grid)
 
     def apply_colour(self, *_):
-        col = Cols.get(self.var_colour.get()) or Cols.black
+        raw = (self.var_colour.get().strip() if self.var_colour else "") or "black"
+        try:
+            col = Colours.parse_colour(raw)
+        except ValueError:
+            col = Colours.black
         self.params.brush_colour = col
-        self.status.temp(f"Brush: {col.name}")
+        self.status.temp(f"Brush: {Colours.name_for(col) or col.hexa}")
 
     def on_undo(self, _evt=None):
         self.current_tool.on_cancel(self)
@@ -381,11 +390,11 @@ class App:
             step = -1
         if k == "icon":
             self.params.icons[i].rotation = round((self.params.icons[i].rotation + delta_deg) % 360)
-            self.layers.redraw("icons")
+            self.layers.redraw(Layer_Name.icons)
             self.mark_dirty()
         elif k == "label":
             self.params.labels[i].rotation = round((self.params.labels[i].rotation + delta_deg) % 360)
-            self.layers.redraw("labels")
+            self.layers.redraw(Layer_Name.labels)
             self.mark_dirty()
         elif k == "line":
             ln = self.params.lines[i]
@@ -403,13 +412,13 @@ class App:
             except ValueError:
                 j = 0
             ln.style = order[(j + step) % len(order)]
-            self.layers.redraw("lines")
+            self.layers.redraw(Layer_Name.lines)
             self.mark_dirty()
 
-    def _selected(self):
+    def _selected(self) -> tuple[Hit_Kind, int | None]:
         return self.selection_kind, self.selection_index
 
-    def _set_selected(self, kind: str | None, idx: int | None):
+    def _set_selected(self, kind: Hit_Kind, idx: int | None):
         self.selection_kind, self.selection_index = kind, idx
 
     def _edit_selected(self):
@@ -417,70 +426,74 @@ class App:
         if k is None or i is None:
             return
 
-        if k == "label":
+        if k == Hit_Kind.label:
             lab = self.params.labels[i]
             data = editors.edit_label(self.root, lab)
             if not data:
                 return
 
-            if data.get("snap"):
-                data["x"], data["y"] = self.snap(int(data["x"]), int(data["y"]))
+            point = Point(x=int(data["x"]), y=int(data["y"]))
+
+            if data.get("snap_to_grid"):
+                point = self.snap(point)
 
             # apply
             lab.text = data["text"]
-            lab.x = int(data["x"])
-            lab.y = int(data["y"])
+            lab.p = point
             lab.snap = bool(data.get("snap_flag", getattr(lab, "snap", True)))
             lab.size = int(data["size"])
             lab.rotation = int(data.get("rotation", 0))
             lab.anchor = Anchor.parse(data["anchor"]) or lab.anchor
-            lab.col = Cols.get(data["colour"]) or lab.col
-            self.layers.redraw("labels")
+            lab.col = Colours.parse_colour(data["colour"]) if data["colour"] else lab.col
+            self.layers.redraw(Layer_Name.labels)
             self.mark_dirty()
 
-        elif k == "icon":
+        elif k == Hit_Kind.icon:
             ico = self.params.icons[i]
             # pass your available icon names (static or dynamic)
             data = editors.edit_icon(self.root, ico, icon_name_choices=["signal", "buffer", "crossing", "switch"])
             if not data:
                 return
 
-            if data.get("snap"):
-                data["x"], data["y"] = self.snap(int(data["x"]), int(data["y"]))
+            point = Point(x=int(data["x"]), y=int(data["y"]))
+
+            if data.get("snap_to_grid"):
+                point = self.snap(point)
 
             # apply
             ico.name = data["name"]
-            ico.x = int(data["x"])
-            ico.y = int(data["y"])
+            ico.p = point
             ico.snap = bool(data.get("snap_flag", getattr(ico, "snap", True)))
             ico.size = int(data["size"])
             ico.rotation = int(data.get("rotation", 0))
             ico.anchor = Anchor.parse(data["anchor"]) or ico.anchor
-            ico.col = Cols.get(data["colour"]) or ico.col
-            self.layers.redraw("icons")
+            ico.col = Colours.parse_colour(data["colour"]) if data["colour"] else ico.col
+            self.layers.redraw(Layer_Name.icons)
             self.mark_dirty()
 
-        elif k == "line":
+        elif k == Hit_Kind.line:
             ln = self.params.lines[i]
             data = editors.edit_line(self.root, ln)
             if not data:
                 return
 
-            if data.get("snap"):
-                data["x1"], data["y1"] = self.snap(int(data["x1"]), int(data["y1"]))
-                data["x2"], data["y2"] = self.snap(int(data["x2"]), int(data["y2"]))
+            point_a = Point(x=int(data["x1"]), y=int(data["y1"]))
+            point_b = Point(x=int(data["x2"]), y=int(data["y2"]))
+
+            if data.get("snap_to_grid"):
+                point_a = self.snap(point_a)
+                point_b = self.snap(point_b)
 
             # apply
-            ln.a.x = int(data["x1"])
-            ln.a.y = int(data["y1"])
-            ln.b.x = int(data["x2"])
-            ln.b.y = int(data["y2"])
+            ln.a = point_a
+            ln.b = point_b
             ln.width = int(data["width"])
             ln.capstyle = CapStyle(str(data["capstyle"])) if data["capstyle"] != "round" else CapStyle.ROUND
+            print(f"Apply: {str(data["style"])=} | {ln.capstyle=}")
             ln.style = LineStyle(str(data["style"])) if data["style"] != "solid" else LineStyle.SOLID
-            ln.col = Cols.get(data["colour"]) or ln.col
+            ln.col = Colours.parse_colour(data["colour"]) if data["colour"] else ln.col
             # ln.dash_offset = int(data.get("dash_offset", 0))
-            self.layers.redraw("lines")
+            self.layers.redraw(Layer_Name.lines)
             self.mark_dirty()
 
     def _nearest_multiple(self, n: int, m: int) -> int:
@@ -586,9 +599,9 @@ class App:
         self.var_width_px.set(self.params.width)
         self.var_height_px.set(self.params.height)
         self.var_brush_w.set(self.params.brush_width)
-        self.var_bg.set(self.params.bg_mode.name)
-        self.var_colour.set(self.params.brush_colour.name)
-        self.var_line_style.set(self.params.line_style.value)
+        self.var_bg.set(self.params.bg_mode.name_str)
+        self.var_colour.set(self.params.brush_colour.name_str)
+        self.var_line_style.set(self.params.line_style)
         self.var_dash_offset.set(self.params.line_dash_offset)
         self.canvas.config(width=self.params.width, height=self.params.height)
         self._apply_size_increments(self.params.grid_size)
@@ -609,9 +622,9 @@ class App:
         self.var_width_px.set(self.params.width)
         self.var_height_px.set(self.params.height)
         self.var_brush_w.set(self.params.brush_width)
-        self.var_bg.set(self.params.bg_mode.name)
-        self.var_colour.set(self.params.brush_colour.name)
-        self.var_line_style.set(self.params.line_style.value)
+        self.var_bg.set(self.params.bg_mode.name_str)
+        self.var_colour.set(self.params.brush_colour.name_str)
+        self.var_line_style.set(self.params.line_style)
         self.var_dash_offset.set(self.params.line_dash_offset)
         self.canvas.config(width=self.params.width, height=self.params.height)
         self.layers.redraw_all()
@@ -621,5 +634,5 @@ class App:
     def drag_to_draw(self) -> bool:
         return bool(self.var_drag_to_draw.get())
 
-    def snapping(self) -> bool:
-        return bool(self.var_snapping.get())
+    def cardinal(self) -> bool:
+        return bool(self.var_cardinal.get())

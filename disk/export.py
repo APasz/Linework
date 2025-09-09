@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import enum
 from collections.abc import Callable
 from math import hypot
 from pathlib import Path
@@ -7,11 +8,20 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-from disk.formats import Formats
-from models.geo import Line
-from models.linestyle import CapStyle, scaled_pattern, svg_dasharray
-from models.objects import Icon, Label
+from models.geo import Icon, Label, Line
 from models.params import Params
+from models.styling import CapStyle, scaled_pattern, svg_dasharray
+
+
+class Formats(enum.StrEnum):
+    webp = enum.auto()
+    png = enum.auto()
+    svg = enum.auto()
+
+    @classmethod
+    def check(cls, path: Path) -> "Formats | None":
+        suf = path.suffix[1:].lower()
+        return Formats(suf) if suf in Formats else None
 
 
 # ------------------------- Low-level helpers (shared) ------------------------- #
@@ -233,8 +243,8 @@ class Exporter:
             ta, db = lab.anchor.svg  # ("start"/"middle"/"end", baseline)
             rot = -int(getattr(lab, "rotation", 0) or 0)
             parts.append(
-                f'<text x="{lab.x}" y="{lab.y}" fill="{fill}" font-size="{lab.size}" '
-                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({rot} {lab.x} {lab.y})"{fop}>'
+                f'<text x="{lab.p.x}" y="{lab.p.y}" fill="{fill}" font-size="{lab.size}" '
+                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({rot} {lab.p.x} {lab.p.y})"{fop}>'
                 f"{_escape(lab.text)}</text>"
             )
 
@@ -242,31 +252,32 @@ class Exporter:
         for ico in getattr(params, "icons", []):
             ico: Icon
             col, cop = _col_and_opacity(ico.col)
-            x, y, s = ico.x, ico.y, ico.size
             rot = int(getattr(ico, "rotation", 0) or 0)
 
-            parts.append(f'<g transform="translate({x} {y}) rotate({rot})">')
+            parts.append(f'<g transform="translate({ico.p.x} {ico.p.y}) rotate({rot})">')
             if ico.name == "signal":
-                r = s // 2
+                r = ico.size // 2
                 parts.append(f'<circle cx="0" cy="0" r="{r}" fill="{col}"{cop}/>')
-                parts.append(f'<rect x="{-r // 3}" y="{r}" width="{2 * (r // 3)}" height="{s}" fill="{col}"{cop}/>')
+                parts.append(
+                    f'<rect x="{-r // 3}" y="{r}" width="{2 * (r // 3)}" height="{ico.size}" fill="{col}"{cop}/>'
+                )
             elif ico.name == "buffer":
-                w = s
-                h = s // 2
+                w = ico.size
+                h = ico.size // 2
                 parts.append(
                     f'<rect x="{-w // 2}" y="{-h // 2}" width="{w}" height="{h}" '
                     f'fill="none" stroke="{col}" stroke-width="2"{cop}/>'
                 )
             elif ico.name == "crossing":
-                Ls = s
+                Ls = ico.size
                 parts.append(f'<line x1="{-Ls}" y1="{-Ls}" x2="{Ls}" y2="{Ls}" stroke="{col}" stroke-width="2"{cop}/>')
                 parts.append(f'<line x1="{-Ls}" y1="{Ls}" x2="{Ls}" y2="{-Ls}" stroke="{col}" stroke-width="2"{cop}/>')
             elif ico.name == "switch":
-                Ls = s
+                Ls = ico.size
                 parts.append(f'<line x1="0" y1="0" x2="{Ls}" y2="0" stroke="{col}" stroke-width="2"{cop}/>')
                 parts.append(f'<line x1="0" y1="0" x2="{Ls}" y2="{Ls // 2}" stroke="{col}" stroke-width="2"{cop}/>')
             else:
-                r = s // 3
+                r = ico.size // 3
                 parts.append(f'<circle cx="0" cy="0" r="{r}" fill="{col}"{cop}/>')
             parts.append("</g>")
 
@@ -366,11 +377,11 @@ def _draw_labels(img: Image.Image, params: Params) -> None:
             continue
         font = _font(lab.size)
         temp = Image.new("RGBA", (params.width, params.height), (0, 0, 0, 0))
-        ImageDraw.Draw(temp).text((lab.x, lab.y), txt, fill=lab.col.rgba, font=font, anchor=lab.anchor.pil)
+        ImageDraw.Draw(temp).text((lab.p.x, lab.p.y), txt, fill=lab.col.rgba, font=font, anchor=lab.anchor.pil)
         temp = temp.rotate(
             int(getattr(lab, "rotation", 0) or 0),
             resample=Image.Resampling.BICUBIC,
-            center=(lab.x, lab.y),
+            center=(lab.p.x, lab.p.y),
             expand=False,
         )
         img.alpha_composite(temp)
@@ -381,7 +392,7 @@ def _draw_icons(img: Image.Image, params: Params) -> None:
     for ico in getattr(params, "icons", []):
         ico: Icon
         rot = int(getattr(ico, "rotation", 0) or 0)
-        s, x, y, col = ico.size, ico.x, ico.y, ico.col.rgba
+        s, x, y, col = ico.size, ico.p.x, ico.p.y, ico.col.rgba
 
         if rot % 360 != 0:
             box = max(s * 3, 64)

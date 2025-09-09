@@ -1,6 +1,13 @@
 import tkinter as tk
+from enum import StrEnum
 from tkinter import ttk
-from typing import Any, Literal
+from typing import Any
+
+
+class Justify(StrEnum):
+    left = "left"
+    centre = "center"
+    right = "right"
 
 
 class Composite_Spinbox(ttk.Frame):
@@ -16,7 +23,7 @@ class Composite_Spinbox(ttk.Frame):
         command=None,
         wrap=False,
         state: str = "normal",
-        justify: Literal["left", "center", "right"] = "right",
+        justify: Justify = Justify.right,
         **kwargs,
     ):
         super().__init__(master, **kwargs)
@@ -30,7 +37,7 @@ class Composite_Spinbox(ttk.Frame):
         self.var = textvariable or tk.StringVar(value=str(self._min))
 
         # layout: [Entry][buttons column]
-        self.entry = ttk.Entry(self, textvariable=self.var, width=width, justify=justify)
+        self.entry = ttk.Entry(self, textvariable=self.var, width=width, justify=justify.value)
         self.entry.grid(row=0, column=0, sticky="nsew")
         btncol = ttk.Frame(self)
         btncol.grid(row=0, column=1, sticky="ns", padx=(1, 0))
@@ -70,8 +77,8 @@ class Composite_Spinbox(ttk.Frame):
         self.var.set(str(value))
         self._validate_and_clamp(call_command=False)
 
-    def set_justify(self, just: Literal["left", "center", "right"]):
-        self.entry.configure(justify=just)
+    def set_justify(self, justify: Justify):
+        self.entry.configure(justify=justify.value)
 
     def configure(
         self,
