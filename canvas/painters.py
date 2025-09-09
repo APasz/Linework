@@ -4,7 +4,7 @@ import math
 import tkinter as tk
 from typing import Protocol
 
-from canvas.layers import L_GRID, L_ICONS, L_LABELS, L_LINES, Hit_Kind
+from canvas.layers import Hit_Kind, Layer_Name, layer_tag, tag_tuple
 from models.geo import Icon, Label, Line
 from models.params import Params
 from models.styling import scaled_pattern
@@ -41,10 +41,10 @@ class Painters_Impl:
 
         w, h = p.width, p.height
         for x in range(0, w + 1, g):
-            canvas.create_line(x, 0, x, h, fill=p.grid_colour.hex, tags=(L_GRID,))
+            canvas.create_line(x, 0, x, h, fill=p.grid_colour.hex, tags=(layer_tag(Layer_Name.grid),))
         for y in range(0, h + 1, g):
-            canvas.create_line(0, y, w, y, fill=p.grid_colour.hex, tags=(L_GRID,))
-        canvas.tag_lower(L_GRID)
+            canvas.create_line(0, y, w, y, fill=p.grid_colour.hex, tags=(layer_tag(Layer_Name.grid),))
+        canvas.tag_lower(layer_tag(Layer_Name.grid))
 
     # ------- lines -------
     def paint_lines(self, canvas: tk.Canvas):
@@ -52,7 +52,7 @@ class Painters_Impl:
             self._paint_line(canvas, lin, idx)
 
     def _paint_line(self, canvas: tk.Canvas, lin: Line, idx: int):
-        tag = (Hit_Kind.line.value, L_LINES, f"{Hit_Kind.line.value}:{idx}")
+        tag = tag_tuple(Hit_Kind.line, idx, Layer_Name.lines)
         canvas.create_line(
             lin.a.x,
             lin.a.y,
@@ -71,7 +71,7 @@ class Painters_Impl:
             self._paint_label(canvas, lab, idx)
 
     def _paint_label(self, canvas: tk.Canvas, lab: Label, idx: int):
-        tag = (Hit_Kind.label.value, L_LABELS, f"{Hit_Kind.label.value}:{idx}")
+        tag = tag_tuple(Hit_Kind.label, idx, Layer_Name.labels)
         canvas.create_text(
             lab.p.x,
             lab.p.y,
@@ -89,7 +89,7 @@ class Painters_Impl:
             self._paint_icon(canvas, ico, idx)
 
     def _paint_icon(self, canvas: tk.Canvas, ico: Icon, idx: int):
-        tag = (Hit_Kind.icon.value, L_ICONS, f"{Hit_Kind.icon.value}:{idx}")
+        tag = tag_tuple(Hit_Kind.icon, idx, Layer_Name.icons)
         s, x, y, col = ico.size, ico.p.x, ico.p.y, ico.col.hex
         x, y, s, col, rot = ico.p.x, ico.p.y, ico.size, ico.col.hex, float(ico.rotation or 0)
         if ico.name == "signal":

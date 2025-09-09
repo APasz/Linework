@@ -62,11 +62,26 @@ class Layer_Name(StrEnum):
     preview = "preview"
 
 
-L_GRID: str = f"layer:{Layer_Name.grid.value}"
-L_LINES: str = f"layer:{Layer_Name.lines.value}"
-L_LABELS: str = f"layer:{Layer_Name.labels.value}"
-L_ICONS: str = f"layer:{Layer_Name.icons.value}"
-L_PREV: str = f"layer:{Layer_Name.preview.value}"
+LAYER_TAGS = {
+    Layer_Name.grid: f"layer:{Layer_Name.grid.value}",
+    Layer_Name.lines: f"layer:{Layer_Name.lines.value}",
+    Layer_Name.labels: f"layer:{Layer_Name.labels.value}",
+    Layer_Name.icons: f"layer:{Layer_Name.icons.value}",
+    Layer_Name.preview: f"layer:{Layer_Name.preview.value}",
+}
+
+
+def item_tag(kind: Hit_Kind, idx: int) -> str:
+    return f"{kind.value}:{idx}"
+
+
+def layer_tag(layer: Layer_Name) -> str:
+    return LAYER_TAGS[layer]
+
+
+def tag_tuple(kind: Hit_Kind, idx: int, layer: Layer_Name) -> tuple[str, str, str]:
+    # order matters for your selection code
+    return (kind.value, layer_tag(layer), item_tag(kind, idx))
 
 
 class Painters(Protocol):
@@ -84,17 +99,17 @@ class Layer_Manager:
         self.painters = painters
 
     def _enforce_z(self):
-        self.canvas.tag_lower(self._tag(Layer_Name.grid))
-        self.canvas.tag_raise(self._tag(Layer_Name.lines))
-        self.canvas.tag_raise(self._tag(Layer_Name.icons))
-        self.canvas.tag_raise(self._tag(Layer_Name.labels))
-        self.canvas.tag_raise(L_PREV)
+        self.canvas.tag_lower(layer_tag(Layer_Name.grid))
+        self.canvas.tag_raise(layer_tag(Layer_Name.lines))
+        self.canvas.tag_raise(layer_tag(Layer_Name.icons))
+        self.canvas.tag_raise(layer_tag(Layer_Name.labels))
+        self.canvas.tag_raise(layer_tag(Layer_Name.preview))
 
     # --- clears ---
     def clear(self, layer: Layer_Name):
         if not layer:
             return
-        self.canvas.delete(self._tag(layer))
+        self.canvas.delete(layer_tag(layer))
 
     def clear_many(self, layers: Iterable[Layer_Name]):
         for layer in layers:
@@ -106,7 +121,7 @@ class Layer_Manager:
             self.clear(layer)
 
     def clear_preview(self):
-        self.canvas.delete(L_PREV)
+        self.canvas.delete(layer_tag(Layer_Name.preview))
 
     # --- redraws ---
     def redraw(self, layer: Layer_Name):
@@ -127,15 +142,6 @@ class Layer_Manager:
         self._enforce_z()
 
     # --- internals ---
-    def _tag(self, layer: Layer_Name) -> str:
-        return {
-            Layer_Name.preview: L_PREV,
-            Layer_Name.lines: L_LINES,
-            Layer_Name.labels: L_LABELS,
-            Layer_Name.icons: L_ICONS,
-            Layer_Name.grid: L_GRID,
-        }[layer]
-
     def _paint(self, layer: Layer_Name):
         if layer == Layer_Name.lines:
             self.painters.paint_lines(self.canvas)

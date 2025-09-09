@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Protocol
 
-from canvas.layers import L_PREV, Hit_Kind, Layer_Manager, Layer_Name, test_hit
+from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, item_tag, layer_tag, test_hit
 from controllers.commands import Add_Icon, Add_Label, Add_Line, Command_Stack, Move_Icon, Move_Label
 from models.geo import Icon, Label, Line, Point
 from models.params import Params
@@ -100,7 +100,7 @@ class Draw_Tool(Tool):
             "fill": app.params.brush_colour.hex,
             "width": app.params.brush_width,
             "capstyle": self.start.capstyle,
-            "tags": (L_PREV,),
+            "tags": (layer_tag(Layer_Name.grid),),
         }
         if dash:
             opts["dash"] = dash
@@ -113,7 +113,7 @@ class Draw_Tool(Tool):
             app.canvas.coords(self.preview_id, self.start.x, self.start.y, end.x, end.y)
             reapply: dict[str, Any] = {k: v for k, v in opts.items() if k != "tags"}
             app.canvas.itemconfig(self.preview_id, **reapply)
-            app.canvas.tag_raise(L_PREV)
+            app.canvas.tag_raise(layer_tag(Layer_Name.grid))
 
     def _commit_segment(self, app: Applike, end: Point, evt: tk.Event | None = None):
         if not self.start:
@@ -188,7 +188,7 @@ class Draw_Tool(Tool):
                     point.y + r,
                     outline="",
                     fill=app.params.brush_colour.hex,
-                    tags=(L_PREV,),
+                    tags=(layer_tag(Layer_Name.grid),),
                 )
         else:
             # click-click: press toggles between set-start and commit
@@ -202,7 +202,7 @@ class Draw_Tool(Tool):
                     point.y + r,
                     outline="",
                     fill=app.params.brush_colour.hex,
-                    tags=(L_PREV,),
+                    tags=(layer_tag(Layer_Name.grid),),
                 )
             else:
                 # second click commits at this snapped press position
@@ -327,7 +327,8 @@ class Select_Tool:
         self._start_pos = Point(x=evt.x, y=evt.y)
 
         if self._drag_kind == Hit_Kind.icon and self._drag_index is not None:
-            tag = f"{Hit_Kind.icon.value}:{self._drag_index}"
+            tag = item_tag(Hit_Kind.icon, self._drag_index)
+
             self._drag_icon_ids = tuple(app.canvas.find_withtag(tag))
             centre = self._centre_of_tag(app.canvas, tag)
             if centre:

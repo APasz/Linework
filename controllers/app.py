@@ -6,7 +6,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import sv_ttk
 
-from canvas.layers import L_GRID, Hit_Kind, Layer_Manager, Layer_Name
+from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, layer_tag
 from canvas.painters import Painters_Impl
 from controllers import editors
 from controllers.commands import Command_Stack
@@ -259,7 +259,7 @@ class App:
         self.params.grid_visible = not self.params.grid_visible
         if self.params.grid_visible:
             self.layers.redraw(Layer_Name.grid)
-            self.canvas.tag_lower(L_GRID)
+            self.canvas.tag_lower(layer_tag(Layer_Name.grid))
         else:
             self.layers.clear(Layer_Name.grid)
         self.status.temp("Grid ON" if self.params.grid_visible else "Grid OFF")
