@@ -311,7 +311,7 @@ def _draw_lines(draw: ImageDraw.ImageDraw, params: Params) -> None:
                 x1e, y1e = lin.a.x - ux * r, lin.a.y - uy * r
                 x2e, y2e = lin.b.x + ux * r, lin.b.y + uy * r
             else:
-                x1e, y1e, x2e, y2e = lin.b.x, lin.b.y, lin.b.x, lin.b.y
+                x1e, y1e, x2e, y2e = lin.a.x, lin.a.y, lin.b.x, lin.b.y
 
             _stroke_dashed_line(
                 draw,

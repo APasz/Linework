@@ -1,2 +1,0 @@
-custom icons from svg/png/etc
-arcs

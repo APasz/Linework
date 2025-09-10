@@ -113,7 +113,7 @@ class CanvasLW(tk.Canvas):
         idx: int | None = None,
         dash_offset: int = 0,
         extra_tags: Collection[str] | None = None,
-        override_base_tages: Collection[Layer_Name] | None = None,
+        override_base_tags: Collection[Layer_Name] | None = None,
     ) -> ItemID:
         extra_tags = extra_tags or tuple()
         dash = scaled_pattern(style, width)
@@ -128,7 +128,7 @@ class CanvasLW(tk.Canvas):
             capstyle=capstyle.value,
             dash=dash or [],
             dashoffset=(dash_offset if dash else 0),
-            tags=tag_sort(override_base_tages, extra_tags, Hit_Kind.line, Layer_Name.lines, idx),
+            tags=tag_sort(override_base_tags, extra_tags, Hit_Kind.line, Layer_Name.lines, idx),
         )
         return ItemID(iid)
 
@@ -138,7 +138,7 @@ class CanvasLW(tk.Canvas):
         *,
         idx: int | None = None,
         extra_tags: Collection[str] = (),
-        override_base_tages: Collection[Layer_Name] | None = None,
+        override_base_tags: Collection[Layer_Name] | None = None,
     ) -> ItemID:
         dash = scaled_pattern(line.style, line.width)
         iid = super().create_line(
@@ -151,7 +151,7 @@ class CanvasLW(tk.Canvas):
             capstyle=line.capstyle.value,
             dash=dash or [],
             dashoffset=(line.dash_offset if dash else 0),
-            tags=tag_sort(override_base_tages, extra_tags, Hit_Kind.line, Layer_Name.lines, idx),
+            tags=tag_sort(override_base_tags, extra_tags, Hit_Kind.line, Layer_Name.lines, idx),
         )
         return ItemID(iid)
 
@@ -161,7 +161,7 @@ class CanvasLW(tk.Canvas):
         *,
         idx: int | None = None,
         extra_tags: Collection[str] = (),
-        override_base_tages: Collection[Layer_Name] | None = None,
+        override_base_tags: Collection[Layer_Name] | None = None,
     ) -> ItemID:
         iid = super().create_text(
             label.p.x,
@@ -171,7 +171,7 @@ class CanvasLW(tk.Canvas):
             anchor=label.anchor.tk,
             font=("TkDefaultFont", label.size),
             angle=label.rotation,
-            tags=tag_sort(override_base_tages, extra_tags, Hit_Kind.label, Layer_Name.labels, idx),
+            tags=tag_sort(override_base_tags, extra_tags, Hit_Kind.label, Layer_Name.labels, idx),
         )
         return ItemID(iid)
 
@@ -181,9 +181,8 @@ class CanvasLW(tk.Canvas):
         *,
         idx: int | None = None,
         extra_tags: Collection[str] = (),
-        override_base_tages: Collection[Layer_Name] | None = None,
-    ) -> ItemID:
-        s, x, y, col = icon.size, icon.p.x, icon.p.y, icon.col.hex
+        override_base_tags: Collection[Layer_Name] | None = None,
+    ) -> None:
         x, y, s, col, rot = icon.p.x, icon.p.y, icon.size, icon.col.hex, float(icon.rotation or 0)
 
         def _rot(x: float, y: float, cx: float, cy: float, deg: float) -> tuple[float, float]:
@@ -192,9 +191,9 @@ class CanvasLW(tk.Canvas):
             cs, sn = math.cos(r), math.sin(r)
             return (cx + dx * cs - dy * sn, cy + dx * sn + dy * cs)
 
-        tag = tag_sort(override_base_tages, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
+        tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
 
-        if icon.name == "signal":
+        if icon.name == Icon_Name.SIGNAL:
             r = s // 2
             super().create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags=tag)
             mx0, my0 = x - r // 3, y + r
@@ -203,7 +202,7 @@ class CanvasLW(tk.Canvas):
             mx3, my3 = x - r // 3, y + s
             parts = [_rot(px, py, x, y, rot) for (px, py) in [(mx0, my0), (mx1, my1), (mx2, my2), (mx3, my3)]]
             super().create_polygon(*sum(parts, ()), fill=col, outline="", tags=tag)
-        elif icon.name == "buffer":
+        elif icon.name == Icon_Name.BUFFER:
             w, h = s, s // 2
             corners = [
                 (x - w // 2, y - h // 2),
@@ -214,7 +213,7 @@ class CanvasLW(tk.Canvas):
             pts = [_rot(px, py, x, y, rot) for (px, py) in corners]
             super().create_polygon(*sum(pts, ()), outline=col, width=2, fill="", tags=tag)
 
-        elif icon.name == "crossing":
+        elif icon.name == Icon_Name.CROSSING:
             L = s
             x1, y1 = _rot(x - L, y - L, x, y, rot)
             x2, y2 = _rot(x + L, y + L, x, y, rot)
@@ -223,7 +222,7 @@ class CanvasLW(tk.Canvas):
             super().create_line(x1, y1, x2, y2, fill=col, width=2, tags=tag)
             super().create_line(x3, y3, x4, y4, fill=col, width=2, tags=tag)
 
-        elif icon.name == "switch":
+        elif icon.name == Icon_Name.SWITCH:
             L = s
             a1, b1 = _rot(x, y, x, y, rot)
             a2, b2 = _rot(x + L, y, x, y, rot)
@@ -233,7 +232,7 @@ class CanvasLW(tk.Canvas):
         else:
             r = s // 3
             super().create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags=tag)
-        return ItemID(1)
+        return None
 
     # ---------- updates ----------
     def coords_p(self, item: ItemID, *points: Point) -> None:

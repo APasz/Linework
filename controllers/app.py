@@ -488,8 +488,8 @@ class App:
             ln.a = point_a
             ln.b = point_b
             ln.width = int(data["width"])
-            ln.capstyle = CapStyle(str(data["capstyle"])) if data["capstyle"] != "round" else CapStyle.ROUND
-            ln.style = LineStyle(str(data["style"])) if data["style"] != "solid" else LineStyle.SOLID
+            ln.capstyle = CapStyle(data["capstyle"])
+            ln.style = LineStyle(data["style"])
             ln.col = Colours.parse_colour(data["colour"]) if data["colour"] else ln.col
             # ln.dash_offset = int(data.get("dash_offset", 0))
             self.layers.redraw(Layer_Name.lines)

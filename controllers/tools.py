@@ -101,7 +101,7 @@ class Draw_Tool(Tool):
                 width=app.params.brush_width,
                 capstyle=self.start.capstyle,
                 style=app.params.line_style,
-                override_base_tages=[Layer_Name.preview],
+                override_base_tags=[Layer_Name.preview],
             )
         else:
             opts: dict[str, Any] = {

@@ -35,12 +35,12 @@ class Painters_Impl:
         for x in range(0, w + 1, g):
             canvas.create_with_line(
                 line.with_xy(x, 0, x, h),
-                override_base_tages=[Layer_Name.grid],  # ensure proper layer
+                override_base_tags=[Layer_Name.grid],  # ensure proper layer
             )
         for y in range(0, h + 1, g):
             canvas.create_with_line(
                 line.with_xy(0, y, w, y),
-                override_base_tages=[Layer_Name.grid],
+                override_base_tags=[Layer_Name.grid],
             )
 
     # ------- lines -------
