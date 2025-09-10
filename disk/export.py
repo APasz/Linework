@@ -1,22 +1,33 @@
 from __future__ import annotations
 
-import enum
-from collections.abc import Callable
-from math import hypot
+from collections.abc import Callable, Sequence
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-from models.geo import Icon, Icon_Name, Label, Line
+from models.geo import Icon_Name, Line
 from models.params import Params
-from models.styling import Anchor, CapStyle, scaled_pattern, svg_dasharray
+from models.styling import CapStyle, svg_dasharray
+
+DOT_FACTOR = 0.8  # short dash threshold as a multiple of width
+SVG_STRICT_PARITY = False
 
 
-class Formats(enum.StrEnum):
-    webp = enum.auto()
-    png = enum.auto()
-    svg = enum.auto()
+class RASTERISERS(StrEnum):
+    pil = "pil"
+    cairosvg = "cairosvg"
+    resvg = "resvg"
+
+
+RASTER_BACKEND = RASTERISERS.cairosvg  # "pil" | "cairosvg" | "resvg"
+
+
+class Formats(StrEnum):
+    webp = "webp"
+    png = "png"
+    svg = "svg"
 
     @classmethod
     def check(cls, path: Path) -> "Formats | None":
@@ -24,15 +35,53 @@ class Formats(enum.StrEnum):
         return Formats(suf) if suf in Formats else None
 
 
+def _rasterize_via_svg(params: Params, fmt: Formats) -> bytes | None:
+    # reuse your existing SVG generator
+    svg_path = params.output_file.with_suffix(".tmp.svg")
+    Exporter.svg(params.__class__(**(params.model_dump() | {"output_file": svg_path})))  # or factor out to get string
+    svg_bytes = Path(svg_path).read_bytes()
+    Path(svg_path).unlink(missing_ok=True)
+
+    if RASTER_BACKEND == "cairosvg":
+        import cairosvg  # pyright: ignore[reportMissingImports]
+
+        if fmt == Formats.png:
+            png = cairosvg.svg2png(bytestring=svg_bytes, output_width=params.width, output_height=params.height)
+            return png if isinstance(png, bytes) else None
+        if fmt == Formats.webp:
+            # cairosvg -> PNG, then transcode with PIL
+            import io
+
+            import PIL.Image as Image
+
+            png = cairosvg.svg2png(bytestring=svg_bytes, output_width=params.width, output_height=params.height)
+            if not isinstance(png, bytes):
+                return None
+            img = Image.open(io.BytesIO(png)).convert("RGBA")
+            buf = io.BytesIO()
+            img.save(buf, format=fmt.upper(), lossless=True, method=6)
+            return buf.getvalue()
+
+    if RASTER_BACKEND == "resvg":
+        # requires `resvg` on PATH
+        import subprocess
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix="." + fmt.lower(), delete=False) as out:
+            out_path = Path(out.name)
+        subprocess.run(
+            ["resvg", "-w", str(params.width), "-h", str(params.height), "-", str(out_path)],
+            input=svg_bytes,
+            check=True,
+        )
+        data = out_path.read_bytes()
+        out_path.unlink(missing_ok=True)
+        return data
+
+    raise RuntimeError("Unknown or unavailable SVG raster backend")
+
+
 # ------------------------- Low-level helpers (shared) ------------------------- #
-def _unit(x1: float, y1: float, x2: float, y2: float) -> tuple[float, float, float]:
-    dx, dy = (x2 - x1), (y2 - y1)
-    L = hypot(dx, dy)
-    if L <= 0:
-        return 0.0, 0.0, 0.0
-    return dx / L, dy / L, L
-
-
 def _col_and_opacity(col) -> tuple[str, str]:
     """
     Return (svg_hex, extra_opacity_attr) for SVG. For PIL, you already have RGBA on the Colour object.
@@ -45,20 +94,78 @@ def _col_and_opacity(col) -> tuple[str, str]:
     return hex_rgb, op
 
 
-def _center_from_anchor_xy(px: int, py: int, w: int, h: int, a: Anchor) -> tuple[int, int]:
-    if a in (Anchor.NW, Anchor.W, Anchor.SW):
-        dx = +w / 2
-    elif a in (Anchor.NE, Anchor.E, Anchor.SE):
-        dx = -w / 2
-    else:
-        dx = 0.0
-    if a in (Anchor.NW, Anchor.N, Anchor.NE):
-        dy = +h / 2
-    elif a in (Anchor.SW, Anchor.S, Anchor.SE):
-        dy = -h / 2
-    else:
-        dy = 0.0
-    return int(round(px + dx)), int(round(py + dy))
+def dash_seq(dash: Sequence[int] | None, offset: int) -> tuple[list[int], bool]:
+    """
+    Normalize a dash pattern and apply offset.
+    Returns (sequence, start_on) where sequence has even length and no zeros.
+    If dash is None or degenerate → return ([], True) meaning 'solid'.
+    """
+    if not dash:
+        return ([], True)  # solid
+
+    seq = [int(p) for p in dash if p > 0]
+    if not seq:
+        return ([], True)  # solid
+
+    if len(seq) % 2 == 1:
+        seq *= 2
+
+    total = sum(seq)
+    off = int(offset) % total
+
+    i = 0
+    # consume offset into the sequence
+    while off > 0 and seq:
+        step = min(off, seq[0])
+        seq[0] -= step
+        off -= step
+        if seq[0] == 0:
+            seq.pop(0)
+            i += 1
+
+    if not seq:
+        # offset landed exactly on a boundary → restart from canonical
+        seq = [int(p) for p in dash if p > 0]
+        if len(seq) % 2 == 1:
+            seq *= 2
+
+    start_on = i % 2 == 0
+    return (seq, start_on)
+
+
+def iter_dash_spans(L: float, dash: Sequence[int] | None, offset: int):
+    """
+    Yield (a, b, on) arc-length spans along [0, L] after applying dash+offset.
+    a and b are distances from the start point along the line.
+    """
+    if L <= 0:
+        return
+    seq, on = dash_seq(dash, offset)
+    if not seq:  # solid
+        yield 0.0, L, True
+        return
+
+    pos = 0.0
+    idx = 0
+    max_iters = 200000
+
+    while pos < L and idx < max_iters:
+        seg_len = min(seq[idx % len(seq)], int(L - pos + 0.5))
+        if seg_len <= 0:
+            break
+        a = pos
+        b = pos + seg_len
+        yield a, b, on
+        pos = b
+        idx += 1
+        on = not on
+
+
+def extend_span_for_projecting(a: float, b: float, r: float, L: float) -> tuple[float, float]:
+    """
+    Extend an on-span by r at both ends, clamped to [0, L].
+    """
+    return max(0.0, a - r), min(L, b + r)
 
 
 # ------------------------------- SVG helpers -------------------------------- #
@@ -72,102 +179,124 @@ def _escape(string: str) -> str:
     return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-# ----------------------------- PIL dashed stroker ---------------------------- #
-def _stroke_dashed_line(
-    draw: ImageDraw.ImageDraw,
-    x1: float,
-    y1: float,
-    x2: float,
-    y2: float,
-    width: int,
-    rgba: tuple[int, int, int, int],
-    dash: tuple[int, ...],
-    offset: int = 0,
-    capstyle: CapStyle = CapStyle.ROUND,  # "butt" | "round" | "projecting"
-) -> None:
-    """
-    Draw a (possibly dashed) line with cap emulation for PIL:
-        - butt: plain segments
-        - round: circles at ends of each on-segment (and ends of solid)
-        - projecting: extend each on-segment by r at both ends along the tangent
-    """
-    ux, uy, L = _unit(x1, y1, x2, y2)
-    if L <= 0:
-        return
+def _svg_line_fast(lin) -> str:
+    """Native SVG: one <line>, rely on stroke-linecap + dasharray + dashoffset."""
+    stroke, sop = _col_and_opacity(lin.col)
+    arr = svg_dasharray(getattr(lin, "style", None), lin.width)  # "6,3" or ""
+    dash_attr = f' stroke-dasharray="{arr}"' if arr else ""
+    off = getattr(lin, "dash_offset", 0)
+    off_attr = f' stroke-dashoffset="{off}"' if arr and off else ""
+    return (
+        f'<line x1="{lin.a.x}" y1="{lin.a.y}" x2="{lin.b.x}" y2="{lin.b.y}" '
+        f'stroke="{stroke}" stroke-width="{lin.width}" '
+        f'stroke-linecap="{_svg_cap(lin.capstyle)}" stroke-linejoin="round"{sop}{dash_attr}{off_attr}/>'
+    )
 
+
+def _svg_line_strict(lin) -> list[str]:
+    """
+    Strict parity with PIL: emit per-dash <line> segments (and dots), doing our own projecting extensions.
+    We draw segments with stroke-linecap="butt" because we already extend/round ourselves.
+    """
+    ux, uy, L = lin.unit()
+    if L <= 0 or int(lin.width) <= 0:
+        return []
+
+    width = int(lin.width)
     r = width / 2.0
+    stroke, sop = _col_and_opacity(lin.col)
+    x1, y1 = float(lin.a.x), float(lin.a.y)
+    out: list[str] = []
 
-    # SOLID fast-path
+    dash = lin.scaled_pattern()  # None or tuple
+    # Solid path → one line (with native cap for ends).
     if not dash:
-        if capstyle == CapStyle.PROJECTING:
-            xa, ya = x1 - ux * r, y1 - uy * r
-            xb, yb = x2 + ux * r, y2 + uy * r
-            draw.line([(xa, ya), (xb, yb)], fill=rgba, width=width)
-        else:
-            draw.line([(x1, y1), (x2, y2)], fill=rgba, width=width)
-            if capstyle == CapStyle.ROUND:
-                draw.ellipse([x1 - r, y1 - r, x1 + r, y1 + r], fill=rgba)
-                draw.ellipse([x2 - r, y2 - r, x2 + r, y2 + r], fill=rgba)
+        out.append(
+            f'<line x1="{lin.a.x}" y1="{lin.a.y}" x2="{lin.b.x}" y2="{lin.b.y}" '
+            f'stroke="{stroke}" stroke-width="{width}" '
+            f'stroke-linecap="{_svg_cap(lin.capstyle)}" stroke-linejoin="round"{sop}/>'
+        )
+        return out
+
+    # Dashed path → explicit segments for exact parity (dot threshold and projecting)
+    for a, b, on in iter_dash_spans(L, dash, lin.dash_offset):
+        if not on:
+            continue
+        seg_len = b - a
+        if seg_len <= width * DOT_FACTOR:
+            # dot = circle at mid
+            cx = x1 + ux * ((a + b) * 0.5)
+            cy = y1 + uy * ((a + b) * 0.5)
+            out.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{stroke}"{sop}/>')
+            continue
+
+        a0, b0 = (a, b)
+        if lin.capstyle == CapStyle.PROJECTING:
+            a0, b0 = extend_span_for_projecting(a, b, r, L)
+
+        xA, yA = x1 + ux * a0, y1 + uy * a0
+        xB, yB = x1 + ux * b0, y1 + uy * b0
+        # butt caps: we already extended if needed
+        out.append(
+            f'<line x1="{xA}" y1="{yA}" x2="{xB}" y2="{yB}" '
+            f'stroke="{stroke}" stroke-width="{width}" stroke-linecap="butt" stroke-linejoin="round"{sop}/>'
+        )
+
+        # Optional: if you want round caps on each dash like PIL’s “large dash” path, add circles at xA/yA and xB/yB when ROUND:
+        if lin.capstyle == CapStyle.ROUND:
+            out.append(f'<circle cx="{xA}" cy="{yA}" r="{r}" fill="{stroke}"{sop}/>')
+            out.append(f'<circle cx="{xB}" cy="{yB}" r="{r}" fill="{stroke}"{sop}/>')
+    return out
+
+
+# ----------------------------- PIL dashed stroker ---------------------------- #
+def _stroke_dashed_line(draw: ImageDraw.ImageDraw, line: Line) -> None:
+    ux, uy, L = line.unit()
+    if L <= 0 or int(line.width) <= 0:
         return
 
-    # DASHPATH
-    pat = list(dash)
-    if len(pat) % 2 == 1:
-        pat *= 2
-    total = sum(pat) or 1
-    off = offset % total
+    width = int(line.width)
+    rgba = line.col.rgba
+    capstyle = line.capstyle
+    x1, y1 = float(line.a.x), float(line.a.y)
 
-    # advance into pattern by offset
-    i = 0
-    while off > 0 and pat:
-        step = min(off, pat[0])
-        pat[0] -= step
-        off -= step
-        if pat[0] == 0:
-            pat.pop(0)
-            i += 1
+    # Detect axis-aligned segments (horizontal or vertical)
+    axis_aligned = abs(ux) < 1e-9 or abs(uy) < 1e-9
 
-    seq = pat if pat else list(dash)
-    if len(seq) % 2 == 1:
-        seq *= 2
+    # r used for *mathematical* half-width (extensions)
+    r_line = width / 2.0
+    # r used for *drawing* cap circles (matches Pillow’s pixel-centre behavior)
+    r_cap = r_line - (0.5 if axis_aligned and (width % 2 == 0) else 0.0)
 
-    pos = 0.0
-    on = i % 2 == 0
-    idx = 0
-    max_iters = 200000
+    dash = line.scaled_pattern()
 
-    while pos < L and idx < max_iters:
-        seg_len = min(seq[idx % len(seq)], int(L - pos + 0.5))
-        if seg_len <= 0:
-            break
+    for a, b, on in iter_dash_spans(L, dash, line.dash_offset):
+        if not on:
+            continue
 
-        a = pos
-        b = pos + seg_len
-        xA, yA = x1 + ux * a, y1 + uy * a
-        xB, yB = x1 + ux * b, y1 + uy * b
+        seg_len = b - a
 
-        if on:
-            # very short dash → draw a dot
-            if seg_len <= width * 0.8:
-                cx = (xA + xB) * 0.5
-                cy = (yA + yB) * 0.5
-                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=rgba)
-            else:
-                if capstyle == CapStyle.PROJECTING:
-                    a_ext = max(0.0, a - r)
-                    b_ext = min(L, b + r)
-                    xA2, yA2 = x1 + ux * a_ext, y1 + uy * a_ext
-                    xB2, yB2 = x1 + ux * b_ext, y1 + uy * b_ext
-                    draw.line([(xA2, yA2), (xB2, yB2)], fill=rgba, width=width)
-                else:
-                    draw.line([(xA, yA), (xB, yB)], fill=rgba, width=width)
-                    if capstyle == CapStyle.ROUND:
-                        draw.ellipse([xA - r, yA - r, xA + r, yA + r], fill=rgba)
-                        draw.ellipse([xB - r, yB - r, xB + r, yB + r], fill=rgba)
+        # short dash → dot
+        if seg_len <= width * DOT_FACTOR:
+            cx = x1 + ux * ((a + b) * 0.5)
+            cy = y1 + uy * ((a + b) * 0.5)
+            draw.ellipse([cx - r_cap, cy - r_cap, cx + r_cap, cy + r_cap], fill=rgba)
+            continue
 
-        pos += seg_len
-        idx += 1
-        on = not on
+        a0, b0 = a, b
+        if capstyle == CapStyle.PROJECTING:
+            a0, b0 = extend_span_for_projecting(a, b, r_line, L)
+
+        xA, yA = x1 + ux * a0, y1 + uy * a0
+        xB, yB = x1 + ux * b0, y1 + uy * b0
+        draw.line([(xA, yA), (xB, yB)], fill=rgba, width=width)
+
+        if capstyle == CapStyle.ROUND:
+            # draw caps at the *unextended* endpoints
+            cxA, cyA = x1 + ux * a, y1 + uy * a
+            cxB, cyB = x1 + ux * b, y1 + uy * b
+            draw.ellipse([cxA - r_cap, cyA - r_cap, cxA + r_cap, cyA + r_cap], fill=rgba)
+            draw.ellipse([cxB - r_cap, cyB - r_cap, cxB + r_cap, cyB + r_cap], fill=rgba)
 
 
 # ------------------------------- Exporter class ------------------------------ #
@@ -217,14 +346,22 @@ class Exporter:
 
     @classmethod
     def webp(cls, params: Params) -> Path:
-        frame = cls._draw(params)
-        frame.save(params.output_file, format="WEBP", lossless=True, method=6)
+        if RASTER_BACKEND == RASTERISERS.pil:
+            frame = cls._draw(params)
+            frame.save(params.output_file, format=Formats.webp.upper(), lossless=True, method=6)
+        else:
+            if raster := _rasterize_via_svg(params, Formats.webp):
+                params.output_file.write_bytes(raster)
         return params.output_file
 
     @classmethod
     def png(cls, params: Params) -> Path:
-        frame = cls._draw(params)
-        frame.save(params.output_file, format="PNG")
+        if RASTER_BACKEND == RASTERISERS.pil:
+            frame = cls._draw(params)
+            frame.save(params.output_file, format=Formats.png.upper())
+        else:
+            if raster := _rasterize_via_svg(params, Formats.png):
+                params.output_file.write_bytes(raster)
         return params.output_file
 
     # ---------- SVG ---------- #
@@ -249,42 +386,31 @@ class Exporter:
             parts.append("</g>")
 
         # lines
-        for lin in getattr(params, "lines", []):
-            lin: Line
-            stroke, sop = _col_and_opacity(lin.col)
-            arr = svg_dasharray(getattr(lin, "style", None), lin.width)  # "6,3" or ""
-            dash_attr = f' stroke-dasharray="{arr}"' if arr else ""
-            off = getattr(lin, "dash_offset", 0)
-            off_attr = f' stroke-dashoffset="{off}"' if arr and off else ""
-
-            parts.append(
-                f'<line x1="{lin.a.x}" y1="{lin.a.y}" x2="{lin.b.x}" y2="{lin.b.y}" '
-                f'stroke="{stroke}" stroke-width="{lin.width}" stroke-linecap="{_svg_cap(lin.capstyle)}" '
-                f'stroke-linejoin="round"{sop}{dash_attr}{off_attr}/>'
-            )
+        for lin in params.lines:
+            if SVG_STRICT_PARITY:
+                parts.extend(_svg_line_strict(lin))
+            else:
+                parts.append(_svg_line_fast(lin))
 
         # labels
-        for lab in getattr(params, "labels", []):
-            lab: Label
+        for lab in params.labels:
             fill, fop = _col_and_opacity(lab.col)
             ta, db = lab.anchor.svg  # ("start"/"middle"/"end", baseline)
-            rot = -int(getattr(lab, "rotation", 0) or 0)
             parts.append(
                 f'<text x="{lab.p.x}" y="{lab.p.y}" fill="{fill}" font-size="{lab.size}" '
-                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({rot} {lab.p.x} {lab.p.y})"{fop}>'
+                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({-lab.rotation} {lab.p.x} {lab.p.y})"{fop}>'
                 f"{_escape(lab.text)}</text>"
             )
 
         # icons
-        for ico in getattr(params, "icons", []):
-            ico: Icon
+        for ico in params.icons:
             col, cop = _col_and_opacity(ico.col)
-            bw, bh = ico._icon_bbox_wh()
-            cx, cy = _center_from_anchor_xy(ico.p.x, ico.p.y, bw, bh, ico.anchor)
-            rot = int(getattr(ico, "rotation", 0) or 0)
-            parts.append(f'<g transform="translate({cx} {cy}) rotate({rot})">')
+            bw, bh = ico.bbox_wh()
+            cx, cy = ico.anchor._centre(ico.p.x, ico.p.y, bw, bh)
 
-            parts.append(f'<g transform="translate({ico.p.x} {ico.p.y}) rotate({rot})">')
+            # One transform. Rotate sign matches your PIL (-ico.rotation)
+            parts.append(f'<g transform="translate({cx} {cy}) rotate({-ico.rotation})">')
+
             if ico.name == Icon_Name.SIGNAL:
                 r = ico.size // 2
                 parts.append(f'<circle cx="0" cy="0" r="{r}" fill="{col}"{cop}/>')
@@ -296,16 +422,28 @@ class Exporter:
                 h = ico.size // 2
                 parts.append(
                     f'<rect x="{-w // 2}" y="{-h // 2}" width="{w}" height="{h}" '
-                    f'fill="none" stroke="{col}" stroke-width="2"{cop}/>'
+                    f'fill="none" stroke="{col}" stroke-width="2" stroke-linejoin="round"{cop}/>'
                 )
             elif ico.name == Icon_Name.CROSSING:
                 Ls = ico.size
-                parts.append(f'<line x1="{-Ls}" y1="{-Ls}" x2="{Ls}" y2="{Ls}" stroke="{col}" stroke-width="2"{cop}/>')
-                parts.append(f'<line x1="{-Ls}" y1="{Ls}" x2="{Ls}" y2="{-Ls}" stroke="{col}" stroke-width="2"{cop}/>')
+                parts.append(
+                    f'<line x1="{-Ls}" y1="{-Ls}" x2="{Ls}" y2="{Ls}" stroke="{col}" stroke-width="2" '
+                    f'stroke-linecap="round" stroke-linejoin="round"{cop}/>'
+                )
+                parts.append(
+                    f'<line x1="{-Ls}" y1="{Ls}" x2="{Ls}" y2="{-Ls}" stroke="{col}" stroke-width="2" '
+                    f'stroke-linecap="round" stroke-linejoin="round"{cop}/>'
+                )
             elif ico.name == Icon_Name.SWITCH:
                 Ls = ico.size
-                parts.append(f'<line x1="0" y1="0" x2="{Ls}" y2="0" stroke="{col}" stroke-width="2"{cop}/>')
-                parts.append(f'<line x1="0" y1="0" x2="{Ls}" y2="{Ls // 2}" stroke="{col}" stroke-width="2"{cop}/>')
+                parts.append(
+                    f'<line x1="0" y1="0" x2="{Ls}" y2="0" stroke="{col}" stroke-width="2" '
+                    f'stroke-linecap="round" stroke-linejoin="round"{cop}/>'
+                )
+                parts.append(
+                    f'<line x1="0" y1="0" x2="{Ls}" y2="{Ls // 2}" stroke="{col}" stroke-width="2" '
+                    f'stroke-linecap="round" stroke-linejoin="round"{cop}/>'
+                )
             else:
                 r = ico.size // 3
                 parts.append(f'<circle cx="0" cy="0" r="{r}" fill="{col}"{cop}/>')
@@ -328,47 +466,8 @@ def _draw_grid(draw: ImageDraw.ImageDraw, params: Params) -> None:
 
 
 def _draw_lines(draw: ImageDraw.ImageDraw, params: Params) -> None:
-    for lin in getattr(params, "lines", []):
-        lin: Line
-        w = lin.width
-        dash = scaled_pattern(getattr(lin, "style", None), w)
-        if dash:
-            # dashed path with per-cap emulation
-            # extend endpoints if projecting, but KEEP dashed
-            ux, uy, L = _unit(lin.a.x, lin.a.y, lin.b.x, lin.b.y)
-            if lin.capstyle == CapStyle.PROJECTING and L > 0:
-                r = w / 2.0
-                x1e, y1e = lin.a.x - ux * r, lin.a.y - uy * r
-                x2e, y2e = lin.b.x + ux * r, lin.b.y + uy * r
-            else:
-                x1e, y1e, x2e, y2e = lin.a.x, lin.a.y, lin.b.x, lin.b.y
-
-            _stroke_dashed_line(
-                draw,
-                x1e,
-                y1e,
-                x2e,
-                y2e,
-                w,
-                lin.col.rgba,
-                dash,
-                getattr(lin, "dash_offset", 0),
-                lin.capstyle,
-            )
-        else:
-            # solid path + cap emulation
-            ux, uy, L = _unit(lin.a.x, lin.a.y, lin.b.x, lin.b.y)
-            r = w / 2.0
-            if lin.capstyle == CapStyle.PROJECTING and L > 0:
-                xa, ya = lin.a.x - ux * r, lin.a.y - uy * r
-                xb, yb = lin.b.x + ux * r, lin.b.y + uy * r
-                draw.line([(xa, ya), (xb, yb)], fill=lin.col.rgba, width=w)
-            elif lin.capstyle == CapStyle.ROUND:
-                draw.line([(lin.a.x, lin.a.y), (lin.b.x, lin.b.y)], fill=lin.col.rgba, width=w)
-                draw.ellipse([lin.a.x - r, lin.a.y - r, lin.a.x + r, lin.a.y + r], fill=lin.col.rgba)
-                draw.ellipse([lin.b.x - r, lin.b.y - r, lin.b.x + r, lin.b.y + r], fill=lin.col.rgba)
-            else:
-                draw.line([(lin.a.x, lin.a.y), (lin.b.x, lin.b.y)], fill=lin.col.rgba, width=w)
+    for lin in params.lines:
+        _stroke_dashed_line(draw, lin)
 
 
 def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont | None], Any]:
@@ -400,14 +499,17 @@ def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.
 
 def _draw_labels(img: Image.Image, params: Params) -> None:
     _, _font = _font_cache_factory()
-    for lab in getattr(params, "labels", []):
-        lab: Label
-        txt = lab.text
-        if not txt:
+    for lab in params.labels:
+        if not lab.text:
             continue
-        font = _font(lab.size)
         temp = Image.new("RGBA", (params.width, params.height), (0, 0, 0, 0))
-        ImageDraw.Draw(temp).text((lab.p.x, lab.p.y), txt, fill=lab.col.rgba, font=font, anchor=lab.anchor.pil)
+        ImageDraw.Draw(temp).text(
+            (lab.p.x, lab.p.y),
+            lab.text,
+            fill=lab.col.rgba,
+            font=_font(lab.size),
+            anchor=lab.anchor.pil,
+        )
         temp = temp.rotate(
             int(getattr(lab, "rotation", 0) or 0),
             resample=Image.Resampling.BICUBIC,
@@ -419,17 +521,15 @@ def _draw_labels(img: Image.Image, params: Params) -> None:
 
 def _draw_icons(img: Image.Image, params: Params) -> None:
     draw = ImageDraw.Draw(img)
-    for ico in getattr(params, "icons", []):
-        ico: Icon
-        rot = int(getattr(ico, "rotation", 0) or 0)
-        s = ico.size
-        # compute center from anchor
-        bw, bh = ico._icon_bbox_wh()
-        cx, cy = _center_from_anchor_xy(ico.p.x, ico.p.y, bw, bh, ico.anchor)
+    for ico in params.icons:
+        size = ico.size
+        # compute centre from anchor
+        bw, bh = ico.bbox_wh()
+        cx, cy = ico.anchor._centre(ico.p.x, ico.p.y, bw, bh)
         col = ico.col.rgba
 
-        if rot % 360 != 0:
-            box = max(s * 3, 64)
+        if ico.rotation % 360 != 0:
+            box = max(size * 3, 64)
             layer = Image.new("RGBA", (box, box), (0, 0, 0, 0))
             ld = ImageDraw.Draw(layer)
             cx = cy = box // 2
@@ -438,46 +538,46 @@ def _draw_icons(img: Image.Image, params: Params) -> None:
                 return (cx + px, cy + py)
 
             if ico.name == Icon_Name.SIGNAL:
-                r = s // 2
+                r = size // 2
                 ld.ellipse([P(-r, -r), P(r, r)], fill=col)
-                ld.rectangle([P(-r // 3, r), P(r // 3, r + s)], fill=col)
+                ld.rectangle([P(-r // 3, r), P(r // 3, r + size)], fill=col)
             elif ico.name == Icon_Name.BUFFER:
-                w, h = s, s // 2
+                w, h = size, size // 2
                 ld.rectangle([P(-w // 2, -h // 2), P(w // 2, h // 2)], outline=col, width=2)
             elif ico.name == Icon_Name.CROSSING:
-                Ls = s
+                Ls = size
                 ld.line([P(-Ls, -Ls), P(Ls, Ls)], fill=col, width=2)
                 ld.line([P(-Ls, Ls), P(Ls, -Ls)], fill=col, width=2)
             elif ico.name == Icon_Name.SWITCH:
-                Ls = s
+                Ls = size
                 ld.line([P(0, 0), P(Ls, 0)], fill=col, width=2)
                 ld.line([P(0, 0), P(Ls, Ls // 2)], fill=col, width=2)
             else:
-                r = s // 3
+                r = size // 3
                 ld.ellipse([P(-r, -r), P(r, r)], fill=col)
 
-            layer = layer.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
+            layer = layer.rotate(-ico.rotation, resample=Image.Resampling.BICUBIC, expand=True)
             lw, lh = layer.size
             img.alpha_composite(layer, (int(cx - lw // 2), int(cy - lh // 2)))
         else:
             if ico.name == Icon_Name.SIGNAL:
-                r = s // 2
+                r = size // 2
                 draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
-                draw.rectangle([cx - r // 3, cy + r, cx + r // 3, cy + s], fill=col)
+                draw.rectangle([cx - r // 3, cy + r, cx + r // 3, cy + size], fill=col)
             elif ico.name == Icon_Name.BUFFER:
-                w = s
-                h = s // 2
+                w = size
+                h = size // 2
                 draw.rectangle([cx - w // 2, cy - h // 2, cx + w // 2, cy + h // 2], outline=col, width=2)
             elif ico.name == Icon_Name.CROSSING:
-                Ls = s
+                Ls = size
                 draw.line([cx - Ls, cy - Ls, cx + Ls, cy + Ls], fill=col, width=2)
                 draw.line([cx - Ls, cy + Ls, cx + Ls, cy - Ls], fill=col, width=2)
             elif ico.name == Icon_Name.SWITCH:
-                Ls = s
+                Ls = size
                 draw.line([cx, cy, cx + Ls, cy], fill=col, width=2)
                 draw.line([cx, cy, cx + Ls, cy + Ls // 2], fill=col, width=2)
             else:
-                r = s // 3
+                r = size // 3
                 draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
 
 

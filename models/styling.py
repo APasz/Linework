@@ -55,6 +55,22 @@ class Anchor(Enum):
     def svg(self) -> tuple[TextAnchor, DominantBaseline]:
         return _SVG[self]
 
+    def _centre(self, px: int, py: int, w: int, h: int) -> tuple[int, int]:
+        if self in (Anchor.NW, Anchor.W, Anchor.SW):
+            dx = +w / 2
+        elif self in (Anchor.NE, Anchor.E, Anchor.SE):
+            dx = -w / 2
+        else:
+            dx = 0.0
+
+        if self in (Anchor.NW, Anchor.N, Anchor.NE):
+            dy = +h / 2
+        elif self in (Anchor.SW, Anchor.S, Anchor.SE):
+            dy = -h / 2
+        else:
+            dy = 0.0
+        return int(round(px + dx)), int(round(py + dy))
+
 
 TK_CARDINALS = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
 PIL_CARDINALS = Literal["lt", "mt", "rt", "lm", "mm", "rm", "lb", "mb", "rb"]
@@ -350,7 +366,7 @@ class TkCursor(StrEnum):
     BOTTOM_SIDE = "bottom_side"
     BOTTOM_TEE = "bottom_tee"
     BOX_SPIRAL = "box_spiral"
-    CENTER_PTR = "center_ptr"
+    CENTRE_PTR = "center_ptr"
     CIRCLE = "circle"
     CLOCK = "clock"
     COFFEE_MUG = "coffee_mug"

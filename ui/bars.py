@@ -9,6 +9,7 @@ from tkinter import ttk
 from models.geo import CanvasLW
 from models.styling import Colour, Colours, LineStyle
 from ui.widgets.composite_spinbox import Composite_Spinbox
+from models.geo_icons import Icon_Name
 
 
 @dataclass
@@ -173,7 +174,7 @@ class Bars:
         cls._add_labeled(
             frame,
             lambda p: ttk.Combobox(
-                p, textvariable=icon_var, values=["signal", "switch", "buffer", "crossing"], state="readonly", width=10
+                p, textvariable=icon_var, values=[name.value for name in Icon_Name], state="readonly", width=10
             ),
             # "Icon:",
         )

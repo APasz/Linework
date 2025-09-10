@@ -67,21 +67,6 @@ class Draw_Tool(Tool):
         self._is_dragging: bool = False  # only used in drag-to-draw mode
 
     # --- utilities ---
-    def _snap(self, app: Applike, point: Point) -> Point:
-        g = app.params.grid_size
-        W, H = app.params.width, app.params.height
-        X, Y = point.x, point.y
-        if g > 0:
-            sx, sy = round(X / g) * g, round(Y / g) * g
-            max_x, max_y = (W // g) * g, (H // g) * g
-            sx = 0 if sx < 0 else max_x if sx > max_x else sx
-            sy = 0 if sy < 0 else max_y if sy > max_y else sy
-            return Point(x=sx, y=sy)
-        # no grid: clamp to canvas
-        x = 0 if X < 0 else W if X > W else X
-        y = 0 if Y < 0 else H if Y > H else Y
-        return Point(x=x, y=y)
-
     def _clear_preview(self, app: Applike):
         if self.preview_id:
             app.canvas.delete(self.preview_id)
@@ -157,7 +142,7 @@ class Draw_Tool(Tool):
         to the nearest 45° octant. Finally re-snap/clamp to grid.
         """
         # 1) normal grid snap + clamp
-        spoint = self._snap(app, point)
+        spoint = app.snap(point)
 
         dx, dy = spoint.x - start.x, spoint.y - start.y
         if dx == 0 and dy == 0:
@@ -174,11 +159,11 @@ class Draw_Tool(Tool):
         qy = start.y + r * math.sin(qang)
 
         # 3) final snap/clamp to grid/canvas (and cast to int)
-        return self._snap(app, Point(x=round(qx), y=round(qy)))
+        return app.snap(Point(x=round(qx), y=round(qy)))
 
     # --- Tool interface ---
     def on_press(self, app: Applike, evt: tk.Event):
-        point = self._snap(app, Point(x=evt.x, y=evt.y))
+        point = app.snap(Point(x=evt.x, y=evt.y))
         if app.drag_to_draw():
             # drag mode: press sets start; release will commit
             if self.start is None:
@@ -215,14 +200,14 @@ class Draw_Tool(Tool):
     def on_motion(self, app: Applike, evt: tk.Event):
         if self.start is None:
             return
-        point = self._snap(app, Point(x=evt.x, y=evt.y))
+        point = app.snap(Point(x=evt.x, y=evt.y))
         self._update_preview_to(app, point, evt)
         app.status.hold("drawline", f"({self.start.x},{self.start.y}) → ({point.x},{point.y})")
 
     def on_hover(self, app: Applike, evt: tk.Event):
         if self.start is None or app.drag_to_draw():
             return
-        point = self._snap(app, Point(x=evt.x, y=evt.y))
+        point = app.snap(Point(x=evt.x, y=evt.y))
         self._update_preview_to(app, point, evt)
         app.status.hold("drawline", f"({self.start.x},{self.start.y}) → ({point.x},{point.y})")
 
@@ -230,7 +215,7 @@ class Draw_Tool(Tool):
         if self.start is None:
             return
         if app.drag_to_draw():
-            point = self._snap(app, Point(x=evt.x, y=evt.y))
+            point = app.snap(Point(x=evt.x, y=evt.y))
             self._commit_segment(app, point, evt)
             self._is_dragging = False
         app.status.release("drawline")
@@ -358,15 +343,15 @@ class Select_Tool:
         if self._drag_kind == Hit_Kind.label:
             cid = int(self._drag_canvas_id or 0)
             coords = app.canvas.coords(cid)
-            end_center = Point(x=round(coords[0]), y=round(coords[1])) if coords else Point(x=evt.x, y=evt.y)
+            end_centre = Point(x=round(coords[0]), y=round(coords[1])) if coords else Point(x=evt.x, y=evt.y)
 
-            if not (self._dragged and self._moved_enough(self._press_ref, end_center)):
+            if not (self._dragged and self._moved_enough(self._press_ref, end_centre)):
                 # click only → do nothing; keep off-grid positions
                 self._reset()
                 return
 
             spoint = self._maybe_snap_point(
-                app, end_center, kind=Hit_Kind.label, index=self._label_index_from_canvas(app, cid), evt=evt
+                app, end_centre, kind=Hit_Kind.label, index=self._label_index_from_canvas(app, cid), evt=evt
             )
             idx = self._label_index_from_canvas(app, cid)
             old = app.params.labels[idx].p
@@ -379,7 +364,7 @@ class Select_Tool:
                 app.layers_redraw(Layer_Name.labels)
 
         elif self._drag_kind == Hit_Kind.icon:
-            # compute end center from the ids we actually dragged
+            # compute end centre from the ids we actually dragged
             if self._drag_icon_ids:
                 bbox = None
                 for cid in self._drag_icon_ids:
@@ -391,13 +376,13 @@ class Select_Tool:
                             else (min(bbox[0], b[0]), min(bbox[1], b[1]), max(bbox[2], b[2]), max(bbox[3], b[3]))
                         )
                 if bbox:
-                    end_center = Point(x=round((bbox[0] + bbox[2]) / 2), y=round((bbox[1] + bbox[3]) / 2))
+                    end_centre = Point(x=round((bbox[0] + bbox[2]) / 2), y=round((bbox[1] + bbox[3]) / 2))
                 else:
-                    end_center = Point(x=evt.x, y=evt.y)
+                    end_centre = Point(x=evt.x, y=evt.y)
             else:
-                end_center = Point(x=evt.x, y=evt.y)
+                end_centre = Point(x=evt.x, y=evt.y)
 
-            if not (self._dragged and self._moved_enough(self._press_ref, end_center)):
+            if not (self._dragged and self._moved_enough(self._press_ref, end_centre)):
                 self._reset()
                 return
 
@@ -410,7 +395,7 @@ class Select_Tool:
             ico = app.params.icons[idx]
             tag = item_tag(Hit_Kind.icon, idx)
 
-            # end CENTER from bbox
+            # end centre from bbox
             bbox = app.canvas.bbox(tag)
             if bbox:
                 cx, cy = round((bbox[0] + bbox[2]) / 2), round((bbox[1] + bbox[3]) / 2)
@@ -418,7 +403,7 @@ class Select_Tool:
                 cx, cy = evt.x, evt.y
 
             # compute unrotated bbox size for this icon type (match your painter/export)
-            bw, bh = ico._icon_bbox_wh()
+            bw, bh = ico.bbox_wh()
             ox, oy = self._anchor_offset(bw, bh, ico.anchor.tk)
             rox, roy = self._rot(ox, oy, float(ico.rotation or 0))
             end_anchor_pt = Point(x=int(round(cx + rox)), y=int(round(cy + roy)))
@@ -484,7 +469,7 @@ class Select_Tool:
 
     @staticmethod
     def _anchor_offset(w: int, h: int, anc: str) -> tuple[float, float]:
-        # vector from center -> anchor in *unrotated* frame
+        # vector from centre -> anchor in *unrotated* frame
         ax = -w / 2 if anc in ("nw", "w", "sw") else (w / 2 if anc in ("ne", "e", "se") else 0.0)
         ay = -h / 2 if anc in ("nw", "n", "ne") else (h / 2 if anc in ("sw", "s", "se") else 0.0)
         return ax, ay

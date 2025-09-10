@@ -132,10 +132,10 @@ class Layer_Manager:
         self.clear(Layer_Name.preview)
 
     # --- redraws ---
-    def redraw(self, layer: Layer_Name):
+    def redraw(self, layer: Layer_Name, force: bool = False):
         if not layer:
             return
-        self.clear(layer)
+        self.clear(layer, force)
         self._paint(layer)
         self._enforce_z()
 

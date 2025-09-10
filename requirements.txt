@@ -1,3 +1,4 @@
 pillow
 sv-ttk
 pydantic
+cairosvg

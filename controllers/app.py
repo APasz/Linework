@@ -14,6 +14,7 @@ from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool, Too
 from disk.export import Exporter, Formats
 from disk.storage import IO
 from models.geo import CanvasLW, Point
+from models.geo_icons import Icon_Name
 from models.params import Params
 from models.styling import Anchor, CapStyle, Colours, LineStyle
 from ui.bars import Bars, Side
@@ -57,7 +58,7 @@ class App:
         self.selection_index: int | None = None
 
         self.mode = tk.StringVar(value="draw")
-        self.var_icon = tk.StringVar(value="signal")
+        self.var_icon = tk.StringVar(value=Icon_Name.SIGNAL.value)
 
         self.var_drag_to_draw.trace_add(
             "write", lambda *_: self.status.temp("Mode: drag to draw" if self.drag_to_draw() else "Mode: click-click")
@@ -222,14 +223,17 @@ class App:
 
     def snap(self, point: Point) -> Point:
         g = self.params.grid_size
-        if g <= 0:
-            return point
-        # nearest multiple of g
-        x = round(point.x / g) * g
-        y = round(point.y / g) * g
-        # clamp to canvas if you want to be nice
-        x = 0 if x < 0 else self.params.width if x > self.params.width else x
-        y = 0 if y < 0 else self.params.height if y > self.params.height else y
+        W, H = self.params.width, self.params.height
+        X, Y = point.x, point.y
+        if g > 0:
+            sx, sy = round(X / g) * g, round(Y / g) * g
+            max_x, max_y = (W // g) * g, (H // g) * g
+            sx = 0 if sx < 0 else max_x if sx > max_x else sx
+            sy = 0 if sy < 0 else max_y if sy > max_y else sy
+            return Point(x=sx, y=sy)
+        # no grid: clamp to canvas
+        x = 0 if X < 0 else W if X > W else X
+        y = 0 if Y < 0 else H if Y > H else Y
         return Point(x=x, y=y)
 
     # --------- UI callbacks ---------
@@ -274,7 +278,7 @@ class App:
         # update size step to match grid
         # (toolbar instance is passed at init to _apply_size_increments)
         self._apply_size_increments(self.params.grid_size)
-        self.layers.redraw_all()
+        self.layers.redraw(Layer_Name.grid, True)
 
     def on_brush_change(self, *_):
         try:
@@ -451,7 +455,7 @@ class App:
         elif k == Hit_Kind.icon:
             ico = self.params.icons[i]
             # pass your available icon names (static or dynamic)
-            data = editors.edit_icon(self.root, ico, icon_name_choices=["signal", "buffer", "crossing", "switch"])
+            data = editors.edit_icon(self.root, ico, icon_name_choices=[name.value for name in Icon_Name])
             if not data:
                 return
 
@@ -593,7 +597,19 @@ class App:
             messagebox.showerror("Open failed", str(e))
             return
 
-        self.project_path = Path(path)
+        self._sync_ui_from_params(Path(path))
+        self._update_title()
+        self.status.set(f"Opened {self.project_path}")
+
+    def new_project(self):
+        if not self._maybe_save_changes():
+            return
+        self.params = Params()
+        self._sync_ui_from_params()
+        self.status.set("New project")
+
+    def _sync_ui_from_params(self, path: Path = Path("untitled.linework")):
+        self.project_path = path
         self.scene.params = self.params
         # refresh UI vars
         self.var_grid.set(self.params.grid_size)
@@ -608,29 +624,6 @@ class App:
         self._apply_size_increments(self.params.grid_size)
         self.layers.redraw_all()
         self.mark_clean()
-        self._update_title()
-        self.status.set(f"Opened {self.project_path}")
-
-    def new_project(self):
-        if not self._maybe_save_changes():
-            return
-        self.params = Params()
-
-        self.project_path = Path("untitled.linework")
-        self.scene.params = self.params
-        # refresh UI vars
-        self.var_grid.set(self.params.grid_size)
-        self.var_width_px.set(self.params.width)
-        self.var_height_px.set(self.params.height)
-        self.var_brush_w.set(self.params.brush_width)
-        self.var_bg.set(self.params.bg_mode.name_str)
-        self.var_colour.set(self.params.brush_colour.name_str)
-        self.var_line_style.set(self.params.line_style)
-        self.var_dash_offset.set(self.params.line_dash_offset)
-        self.canvas.config(width=self.params.width, height=self.params.height)
-        self.layers.redraw_all()
-        self.mark_clean()
-        self.status.set("New project")
 
     def drag_to_draw(self) -> bool:
         return bool(self.var_drag_to_draw.get())

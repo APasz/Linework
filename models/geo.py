@@ -1,10 +1,10 @@
 from collections.abc import Collection
 import math
 import tkinter as tk
-from enum import StrEnum
 from typing import Self
 
 from canvas.layers import Hit_Kind, Layer_Name, layer_tag, tag_list
+from models.geo_icons import Icon_Name
 from models.styling import Anchor, CapStyle, Colour, LineStyle, Model, scaled_pattern
 
 
@@ -12,6 +12,8 @@ class Point(Model):
     x: int
     y: int
     capstyle: CapStyle = CapStyle.ROUND
+
+    def clamped_to(self, w: int, h: int, grid: int = 0) -> "Point": ...
 
 
 class Line(Model):
@@ -28,6 +30,26 @@ class Line(Model):
 
     def with_xy(self, x1: int, y1: int, x2: int, y2: int) -> Self:
         return self.model_copy(update={"a": Point(x=x1, y=y1), "b": Point(x=x2, y=y2)})
+
+    def unit(
+        self,
+        x1: float | None = None,
+        y1: float | None = None,
+        x2: float | None = None,
+        y2: float | None = None,
+    ) -> tuple[float, float, float]:
+        ax = x1 if x1 is not None else self.a.x
+        ay = y1 if y1 is not None else self.a.y
+        bx = x2 if x2 is not None else self.b.x
+        by = y2 if y2 is not None else self.b.y
+        dx, dy = (bx - ax), (by - ay)
+        L = math.hypot(dx, dy)
+        if L <= 0:
+            return 0.0, 0.0, 0.0
+        return dx / L, dy / L, L
+
+    def scaled_pattern(self, *, style: LineStyle | None = None, width: int | None = None):
+        return scaled_pattern(style or self.style, width or self.width)
 
 
 class Label(Model):
@@ -46,13 +68,6 @@ class Label(Model):
         return self.model_copy(update={"p": Point(x=x, y=y)})
 
 
-class Icon_Name(StrEnum):
-    SIGNAL = "signal"
-    SWITCH = "switch"
-    BUFFER = "buffer"
-    CROSSING = "crossing"
-
-
 class Icon(Model):
     p: Point
     name: Icon_Name
@@ -68,7 +83,7 @@ class Icon(Model):
     def with_xy(self, x: int, y: int) -> Self:
         return self.model_copy(update={"p": Point(x=x, y=y)})
 
-    def _icon_bbox_wh(self) -> tuple[int, int]:
+    def bbox_wh(self) -> tuple[int, int]:
         s = self.size
         if self.name == Icon_Name.SIGNAL:
             return (s, s + s // 2)
@@ -153,7 +168,7 @@ class CanvasLW(tk.Canvas):
         extra_tags: Collection[str] = (),
         override_base_tags: Collection[Layer_Name] | None = None,
     ) -> ItemID:
-        dash = scaled_pattern(line.style, line.width)
+        dash = line.scaled_pattern()
         iid = super().create_line(
             line.a.x,
             line.a.y,
@@ -205,8 +220,8 @@ class CanvasLW(tk.Canvas):
             cs, sn = math.cos(r), math.sin(r)
             return (cx + dx * cs - dy * sn, cy + dx * sn + dy * cs)
 
-        def _center_from_anchor(px: int, py: int, w: int, h: int, a: Anchor) -> tuple[int, int]:
-            # map anchor to center offset; same semantics as labels
+        def _centre_from_anchor(px: int, py: int, w: int, h: int, a: Anchor) -> tuple[int, int]:
+            # map anchor to centre offset; same semantics as labels
             if a in (Anchor.NW, Anchor.W, Anchor.SW):
                 dx = +w / 2
             elif a in (Anchor.NE, Anchor.E, Anchor.SE):
@@ -225,16 +240,16 @@ class CanvasLW(tk.Canvas):
 
         tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
 
-        # derive center from the anchored point
-        bw, bh = icon._icon_bbox_wh()
-        cx, cy = _center_from_anchor(x, y, bw, bh, icon.anchor)
+        # derive centre from the anchored point
+        bw, bh = icon.bbox_wh()
+        cx, cy = icon.anchor._centre(x, y, bw, bh)
 
-        # --- draw each icon relative to CENTER (cx, cy) ----------------------
+        # --- draw each icon relative to centre (cx, cy) ----------------------
         if icon.name == Icon_Name.SIGNAL:
             r = s // 2
             # head
             super().create_oval(cx - r, cy - r, cx + r, cy + r, fill=col, outline="", tags=tag)
-            # mast: centered rectangle under the circle
+            # mast: centred rectangle under the circle
             mx0, my0 = cx - r // 3, cy + r
             mx1, my1 = cx + r // 3, cy + r
             mx2, my2 = cx + r // 3, cy + s
@@ -263,7 +278,7 @@ class CanvasLW(tk.Canvas):
             super().create_line(x3, y3, x4, y4, fill=col, width=2, tags=tag)
 
         elif icon.name == Icon_Name.SWITCH:
-            # Centered geometry (previously pivoted at left end)
+            # Centred geometry (previously pivoted at left end)
             L = s
             a1, b1 = _rot(cx - L // 2, cy, cx, cy, rot)
             a2, b2 = _rot(cx + L // 2, cy, cx, cy, rot)
@@ -284,7 +299,7 @@ class CanvasLW(tk.Canvas):
     def move_by(self, item: ItemID, dx: int, dy: int) -> None:
         super().move(item, dx, dy)
 
-    def move_center_to(self, item: ItemID, target: Point) -> None:
+    def move_centre_to(self, item: ItemID, target: Point) -> None:
         bbox = super().bbox(item)
         if not bbox:
             return
@@ -293,7 +308,7 @@ class CanvasLW(tk.Canvas):
         super().move(item, int(round(target.x - cx)), int(round(target.y - cy)))
 
     # ---------- queries ----------
-    def center_of_tag(self, tag: str) -> Point | None:
+    def centre_of_tag(self, tag: str) -> Point | None:
         bbox = super().bbox(tag) or (lambda ids: super().bbox(ids[0]) if ids else None)(super().find_withtag(tag))
         if not bbox:
             return None
