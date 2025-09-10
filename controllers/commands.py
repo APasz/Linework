@@ -49,6 +49,8 @@ class Add_Line:
     on_after: Callable[[], None]  # e.g., lambda: app.layers.redraw(Layer_Name.lines)
 
     def do(self):
+        if (self.line.a.x, self.line.a.y) == (self.line.b.x, self.line.b.y):
+            return
         self.params.lines.append(self.line)
         self.on_after()
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-import tkinter as tk
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from models.geo import CanvasLW
 
 
 class Hit_Kind(StrEnum):
@@ -21,7 +23,7 @@ class Hit:
     tag_idx: int
 
 
-def _find_hit(canvas: tk.Canvas, cid: int, prefix: Hit_Kind) -> Hit | None:
+def _find_hit(canvas: "CanvasLW", cid: int, prefix: Hit_Kind) -> Hit | None:
     """Find a {prefix}:{index} tag on this item and return a Hit with that index.
     IMPORTANT: index 0 is valid, so check `is not None` not truthiness."""
     tag_idx: int | None = None
@@ -38,17 +40,17 @@ def _find_hit(canvas: tk.Canvas, cid: int, prefix: Hit_Kind) -> Hit | None:
     return Hit(prefix, cid, tag_idx)
 
 
-def test_hit(canvas: tk.Canvas, x: int, y: int) -> Hit | None:
+def test_hit(canvas: "CanvasLW", x: int, y: int) -> Hit | None:
     items = canvas.find_overlapping(x, y, x, y)
     if not items:
         return None
-    for item in items:
+    for item in reversed(items):
         if hit := _find_hit(canvas, item, Hit_Kind.label):
             return hit
-    for item in items:
+    for item in reversed(items):
         if hit := _find_hit(canvas, item, Hit_Kind.icon):
             return hit
-    for item in items:
+    for item in reversed(items):
         if hit := _find_hit(canvas, item, Hit_Kind.line):
             return hit
     return None
@@ -79,35 +81,39 @@ def layer_tag(layer: Layer_Name) -> str:
     return LAYER_TAGS[layer]
 
 
-def tag_tuple(kind: Hit_Kind, idx: int, layer: Layer_Name) -> tuple[str, str, str]:
+def tag_list(kind: Hit_Kind, idx: int, layer: Layer_Name) -> list[str]:
     # order matters for your selection code
-    return (kind.value, layer_tag(layer), item_tag(kind, idx))
+    return [kind.value, layer_tag(layer), item_tag(kind, idx)]
 
 
 class Painters(Protocol):
-    def paint_grid(self, canvas: tk.Canvas, /): ...
-    def paint_lines(self, canvas: tk.Canvas, /): ...
-    def paint_labels(self, canvas: tk.Canvas, /): ...
-    def paint_icons(self, canvas: tk.Canvas, /): ...
+    def paint_grid(self, canvas: CanvasLW, /): ...
+    def paint_lines(self, canvas: CanvasLW, /): ...
+    def paint_labels(self, canvas: CanvasLW, /): ...
+    def paint_icons(self, canvas: CanvasLW, /): ...
 
 
 class Layer_Manager:
     """Thin wrapper around canvas tags for per-layer operations."""
 
-    def __init__(self, canvas: tk.Canvas, painters: Painters):
+    _PROTECTED: set[Layer_Name] = {Layer_Name.grid}
+
+    def __init__(self, canvas: CanvasLW, painters: Painters):
         self.canvas = canvas
         self.painters = painters
 
     def _enforce_z(self):
-        self.canvas.tag_lower(layer_tag(Layer_Name.grid))
-        self.canvas.tag_raise(layer_tag(Layer_Name.lines))
-        self.canvas.tag_raise(layer_tag(Layer_Name.icons))
-        self.canvas.tag_raise(layer_tag(Layer_Name.labels))
-        self.canvas.tag_raise(layer_tag(Layer_Name.preview))
+        self.canvas.tag_lower_l(Layer_Name.grid)
+        self.canvas.tag_raise_l(Layer_Name.lines)
+        self.canvas.tag_raise_l(Layer_Name.icons)
+        self.canvas.tag_raise_l(Layer_Name.labels)
+        self.canvas.tag_raise_l(Layer_Name.preview)
 
     # --- clears ---
-    def clear(self, layer: Layer_Name):
+    def clear(self, layer: Layer_Name, force: bool = False):
         if not layer:
+            return
+        if layer in self._PROTECTED and not force:
             return
         self.canvas.delete(layer_tag(layer))
 
@@ -119,9 +125,14 @@ class Layer_Manager:
         # nukes all known layers; don’t use canvas.delete("all") so you can keep temp overlays if you want
         for layer in Layer_Name:
             self.clear(layer)
+        known = set(LAYER_TAGS.values())
+        for iid in self.canvas.find_all():
+            tags = set(self.canvas.gettags(iid))
+            if not tags.intersection(known):
+                self.canvas.delete(iid)
 
     def clear_preview(self):
-        self.canvas.delete(layer_tag(Layer_Name.preview))
+        self.clear(Layer_Name.preview)
 
     # --- redraws ---
     def redraw(self, layer: Layer_Name):
@@ -151,3 +162,4 @@ class Layer_Manager:
             self.painters.paint_icons(self.canvas)
         elif layer == Layer_Name.grid:
             self.painters.paint_grid(self.canvas)
+        self._enforce_z()

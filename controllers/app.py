@@ -13,7 +13,7 @@ from controllers.commands import Command_Stack
 from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool, Tool_Name
 from disk.export import Exporter, Formats
 from disk.storage import IO
-from models.geo import Point
+from models.geo import CanvasLW, Point
 from models.params import Params
 from models.styling import Anchor, CapStyle, Colours, LineStyle
 from ui.bars import Bars, Side
@@ -103,7 +103,7 @@ class App:
 
         # ---- canvas ----
         display_bg = Colours.sys.dark_gray.hex if self.params.bg_mode.alpha == 0 else self.params.bg_mode.hex
-        self.canvas = tk.Canvas(self.root, width=self.params.width, height=self.params.height, bg=display_bg)
+        self.canvas = CanvasLW(self.root, width=self.params.width, height=self.params.height, bg=display_bg)
         self.canvas.pack(fill="both", expand=False)
 
         # ---- status bar ----
@@ -259,9 +259,9 @@ class App:
         self.params.grid_visible = not self.params.grid_visible
         if self.params.grid_visible:
             self.layers.redraw(Layer_Name.grid)
-            self.canvas.tag_lower(layer_tag(Layer_Name.grid))
+            self.canvas.tag_lower_l(Layer_Name.grid)
         else:
-            self.layers.clear(Layer_Name.grid)
+            self.layers.clear(Layer_Name.grid, force=True)
         self.status.temp("Grid ON" if self.params.grid_visible else "Grid OFF")
         self.mark_dirty()
 
@@ -489,7 +489,6 @@ class App:
             ln.b = point_b
             ln.width = int(data["width"])
             ln.capstyle = CapStyle(str(data["capstyle"])) if data["capstyle"] != "round" else CapStyle.ROUND
-            print(f"Apply: {str(data["style"])=} | {ln.capstyle=}")
             ln.style = LineStyle(str(data["style"])) if data["style"] != "solid" else LineStyle.SOLID
             ln.col = Colours.parse_colour(data["colour"]) if data["colour"] else ln.col
             # ln.dash_offset = int(data.get("dash_offset", 0))

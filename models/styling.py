@@ -5,13 +5,16 @@ from collections.abc import Iterable, Iterator, Mapping
 from enum import Enum, StrEnum
 from functools import lru_cache
 from types import MappingProxyType
-from typing import ClassVar, Final, Literal
+from typing import ClassVar, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 
 
 class Model(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
+
+    def replace(self, **updates) -> Self:
+        return self.model_copy(update=updates)
 
 
 class Anchor(Enum):

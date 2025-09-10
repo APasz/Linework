@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from tkinter import ttk
 
+from models.geo import CanvasLW
 from models.styling import Colour, Colours, LineStyle
 from ui.widgets.composite_spinbox import Composite_Spinbox
 
@@ -29,13 +30,13 @@ class Colour_Palette(ttk.Frame):
         super().__init__(master)
         self._on_select = on_select
         self._on_set_bg = on_set_bg
-        self._swatches: list[tuple[tk.Canvas, str]] = []
+        self._swatches: list[tuple[CanvasLW, str]] = []
 
         # label (optional)
         ttk.Label(self).pack(side="left", padx=(0, 6))
 
         for col in colours:
-            sw = tk.Canvas(self, width=18, height=18, highlightthickness=0)
+            sw = CanvasLW(self, width=18, height=18, highlightthickness=0)
             sw.configure(highlightbackground=Colours.sys.dark_gray.hex, highlightcolor=Colours.sys.dark_gray.hex)
             sw.create_rectangle(0, 0, 18, 18, outline=Colours.black.hex, fill=col.hex)
             sw.pack(side="left", padx=2)

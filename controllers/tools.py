@@ -9,7 +9,7 @@ from typing import Any, Protocol
 
 from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, item_tag, layer_tag, test_hit
 from controllers.commands import Add_Icon, Add_Label, Add_Line, Command_Stack, Move_Icon, Move_Label
-from models.geo import Icon, Label, Line, Point
+from models.geo import CanvasLW, Icon, ItemID, Label, Line, Point
 from models.params import Params
 from models.styling import TkCursor, scaled_pattern
 from ui.bars import Bars, Side
@@ -20,7 +20,7 @@ SHIFT_MASK = 0x0001  # Tk modifier mask for Shift
 # --- minimal app protocol the tools need ---
 class Applike(Protocol):
     root: tk.Tk
-    canvas: tk.Canvas
+    canvas: CanvasLW
     params: Params
     cmd: Command_Stack
     status: Bars.Status
@@ -62,7 +62,7 @@ class Draw_Tool(Tool):
 
     def __init__(self):
         self.start: Point | None = None
-        self.preview_id: int | None = None
+        self.preview_id: ItemID | None = None
         self._is_dragging: bool = False  # only used in drag-to-draw mode
 
     # --- utilities ---
@@ -93,27 +93,30 @@ class Draw_Tool(Tool):
         if evt is not None and self._dir_snap_on(app, evt):
             end = self._snap_directional(app, end, self.start)
 
-        dash = scaled_pattern(app.params.line_style, app.params.brush_width)
-
-        # Annotate as Any so Pylance doesn’t over-constrain values due to "tags"
-        opts: dict[str, Any] = {
-            "fill": app.params.brush_colour.hex,
-            "width": app.params.brush_width,
-            "capstyle": self.start.capstyle,
-            "tags": (layer_tag(Layer_Name.grid),),
-        }
-        if dash:
-            opts["dash"] = dash
-            if app.params.line_dash_offset:
-                opts["dashoffset"] = int(app.params.line_dash_offset)
-
         if self.preview_id is None:
-            self.preview_id = app.canvas.create_line(self.start.x, self.start.y, end.x, end.y, **opts)
+            self.preview_id = app.canvas.create_with_points(
+                self.start,
+                end,
+                col=app.params.brush_colour,
+                width=app.params.brush_width,
+                capstyle=self.start.capstyle,
+                style=app.params.line_style,
+                override_base_tages=[Layer_Name.preview],
+            )
         else:
-            app.canvas.coords(self.preview_id, self.start.x, self.start.y, end.x, end.y)
-            reapply: dict[str, Any] = {k: v for k, v in opts.items() if k != "tags"}
-            app.canvas.itemconfig(self.preview_id, **reapply)
-            app.canvas.tag_raise(layer_tag(Layer_Name.grid))
+            opts: dict[str, Any] = {
+                "fill": app.params.brush_colour.hex,
+                "width": app.params.brush_width,
+                "capstyle": self.start.capstyle,
+            }
+
+            if line_style := scaled_pattern(app.params.line_style, app.params.brush_width):
+                opts["dash"] = line_style
+                if app.params.line_dash_offset:
+                    opts["dashoffset"] = int(app.params.line_dash_offset)
+            app.canvas.coords_p(self.preview_id, self.start, end)
+            app.canvas.itemconfig(self.preview_id, **opts)
+            app.canvas.tag_raise_l(Layer_Name.preview)
 
     def _commit_segment(self, app: Applike, end: Point, evt: tk.Event | None = None):
         if not self.start:
@@ -188,7 +191,7 @@ class Draw_Tool(Tool):
                     point.y + r,
                     outline="",
                     fill=app.params.brush_colour.hex,
-                    tags=(layer_tag(Layer_Name.grid),),
+                    tags=(layer_tag(Layer_Name.preview),),
                 )
         else:
             # click-click: press toggles between set-start and commit
@@ -202,7 +205,7 @@ class Draw_Tool(Tool):
                     point.y + r,
                     outline="",
                     fill=app.params.brush_colour.hex,
-                    tags=(layer_tag(Layer_Name.grid),),
+                    tags=(layer_tag(Layer_Name.preview),),
                 )
             else:
                 # second click commits at this snapped press position
@@ -295,7 +298,7 @@ class Select_Tool:
     _press_center: Point | None = None
     _dragged: bool = False
 
-    def _centre_of_tag(self, canvas: tk.Canvas, tag: str) -> Point | None:
+    def _centre_of_tag(self, canvas: CanvasLW, tag: str) -> Point | None:
         bbox = canvas.bbox(tag) or (lambda ids: canvas.bbox(ids[0]) if ids else None)(canvas.find_withtag(tag))
         if not bbox:
             return None
@@ -461,7 +464,7 @@ class Select_Tool:
                 best_d, best_i = d, i
         return best_i
 
-    def _infer_index_from_ids(self, canvas: tk.Canvas, ids: tuple[int, ...], prefix: Hit_Kind) -> int | None:
+    def _infer_index_from_ids(self, canvas: CanvasLW, ids: tuple[int, ...], prefix: Hit_Kind) -> int | None:
         """Return the most common '<prefix>:K' tag index across these item ids."""
         counts: dict[int, int] = {}
         needle = prefix.value + ":"
