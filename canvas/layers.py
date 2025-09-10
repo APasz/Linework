@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from models.geo import CanvasLW
@@ -86,11 +86,8 @@ def tag_list(kind: Hit_Kind, idx: int, layer: Layer_Name) -> list[str]:
     return [kind.value, layer_tag(layer), item_tag(kind, idx)]
 
 
-class Painters(Protocol):
-    def paint_grid(self, canvas: CanvasLW, /): ...
-    def paint_lines(self, canvas: CanvasLW, /): ...
-    def paint_labels(self, canvas: CanvasLW, /): ...
-    def paint_icons(self, canvas: CanvasLW, /): ...
+if TYPE_CHECKING:
+    from canvas.painters import Painters
 
 
 class Layer_Manager:

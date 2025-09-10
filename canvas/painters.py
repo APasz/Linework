@@ -16,7 +16,7 @@ class Scene(Protocol):
     def icons(self) -> list[Icon]: ...
 
 
-class Painters_Impl:
+class Painters:
     """Stateless-ish painters that read from a scene (wrapping Params)"""
 
     def __init__(self, scene: Scene):

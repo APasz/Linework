@@ -7,7 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 import sv_ttk
 
 from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name
-from canvas.painters import Painters_Impl
+from canvas.painters import Painters
 from controllers import editors
 from controllers.commands import Command_Stack
 from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool, Tool_Name
@@ -132,7 +132,7 @@ class App:
                 return self.params.icons
 
         self.scene = _Scene_Adapter(self.params)
-        self.painters = Painters_Impl(self.scene)
+        self.painters = Painters(self.scene)
         self.layers = Layer_Manager(self.canvas, self.painters)
 
         # ---- commands & tools ----
@@ -494,6 +494,8 @@ class App:
             # ln.dash_offset = int(data.get("dash_offset", 0))
             self.layers.redraw(Layer_Name.lines)
             self.mark_dirty()
+        else:
+            print("_edit_selected: Unknown Hit_Kind")
 
     def _nearest_multiple(self, n: int, m: int) -> int:
         return n if m <= 0 else round(n / m) * m
