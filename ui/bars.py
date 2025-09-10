@@ -164,9 +164,9 @@ class Bars:
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Save As…", command=on_save_as))
 
         # Modes
+        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Select", value="select", variable=mode_var))
         cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Draw", value="draw", variable=mode_var))
         cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Label", value="label", variable=mode_var))
-        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Select", value="select", variable=mode_var))
         cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Icon:", value="icon", variable=mode_var))
 
         # Icon picker

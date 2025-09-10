@@ -6,7 +6,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import sv_ttk
 
-from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, layer_tag
+from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name
 from canvas.painters import Painters_Impl
 from controllers import editors
 from controllers.commands import Command_Stack
