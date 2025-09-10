@@ -68,6 +68,19 @@ class Icon(Model):
     def with_xy(self, x: int, y: int) -> Self:
         return self.model_copy(update={"p": Point(x=x, y=y)})
 
+    def _icon_bbox_wh(self) -> tuple[int, int]:
+        s = self.size
+        if self.name == Icon_Name.SIGNAL:
+            return (s, s + s // 2)
+        if self.name == Icon_Name.BUFFER:
+            return (s, max(1, s // 2))
+        if self.name == Icon_Name.CROSSING:
+            return (2 * s, 2 * s)
+        if self.name == Icon_Name.SWITCH:
+            return (s, max(1, s // 2))
+        r = max(1, s // 3)
+        return (2 * r, 2 * r)
+
 
 class ItemID(int): ...
 
@@ -185,53 +198,83 @@ class CanvasLW(tk.Canvas):
     ) -> None:
         x, y, s, col, rot = icon.p.x, icon.p.y, icon.size, icon.col.hex, float(icon.rotation or 0)
 
-        def _rot(x: float, y: float, cx: float, cy: float, deg: float) -> tuple[float, float]:
+        # --- helpers ---------------------------------------------------------
+        def _rot(px: float, py: float, cx: float, cy: float, deg: float) -> tuple[float, float]:
             r = math.radians(deg)
-            dx, dy = x - cx, y - cy
+            dx, dy = px - cx, py - cy
             cs, sn = math.cos(r), math.sin(r)
             return (cx + dx * cs - dy * sn, cy + dx * sn + dy * cs)
 
+        def _center_from_anchor(px: int, py: int, w: int, h: int, a: Anchor) -> tuple[int, int]:
+            # map anchor to center offset; same semantics as labels
+            if a in (Anchor.NW, Anchor.W, Anchor.SW):
+                dx = +w / 2
+            elif a in (Anchor.NE, Anchor.E, Anchor.SE):
+                dx = -w / 2
+            else:
+                dx = 0.0
+
+            if a in (Anchor.NW, Anchor.N, Anchor.NE):
+                dy = +h / 2
+            elif a in (Anchor.SW, Anchor.S, Anchor.SE):
+                dy = -h / 2
+            else:
+                dy = 0.0
+
+            return int(round(px + dx)), int(round(py + dy))
+
         tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
 
+        # derive center from the anchored point
+        bw, bh = icon._icon_bbox_wh()
+        cx, cy = _center_from_anchor(x, y, bw, bh, icon.anchor)
+
+        # --- draw each icon relative to CENTER (cx, cy) ----------------------
         if icon.name == Icon_Name.SIGNAL:
             r = s // 2
-            super().create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags=tag)
-            mx0, my0 = x - r // 3, y + r
-            mx1, my1 = x + r // 3, y + r
-            mx2, my2 = x + r // 3, y + s
-            mx3, my3 = x - r // 3, y + s
-            parts = [_rot(px, py, x, y, rot) for (px, py) in [(mx0, my0), (mx1, my1), (mx2, my2), (mx3, my3)]]
-            super().create_polygon(*sum(parts, ()), fill=col, outline="", tags=tag)
+            # head
+            super().create_oval(cx - r, cy - r, cx + r, cy + r, fill=col, outline="", tags=tag)
+            # mast: centered rectangle under the circle
+            mx0, my0 = cx - r // 3, cy + r
+            mx1, my1 = cx + r // 3, cy + r
+            mx2, my2 = cx + r // 3, cy + s
+            mx3, my3 = cx - r // 3, cy + s
+            pts = [_rot(px, py, cx, cy, rot) for (px, py) in [(mx0, my0), (mx1, my1), (mx2, my2), (mx3, my3)]]
+            super().create_polygon(*sum(pts, ()), fill=col, outline="", tags=tag)
+
         elif icon.name == Icon_Name.BUFFER:
-            w, h = s, s // 2
+            w, h = s, max(1, s // 2)
             corners = [
-                (x - w // 2, y - h // 2),
-                (x + w // 2, y - h // 2),
-                (x + w // 2, y + h // 2),
-                (x - w // 2, y + h // 2),
+                (cx - w // 2, cy - h // 2),
+                (cx + w // 2, cy - h // 2),
+                (cx + w // 2, cy + h // 2),
+                (cx - w // 2, cy + h // 2),
             ]
-            pts = [_rot(px, py, x, y, rot) for (px, py) in corners]
+            pts = [_rot(px, py, cx, cy, rot) for (px, py) in corners]
             super().create_polygon(*sum(pts, ()), outline=col, width=2, fill="", tags=tag)
 
         elif icon.name == Icon_Name.CROSSING:
             L = s
-            x1, y1 = _rot(x - L, y - L, x, y, rot)
-            x2, y2 = _rot(x + L, y + L, x, y, rot)
-            x3, y3 = _rot(x - L, y + L, x, y, rot)
-            x4, y4 = _rot(x + L, y - L, x, y, rot)
+            x1, y1 = _rot(cx - L, cy - L, cx, cy, rot)
+            x2, y2 = _rot(cx + L, cy + L, cx, cy, rot)
+            x3, y3 = _rot(cx - L, cy + L, cx, cy, rot)
+            x4, y4 = _rot(cx + L, cy - L, cx, cy, rot)
             super().create_line(x1, y1, x2, y2, fill=col, width=2, tags=tag)
             super().create_line(x3, y3, x4, y4, fill=col, width=2, tags=tag)
 
         elif icon.name == Icon_Name.SWITCH:
+            # Centered geometry (previously pivoted at left end)
             L = s
-            a1, b1 = _rot(x, y, x, y, rot)
-            a2, b2 = _rot(x + L, y, x, y, rot)
-            a3, b3 = _rot(x + L, y + L // 2, x, y, rot)
+            a1, b1 = _rot(cx - L // 2, cy, cx, cy, rot)
+            a2, b2 = _rot(cx + L // 2, cy, cx, cy, rot)
+            a3, b3 = _rot(cx + L // 2, cy + L // 4, cx, cy, rot)
             super().create_line(a1, b1, a2, b2, fill=col, width=2, tags=tag)
             super().create_line(a1, b1, a3, b3, fill=col, width=2, tags=tag)
+
         else:
-            r = s // 3
-            super().create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags=tag)
+            r = max(1, s // 3)
+            super().create_oval(cx - r, cy - r, cx + r, cy + r, fill=col, outline="", tags=tag)
+
         return None
 
     # ---------- updates ----------

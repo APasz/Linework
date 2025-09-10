@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, item_tag, layer_tag, test_hit
 from controllers.commands import Add_Icon, Add_Label, Add_Line, Command_Stack, Move_Icon, Move_Label
+
 from models.geo import CanvasLW, Icon, ItemID, Label, Line, Point
 from models.params import Params
 from models.styling import TkCursor, scaled_pattern
@@ -295,19 +296,13 @@ class Select_Tool:
     _drag_index: int | None = None  # model index for the selection
     _drag_icon_ids: tuple[int, ...] | None = None  # concrete item ids of the icon
     _start_pos: Point | None = None
-    _press_center: Point | None = None
+    _press_ref: Point | None = None
     _dragged: bool = False
-
-    def _centre_of_tag(self, canvas: CanvasLW, tag: str) -> Point | None:
-        bbox = canvas.bbox(tag) or (lambda ids: canvas.bbox(ids[0]) if ids else None)(canvas.find_withtag(tag))
-        if not bbox:
-            return None
-        return Point(x=round((bbox[0] + bbox[2]) / 2), y=round((bbox[1] + bbox[3]) / 2))
 
     def on_press(self, app: Applike, evt: tk.Event):
         hit = test_hit(app.canvas, evt.x, evt.y)
         self._dragged = False
-        self._press_center = None
+        self._press_ref = None
 
         if not hit:
             self._drag_kind = Hit_Kind.miss
@@ -331,15 +326,14 @@ class Select_Tool:
 
         if self._drag_kind == Hit_Kind.icon and self._drag_index is not None:
             tag = item_tag(Hit_Kind.icon, self._drag_index)
-
             self._drag_icon_ids = tuple(app.canvas.find_withtag(tag))
-            centre = self._centre_of_tag(app.canvas, tag)
-            if centre:
-                self._press_center = centre
+            # press reference = model’s anchored point
+            self._press_ref = app.params.icons[self._drag_index].p
+
         elif self._drag_kind == Hit_Kind.label and self._drag_canvas_id is not None:
             coords = app.canvas.coords(self._drag_canvas_id)
             if coords:
-                self._press_center = Point(x=round(coords[0]), y=round(coords[1]))
+                self._press_ref = Point(x=round(coords[0]), y=round(coords[1]))
 
     def on_motion(self, app: Applike, evt: tk.Event):
         if not self._start_pos or not self._drag_kind:
@@ -366,7 +360,7 @@ class Select_Tool:
             coords = app.canvas.coords(cid)
             end_center = Point(x=round(coords[0]), y=round(coords[1])) if coords else Point(x=evt.x, y=evt.y)
 
-            if not (self._dragged and self._moved_enough(self._press_center, end_center)):
+            if not (self._dragged and self._moved_enough(self._press_ref, end_center)):
                 # click only → do nothing; keep off-grid positions
                 self._reset()
                 return
@@ -403,22 +397,39 @@ class Select_Tool:
             else:
                 end_center = Point(x=evt.x, y=evt.y)
 
-            if not (self._dragged and self._moved_enough(self._press_center, end_center)):
+            if not (self._dragged and self._moved_enough(self._press_ref, end_center)):
                 self._reset()
                 return
 
             # resolve model index from dragged ids
-            idx = self._drag_index
-            if idx is None:
-                idx = self._infer_index_from_ids(app.canvas, self._drag_icon_ids or (), Hit_Kind.icon)
-            if idx is None:
-                idx = self._nearest_icon_index(app, end_center)
+            idx = self._drag_index or self._infer_index_from_ids(app.canvas, self._drag_icon_ids or (), Hit_Kind.icon)
             if idx is None:
                 self._reset()
                 return
 
-            spoint = self._maybe_snap_point(app, end_center, kind=Hit_Kind.icon, index=idx, evt=evt)
-            old = app.params.icons[idx].p
+            ico = app.params.icons[idx]
+            tag = item_tag(Hit_Kind.icon, idx)
+
+            # end CENTER from bbox
+            bbox = app.canvas.bbox(tag)
+            if bbox:
+                cx, cy = round((bbox[0] + bbox[2]) / 2), round((bbox[1] + bbox[3]) / 2)
+            else:
+                cx, cy = evt.x, evt.y
+
+            # compute unrotated bbox size for this icon type (match your painter/export)
+            bw, bh = ico._icon_bbox_wh()
+            ox, oy = self._anchor_offset(bw, bh, ico.anchor.tk)
+            rox, roy = self._rot(ox, oy, float(ico.rotation or 0))
+            end_anchor_pt = Point(x=int(round(cx + rox)), y=int(round(cy + roy)))
+
+            # commit if moved enough (anchor vs anchor)
+            if not (self._dragged and self._moved_enough(self._press_ref, end_anchor_pt)):
+                self._reset()
+                return
+
+            spoint = self._maybe_snap_point(app, end_anchor_pt, kind=Hit_Kind.icon, index=idx, evt=evt)
+            old = ico.p
             if spoint != old:
                 app.cmd.push_and_do(
                     Move_Icon(app.params, idx, old, spoint, on_after=lambda: app.layers_redraw(Layer_Name.icons))
@@ -438,11 +449,62 @@ class Select_Tool:
         self._drag_index = None
         self._drag_icon_ids = None
         self._start_pos = None
-        self._press_center = None
+        self._press_ref = None
         self._dragged = False
 
+    # ---- helpers ----
+
+    @staticmethod
+    def _anchored_point_of_tag(canvas: CanvasLW, tag: str, anchor: str) -> Point | None:
+        bbox = canvas.bbox(tag) or (lambda ids: canvas.bbox(ids[0]) if ids else None)(canvas.find_withtag(tag))
+        if not bbox:
+            return None
+        x1, y1, x2, y2 = bbox
+        cx, cy = round((x1 + x2) / 2), round((y1 + y2) / 2)
+
+        if anchor == "nw":
+            return Point(x=int(x1), y=int(y1))
+        if anchor == "n":
+            return Point(x=cx, y=int(y1))
+        if anchor == "ne":
+            return Point(x=int(x2), y=int(y1))
+        if anchor == "w":
+            return Point(x=int(x1), y=cy)
+        if anchor == "center":
+            return Point(x=cx, y=cy)
+        if anchor == "e":
+            return Point(x=int(x2), y=cy)
+        if anchor == "sw":
+            return Point(x=int(x1), y=int(y2))
+        if anchor == "s":
+            return Point(x=cx, y=int(y2))
+        if anchor == "se":
+            return Point(x=int(x2), y=int(y2))
+        return Point(x=cx, y=cy)
+
+    @staticmethod
+    def _anchor_offset(w: int, h: int, anc: str) -> tuple[float, float]:
+        # vector from center -> anchor in *unrotated* frame
+        ax = -w / 2 if anc in ("nw", "w", "sw") else (w / 2 if anc in ("ne", "e", "se") else 0.0)
+        ay = -h / 2 if anc in ("nw", "n", "ne") else (h / 2 if anc in ("sw", "s", "se") else 0.0)
+        return ax, ay
+
+    @staticmethod
+    def _rot(dx: float, dy: float, deg: float) -> tuple[float, float]:
+        r = math.radians(deg)
+        cs, sn = math.cos(r), math.sin(r)
+        return dx * cs - dy * sn, dx * sn + dy * cs
+
+    @staticmethod
+    def _centre_of_tag(canvas: CanvasLW, tag: str) -> Point | None:
+        bbox = canvas.bbox(tag) or (lambda ids: canvas.bbox(ids[0]) if ids else None)(canvas.find_withtag(tag))
+        if not bbox:
+            return None
+        return Point(x=round((bbox[0] + bbox[2]) / 2), y=round((bbox[1] + bbox[3]) / 2))
+
     # helper: map canvas text id -> label index (rebuild cheaply)
-    def _label_index_from_canvas(self, app: Applike, cid: int) -> int:
+    @staticmethod
+    def _label_index_from_canvas(app: Applike, cid: int) -> int:
         # rebuild a fresh map (labels aren't huge)
         # draw order matches params.labels order in painters, but ids differ per redraw
         # so we re-hit labels by position/text match:
@@ -464,7 +526,8 @@ class Select_Tool:
                 best_d, best_i = d, i
         return best_i
 
-    def _infer_index_from_ids(self, canvas: CanvasLW, ids: tuple[int, ...], prefix: Hit_Kind) -> int | None:
+    @staticmethod
+    def _infer_index_from_ids(canvas: CanvasLW, ids: tuple[int, ...], prefix: Hit_Kind) -> int | None:
         """Return the most common '<prefix>:K' tag index across these item ids."""
         counts: dict[int, int] = {}
         needle = prefix.value + ":"
@@ -481,7 +544,8 @@ class Select_Tool:
         # majority vote
         return max(counts.items(), key=lambda kv: kv[1])[0]
 
-    def _nearest_icon_index(self, app: Applike, point: Point) -> int | None:
+    @staticmethod
+    def _nearest_icon_index(app: Applike, point: Point) -> int | None:
         best_i, best_d = None, float("inf")
         for i, ico in enumerate(app.params.icons):
             d = (ico.p.x - point.x) * (ico.p.x - point.x) + (ico.p.y - point.y) * (ico.p.y - point.y)
@@ -489,12 +553,14 @@ class Select_Tool:
                 best_d, best_i = d, i
         return best_i
 
-    def _moved_enough(self, a: Point | None, b: Point | None, tol: int = 1) -> bool:
+    @staticmethod
+    def _moved_enough(a: Point | None, b: Point | None, tol: int = 1) -> bool:
         if not a or not b:
             return False
         return abs(a.x - b.x) > tol or abs(a.y - b.y) > tol
 
-    def _snap_enabled_for(self, app: Applike, kind: Hit_Kind, index: int, evt: tk.Event | None) -> bool:
+    @staticmethod
+    def _snap_enabled_for(app: Applike, kind: Hit_Kind, index: int, evt: tk.Event | None) -> bool:
         # App-wide toggle
         base = app.cardinal()
         # Ctrl inverts (hold to bypass, or hold to force if base==False)

@@ -8,9 +8,9 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
-from models.geo import Icon, Label, Line
+from models.geo import Icon, Icon_Name, Label, Line
 from models.params import Params
-from models.styling import CapStyle, scaled_pattern, svg_dasharray
+from models.styling import Anchor, CapStyle, scaled_pattern, svg_dasharray
 
 
 class Formats(enum.StrEnum):
@@ -43,6 +43,33 @@ def _col_and_opacity(col) -> tuple[str, str]:
     else:
         op = ""
     return hex_rgb, op
+
+
+def _center_from_anchor_xy(px: int, py: int, w: int, h: int, a: Anchor) -> tuple[int, int]:
+    if a in (Anchor.NW, Anchor.W, Anchor.SW):
+        dx = +w / 2
+    elif a in (Anchor.NE, Anchor.E, Anchor.SE):
+        dx = -w / 2
+    else:
+        dx = 0.0
+    if a in (Anchor.NW, Anchor.N, Anchor.NE):
+        dy = +h / 2
+    elif a in (Anchor.SW, Anchor.S, Anchor.SE):
+        dy = -h / 2
+    else:
+        dy = 0.0
+    return int(round(px + dx)), int(round(py + dy))
+
+
+# ------------------------------- SVG helpers -------------------------------- #
+def _svg_cap(cap: CapStyle) -> str:
+    # Tk: "butt" | "round" | "projecting"
+    # SVG: "butt" | "round" | "square"
+    return "square" if cap == CapStyle.PROJECTING else cap.value
+
+
+def _escape(string: str) -> str:
+    return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ----------------------------- PIL dashed stroker ---------------------------- #
@@ -252,27 +279,30 @@ class Exporter:
         for ico in getattr(params, "icons", []):
             ico: Icon
             col, cop = _col_and_opacity(ico.col)
+            bw, bh = ico._icon_bbox_wh()
+            cx, cy = _center_from_anchor_xy(ico.p.x, ico.p.y, bw, bh, ico.anchor)
             rot = int(getattr(ico, "rotation", 0) or 0)
+            parts.append(f'<g transform="translate({cx} {cy}) rotate({rot})">')
 
             parts.append(f'<g transform="translate({ico.p.x} {ico.p.y}) rotate({rot})">')
-            if ico.name == "signal":
+            if ico.name == Icon_Name.SIGNAL:
                 r = ico.size // 2
                 parts.append(f'<circle cx="0" cy="0" r="{r}" fill="{col}"{cop}/>')
                 parts.append(
                     f'<rect x="{-r // 3}" y="{r}" width="{2 * (r // 3)}" height="{ico.size}" fill="{col}"{cop}/>'
                 )
-            elif ico.name == "buffer":
+            elif ico.name == Icon_Name.BUFFER:
                 w = ico.size
                 h = ico.size // 2
                 parts.append(
                     f'<rect x="{-w // 2}" y="{-h // 2}" width="{w}" height="{h}" '
                     f'fill="none" stroke="{col}" stroke-width="2"{cop}/>'
                 )
-            elif ico.name == "crossing":
+            elif ico.name == Icon_Name.CROSSING:
                 Ls = ico.size
                 parts.append(f'<line x1="{-Ls}" y1="{-Ls}" x2="{Ls}" y2="{Ls}" stroke="{col}" stroke-width="2"{cop}/>')
                 parts.append(f'<line x1="{-Ls}" y1="{Ls}" x2="{Ls}" y2="{-Ls}" stroke="{col}" stroke-width="2"{cop}/>')
-            elif ico.name == "switch":
+            elif ico.name == Icon_Name.SWITCH:
                 Ls = ico.size
                 parts.append(f'<line x1="0" y1="0" x2="{Ls}" y2="0" stroke="{col}" stroke-width="2"{cop}/>')
                 parts.append(f'<line x1="0" y1="0" x2="{Ls}" y2="{Ls // 2}" stroke="{col}" stroke-width="2"{cop}/>')
@@ -392,7 +422,11 @@ def _draw_icons(img: Image.Image, params: Params) -> None:
     for ico in getattr(params, "icons", []):
         ico: Icon
         rot = int(getattr(ico, "rotation", 0) or 0)
-        s, x, y, col = ico.size, ico.p.x, ico.p.y, ico.col.rgba
+        s = ico.size
+        # compute center from anchor
+        bw, bh = ico._icon_bbox_wh()
+        cx, cy = _center_from_anchor_xy(ico.p.x, ico.p.y, bw, bh, ico.anchor)
+        col = ico.col.rgba
 
         if rot % 360 != 0:
             box = max(s * 3, 64)
@@ -403,18 +437,18 @@ def _draw_icons(img: Image.Image, params: Params) -> None:
             def P(px: int, py: int) -> tuple[int, int]:
                 return (cx + px, cy + py)
 
-            if ico.name == "signal":
+            if ico.name == Icon_Name.SIGNAL:
                 r = s // 2
                 ld.ellipse([P(-r, -r), P(r, r)], fill=col)
                 ld.rectangle([P(-r // 3, r), P(r // 3, r + s)], fill=col)
-            elif ico.name == "buffer":
+            elif ico.name == Icon_Name.BUFFER:
                 w, h = s, s // 2
                 ld.rectangle([P(-w // 2, -h // 2), P(w // 2, h // 2)], outline=col, width=2)
-            elif ico.name == "crossing":
+            elif ico.name == Icon_Name.CROSSING:
                 Ls = s
                 ld.line([P(-Ls, -Ls), P(Ls, Ls)], fill=col, width=2)
                 ld.line([P(-Ls, Ls), P(Ls, -Ls)], fill=col, width=2)
-            elif ico.name == "switch":
+            elif ico.name == Icon_Name.SWITCH:
                 Ls = s
                 ld.line([P(0, 0), P(Ls, 0)], fill=col, width=2)
                 ld.line([P(0, 0), P(Ls, Ls // 2)], fill=col, width=2)
@@ -424,38 +458,27 @@ def _draw_icons(img: Image.Image, params: Params) -> None:
 
             layer = layer.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
             lw, lh = layer.size
-            img.alpha_composite(layer, (int(x - lw // 2), int(y - lh // 2)))
+            img.alpha_composite(layer, (int(cx - lw // 2), int(cy - lh // 2)))
         else:
-            if ico.name == "signal":
+            if ico.name == Icon_Name.SIGNAL:
                 r = s // 2
-                draw.ellipse([x - r, y - r, x + r, y + r], fill=col)
-                draw.rectangle([x - r // 3, y + r, x + r // 3, y + s], fill=col)
-            elif ico.name == "buffer":
+                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
+                draw.rectangle([cx - r // 3, cy + r, cx + r // 3, cy + s], fill=col)
+            elif ico.name == Icon_Name.BUFFER:
                 w = s
                 h = s // 2
-                draw.rectangle([x - w // 2, y - h // 2, x + w // 2, y + h // 2], outline=col, width=2)
-            elif ico.name == "crossing":
+                draw.rectangle([cx - w // 2, cy - h // 2, cx + w // 2, cy + h // 2], outline=col, width=2)
+            elif ico.name == Icon_Name.CROSSING:
                 Ls = s
-                draw.line([x - Ls, y - Ls, x + Ls, y + Ls], fill=col, width=2)
-                draw.line([x - Ls, y + Ls, x + Ls, y - Ls], fill=col, width=2)
-            elif ico.name == "switch":
+                draw.line([cx - Ls, cy - Ls, cx + Ls, cy + Ls], fill=col, width=2)
+                draw.line([cx - Ls, cy + Ls, cx + Ls, cy - Ls], fill=col, width=2)
+            elif ico.name == Icon_Name.SWITCH:
                 Ls = s
-                draw.line([x, y, x + Ls, y], fill=col, width=2)
-                draw.line([x, y, x + Ls, y + Ls // 2], fill=col, width=2)
+                draw.line([cx, cy, cx + Ls, cy], fill=col, width=2)
+                draw.line([cx, cy, cx + Ls, cy + Ls // 2], fill=col, width=2)
             else:
                 r = s // 3
-                draw.ellipse([x - r, y - r, x + r, y + r], fill=col)
-
-
-# ------------------------------- SVG helpers -------------------------------- #
-def _svg_cap(cap: CapStyle) -> str:
-    # Tk: "butt" | "round" | "projecting"
-    # SVG: "butt" | "round" | "square"
-    return "square" if cap == CapStyle.PROJECTING else cap.value
-
-
-def _escape(string: str) -> str:
-    return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
 
 
 Exporter.match_supported()
