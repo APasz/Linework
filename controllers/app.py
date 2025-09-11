@@ -7,17 +7,17 @@ from tkinter import filedialog, messagebox, ttk
 import sv_ttk
 
 from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name
-from canvas.painters import Painters
-from controllers import editors
+from canvas.painters import Painters, Scene
 from controllers.commands import Command_Stack
-from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool, Tool_Name
-from disk.export import Exporter, Formats
+from controllers.editors import Editors
+from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool
+from disk.export import Exporter
 from disk.storage import IO
-from models.geo import CanvasLW, Point
-from models.geo_icons import Icon_Name
+from models.assets import Formats, Icon_Name, get_asset_library
+from models.geo import Builtin_Icon, CanvasLW, Picture_Icon, Point
 from models.params import Params
 from models.styling import Anchor, CapStyle, Colours, LineStyle
-from ui.bars import Bars, Side
+from ui.bars import Bars, Side, Tool_Name
 
 
 class App:
@@ -28,11 +28,16 @@ class App:
         self.project_path: Path = project_path or Path("untitled.linework")
         if self.project_path.exists():
             self.params = IO.load_params(self.project_path)
+
         else:
             self.params = Params()
 
+        self.asset_lib = get_asset_library(self.project_path)
+
         self.dirty: bool = False
         self._update_title()
+
+        self.editors = Editors(self)
 
         # ---- theme ----
         try:
@@ -68,7 +73,7 @@ class App:
         )
 
         # ---- header & toolbar ----
-        Bars.create_header(
+        self.hbar = Bars.create_header(
             self.root,
             mode_var=self.mode,
             icon_var=self.var_icon,
@@ -82,7 +87,7 @@ class App:
             on_save_as=self.save_project_as,
             on_export=self.export_image,
         )
-        tbar = Bars.create_toolbar(
+        self.tbar = Bars.create_toolbar(
             self.root,
             grid_var=self.var_grid,
             brush_var=self.var_brush_w,
@@ -115,24 +120,12 @@ class App:
         self.apply_colour()
 
         # keep palette highlight in sync when brush colour changes
-        self.var_colour.trace_add("write", lambda *_: tbar.palette.set_selected(self.var_colour.get()))
+        self.var_colour.trace_add("write", lambda *_: self.tbar.palette.set_selected(self.var_colour.get()))
         self.var_bg.trace_add("write", self.apply_bg)
 
         # ---- scene/layers/painters ----
-        class _Scene_Adapter:
-            def __init__(self, params: Params):
-                self.params = params
 
-            def lines(self):
-                return self.params.lines
-
-            def labels(self):
-                return self.params.labels
-
-            def icons(self):
-                return self.params.icons
-
-        self.scene = _Scene_Adapter(self.params)
+        self.scene = Scene(self.params)
         self.painters = Painters(self.scene)
         self.layers = Layer_Manager(self.canvas, self.painters)
 
@@ -141,7 +134,7 @@ class App:
         self.tools = {
             Draw_Tool.name: Draw_Tool(),
             Label_Tool.name: Label_Tool(),
-            Icon_Tool.name: Icon_Tool(get_icon_name=lambda: self.var_icon.get()),
+            Icon_Tool.name: Icon_Tool(),  # get_icon_name=lambda: self.var_icon.get()
             Select_Tool.name: Select_Tool(),
         }
         self.current_tool = self.tools[Tool_Name(self.mode.get())]
@@ -205,7 +198,7 @@ class App:
         self.mode.trace_add("write", self._on_mode_change)
 
         # initial draw
-        self._apply_size_increments(self.params.grid_size, tbar)
+        self._apply_size_increments(self.params.grid_size, self.tbar)
         self.layers.redraw_all()
 
     # --------- small app API used by tools ---------
@@ -277,7 +270,7 @@ class App:
         self.params.grid_visible = self.params.grid_size > 0
         # update size step to match grid
         # (toolbar instance is passed at init to _apply_size_increments)
-        self._apply_size_increments(self.params.grid_size)
+        self._apply_size_increments(self.params.grid_size, self.tbar)
         self.layers.redraw(Layer_Name.grid, True)
 
     def on_brush_change(self, *_):
@@ -392,15 +385,15 @@ class App:
         else:
             delta_deg = -15
             step = -1
-        if k == "icon":
+        if k == Hit_Kind.icon:
             self.params.icons[i].rotation = round((self.params.icons[i].rotation + delta_deg) % 360)
             self.layers.redraw(Layer_Name.icons)
             self.mark_dirty()
-        elif k == "label":
+        elif k == Hit_Kind.label:
             self.params.labels[i].rotation = round((self.params.labels[i].rotation + delta_deg) % 360)
             self.layers.redraw(Layer_Name.labels)
             self.mark_dirty()
-        elif k == "line":
+        elif k == Hit_Kind.line:
             ln = self.params.lines[i]
             order = [
                 LineStyle.SOLID,
@@ -432,7 +425,7 @@ class App:
 
         if k == Hit_Kind.label:
             lab = self.params.labels[i]
-            data = editors.edit_label(self.root, lab)
+            data = self.editors.edit_label(self.root, lab)
             if not data:
                 return
 
@@ -454,8 +447,12 @@ class App:
 
         elif k == Hit_Kind.icon:
             ico = self.params.icons[i]
-            # pass your available icon names (static or dynamic)
-            data = editors.edit_icon(self.root, ico, icon_name_choices=[name.value for name in Icon_Name])
+            if isinstance(ico, Builtin_Icon):
+                data = self.editors.edit_icon(self.root, ico)
+            elif isinstance(ico, Picture_Icon):
+                data = self.editors.edit_picture(self.root, ico)
+            else:
+                return
             if not data:
                 return
 
@@ -465,7 +462,13 @@ class App:
                 point = self.snap(point)
 
             # apply
-            ico.name = data["name"]
+
+            if isinstance(ico, Builtin_Icon):
+                ico.name = data["name"]
+            elif isinstance(ico, Picture_Icon):
+                ico.src = Path(data["src"])
+            else:
+                return
             ico.p = point
             ico.snap = bool(data.get("snap_flag", getattr(ico, "snap", True)))
             ico.size = int(data["size"])
@@ -476,8 +479,8 @@ class App:
             self.mark_dirty()
 
         elif k == Hit_Kind.line:
-            ln = self.params.lines[i]
-            data = editors.edit_line(self.root, ln)
+            lin = self.params.lines[i]
+            data = self.editors.edit_line(self.root, lin)
             if not data:
                 return
 
@@ -489,13 +492,13 @@ class App:
                 point_b = self.snap(point_b)
 
             # apply
-            ln.a = point_a
-            ln.b = point_b
-            ln.width = int(data["width"])
-            ln.capstyle = CapStyle(data["capstyle"])
-            ln.style = LineStyle(data["style"])
-            ln.col = Colours.parse_colour(data["colour"]) if data["colour"] else ln.col
-            # ln.dash_offset = int(data.get("dash_offset", 0))
+            lin.a = point_a
+            lin.b = point_b
+            lin.width = int(data["width"])
+            lin.capstyle = CapStyle(data["capstyle"])
+            lin.style = LineStyle(data["style"])
+            lin.col = Colours.parse_colour(data["colour"]) if data["colour"] else lin.col
+            lin.dash_offset = int(data.get("dash_offset", 0))
             self.layers.redraw(Layer_Name.lines)
             self.mark_dirty()
         else:
@@ -610,6 +613,7 @@ class App:
 
     def _sync_ui_from_params(self, path: Path = Path("untitled.linework")):
         self.project_path = path
+        self.asset_lib = get_asset_library(path)
         self.scene.params = self.params
         # refresh UI vars
         self.var_grid.set(self.params.grid_size)
@@ -621,7 +625,7 @@ class App:
         self.var_line_style.set(self.params.line_style)
         self.var_dash_offset.set(self.params.line_dash_offset)
         self.canvas.config(width=self.params.width, height=self.params.height)
-        self._apply_size_increments(self.params.grid_size)
+        self._apply_size_increments(self.params.grid_size, self.tbar)
         self.layers.redraw_all()
         self.mark_clean()
 

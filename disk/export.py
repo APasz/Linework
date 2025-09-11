@@ -5,12 +5,22 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+import base64
+import io
+import subprocess
+import tempfile
+
+import cairosvg
 from PIL import Image, ImageDraw, ImageFont
 
-from models.geo import Icon_Name, Line
+from models.assets import Formats, _open_rgba, Builtins, Primitives
+from models.geo import Icon_Name, Line, Picture_Icon
 from models.params import Params
-from models.styling import CapStyle, svg_dasharray
+from models.styling import CapStyle, JoinStyle, svg_dasharray
 
+# -----------------------------------------------------------------------------
+# Tunables
+# -----------------------------------------------------------------------------
 DOT_FACTOR = 0.8  # short dash threshold as a multiple of width
 SVG_STRICT_PARITY = False
 
@@ -21,77 +31,26 @@ class RASTERISERS(StrEnum):
     resvg = "resvg"
 
 
-RASTER_BACKEND = RASTERISERS.cairosvg  # "pil" | "cairosvg" | "resvg"
+# Choose how non-SVG rasters are produced (PIL draw or via SVG rasterisation)
+RASTER_BACKEND = RASTERISERS.cairosvg  # pil | cairosvg | resvg
 
 
-class Formats(StrEnum):
-    webp = "webp"
-    png = "png"
-    svg = "svg"
-
-    @classmethod
-    def check(cls, path: Path) -> "Formats | None":
-        suf = path.suffix[1:].lower()
-        return Formats(suf) if suf in Formats else None
+# -----------------------------------------------------------------------------
+# Shared helpers
+# -----------------------------------------------------------------------------
 
 
-def _rasterize_via_svg(params: Params, fmt: Formats) -> bytes | None:
-    # reuse your existing SVG generator
-    svg_path = params.output_file.with_suffix(".tmp.svg")
-    Exporter.svg(params.__class__(**(params.model_dump() | {"output_file": svg_path})))  # or factor out to get string
-    svg_bytes = Path(svg_path).read_bytes()
-    Path(svg_path).unlink(missing_ok=True)
-
-    if RASTER_BACKEND == "cairosvg":
-        import cairosvg  # pyright: ignore[reportMissingImports]
-
-        if fmt == Formats.png:
-            png = cairosvg.svg2png(bytestring=svg_bytes, output_width=params.width, output_height=params.height)
-            return png if isinstance(png, bytes) else None
-        if fmt == Formats.webp:
-            # cairosvg -> PNG, then transcode with PIL
-            import io
-
-            import PIL.Image as Image
-
-            png = cairosvg.svg2png(bytestring=svg_bytes, output_width=params.width, output_height=params.height)
-            if not isinstance(png, bytes):
-                return None
-            img = Image.open(io.BytesIO(png)).convert("RGBA")
-            buf = io.BytesIO()
-            img.save(buf, format=fmt.upper(), lossless=True, method=6)
-            return buf.getvalue()
-
-    if RASTER_BACKEND == "resvg":
-        # requires `resvg` on PATH
-        import subprocess
-        import tempfile
-
-        with tempfile.NamedTemporaryFile(suffix="." + fmt.lower(), delete=False) as out:
-            out_path = Path(out.name)
-        subprocess.run(
-            ["resvg", "-w", str(params.width), "-h", str(params.height), "-", str(out_path)],
-            input=svg_bytes,
-            check=True,
-        )
-        data = out_path.read_bytes()
-        out_path.unlink(missing_ok=True)
-        return data
-
-    raise RuntimeError("Unknown or unavailable SVG raster backend")
-
-
-# ------------------------- Low-level helpers (shared) ------------------------- #
 def _col_and_opacity(col) -> tuple[str, str]:
-    """
-    Return (svg_hex, extra_opacity_attr) for SVG. For PIL, you already have RGBA on the Colour object.
-    """
+    """Return (svg_hex, extra_opacity_attr) for SVG emitters."""
     hex_rgb = col.hex  # "#rrggbb"
     if getattr(col, "alpha", 255) < 255:
         op = f' opacity="{col.alpha / 255:.3f}"'
     else:
         op = ""
     return hex_rgb, op
+
+
+# --- Dashing math ------------------------------------------------------------
 
 
 def dash_seq(dash: Sequence[int] | None, offset: int) -> tuple[list[int], bool]:
@@ -101,17 +60,17 @@ def dash_seq(dash: Sequence[int] | None, offset: int) -> tuple[list[int], bool]:
     If dash is None or degenerate → return ([], True) meaning 'solid'.
     """
     if not dash:
-        return ([], True)  # solid
+        return ([], True)
 
     seq = [int(p) for p in dash if p > 0]
     if not seq:
-        return ([], True)  # solid
+        return ([], True)
 
     if len(seq) % 2 == 1:
         seq *= 2
 
     total = sum(seq)
-    off = int(offset) % total
+    off = int(offset) % total if total > 0 else 0
 
     i = 0
     # consume offset into the sequence
@@ -134,10 +93,7 @@ def dash_seq(dash: Sequence[int] | None, offset: int) -> tuple[list[int], bool]:
 
 
 def iter_dash_spans(L: float, dash: Sequence[int] | None, offset: int):
-    """
-    Yield (a, b, on) arc-length spans along [0, L] after applying dash+offset.
-    a and b are distances from the start point along the line.
-    """
+    """Yield (a, b, on) arc-length spans along [0, L] after applying dash+offset."""
     if L <= 0:
         return
     seq, on = dash_seq(dash, offset)
@@ -162,13 +118,34 @@ def iter_dash_spans(L: float, dash: Sequence[int] | None, offset: int):
 
 
 def extend_span_for_projecting(a: float, b: float, r: float, L: float) -> tuple[float, float]:
-    """
-    Extend an on-span by r at both ends, clamped to [0, L].
-    """
+    """Extend an on-span by r at both ends, clamped to [0, L]."""
     return max(0.0, a - r), min(L, b + r)
 
 
-# ------------------------------- SVG helpers -------------------------------- #
+# --- Pictures ---------------------------------------------------------------
+
+_MIME_BY_EXT = {
+    "png": "image/png",
+    "webp": "image/webp",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "bmp": "image/bmp",
+    "gif": "image/gif",
+    "svg": "image/svg+xml",
+}
+
+
+def _picture_bytes_and_mime(src: Path) -> tuple[bytes, str]:
+    ext = src.suffix[1:].lower()
+    data = src.read_bytes()
+    return data, _MIME_BY_EXT.get(ext, "application/octet-stream")
+
+
+# -----------------------------------------------------------------------------
+# SVG helpers
+# -----------------------------------------------------------------------------
+
+
 def _svg_cap(cap: CapStyle) -> str:
     # Tk: "butt" | "round" | "projecting"
     # SVG: "butt" | "round" | "square"
@@ -195,8 +172,8 @@ def _svg_line_fast(lin) -> str:
 
 def _svg_line_strict(lin) -> list[str]:
     """
-    Strict parity with PIL: emit per-dash <line> segments (and dots), doing our own projecting extensions.
-    We draw segments with stroke-linecap="butt" because we already extend/round ourselves.
+    Strict parity with PIL: emit per-dash <line> segments (and dots), doing
+    our own projecting extensions.
     """
     ux, uy, L = lin.unit()
     if L <= 0 or int(lin.width) <= 0:
@@ -209,7 +186,6 @@ def _svg_line_strict(lin) -> list[str]:
     out: list[str] = []
 
     dash = lin.scaled_pattern()  # None or tuple
-    # Solid path → one line (with native cap for ends).
     if not dash:
         out.append(
             f'<line x1="{lin.a.x}" y1="{lin.a.y}" x2="{lin.b.x}" y2="{lin.b.y}" '
@@ -218,7 +194,6 @@ def _svg_line_strict(lin) -> list[str]:
         )
         return out
 
-    # Dashed path → explicit segments for exact parity (dot threshold and projecting)
     for a, b, on in iter_dash_spans(L, dash, lin.dash_offset):
         if not on:
             continue
@@ -242,14 +217,312 @@ def _svg_line_strict(lin) -> list[str]:
             f'stroke="{stroke}" stroke-width="{width}" stroke-linecap="butt" stroke-linejoin="round"{sop}/>'
         )
 
-        # Optional: if you want round caps on each dash like PIL’s “large dash” path, add circles at xA/yA and xB/yB when ROUND:
         if lin.capstyle == CapStyle.ROUND:
             out.append(f'<circle cx="{xA}" cy="{yA}" r="{r}" fill="{stroke}"{sop}/>')
             out.append(f'<circle cx="{xB}" cy="{yB}" r="{r}" fill="{stroke}"{sop}/>')
     return out
 
 
-# ----------------------------- PIL dashed stroker ---------------------------- #
+# -----------------------------------------------------------------------------
+# Built‑in icon plan → single source of truth
+# -----------------------------------------------------------------------------
+
+# The plan is expressed around the origin. A renderer will translate/rotate.
+# Each step is (op, kwargs):
+#   ("circle", {cx, cy, r, fill, width(optional), stroke(optional)})
+#   ("rect",   {x, y, w, h, fill, width(optional), stroke(optional)})
+#   ("line",   {x1, y1, x2, y2, width, stroke})
+
+
+def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[str, dict[str, Any]]]:
+    """
+    Build a device-agnostic drawing plan for a builtin icon using the single
+    source of truth in Builtins.icon_def. Coordinates are expressed around
+    the origin and scaled to `size` so renderers can translate/rotate.
+    """
+    idef = Builtins.icon_def(name)
+    minx, miny, vbw, vbh = idef.viewbox
+    # uniform scale to fit a square of `size`
+    s = size / max(vbw, vbh) if max(vbw, vbh) else 1.0
+    cx = minx + vbw / 2.0
+    cy = miny + vbh / 2.0
+
+    def T(px: float, py: float) -> tuple[int, int]:
+        """Transform idef-space to origin-centered, scaled icon-space."""
+        return int(round((px - cx) * s)), int(round((py - cy) * s))
+
+    plan: list[tuple[str, dict[str, Any]]] = []
+
+    for prim in idef.prims:
+        sty = prim.style
+        # width scales with icon size; clamp to at least 1
+        width = max(1, int(round((getattr(sty, "stroke_width", 1.0) or 1.0) * s)))
+        stroke = col_svg if getattr(sty, "stroke", False) else None
+        fill = col_svg if getattr(sty, "fill", False) else None
+        dash = None
+        if getattr(sty, "dash", None):
+            # scale dash pattern
+            dash = [max(1, int(round(d * s))) for d in sty.dash]
+
+        if isinstance(prim, Primitives.Circle):
+            x, y = T(prim.cx, prim.cy)
+            r = max(1, int(round(prim.r * s)))
+            entry: dict[str, Any] = {"cx": x, "cy": y, "r": r}
+            if fill:
+                entry["fill"] = fill
+            if stroke:
+                entry["stroke"] = stroke
+                entry["width"] = width
+            plan.append(("circle", entry))
+
+        elif isinstance(prim, Primitives.Rect):
+            x0, y0 = T(prim.x, prim.y)
+            # Rect in idef is axis-aligned; just scale w/h
+            w = int(round(prim.w * s))
+            h = int(round(prim.h * s))
+            entry: dict[str, Any] = {"x": x0, "y": y0, "w": w, "h": h}
+            if fill:
+                entry["fill"] = fill
+            if stroke:
+                entry["stroke"] = stroke
+                entry["width"] = width
+            plan.append(("rect", entry))
+
+        elif isinstance(prim, Primitives.Line):
+            x1, y1 = T(prim.x1, prim.y1)
+            x2, y2 = T(prim.x2, prim.y2)
+            entry: dict[str, Any] = {
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+                "width": width,
+                "stroke": stroke or col_svg,
+            }
+            # cap/join mainly matter for thick strokes; include if present
+            cap = getattr(getattr(sty, "line_cap", None), "name", None)
+            if cap:
+                entry["cap"] = {"ROUND": "round", "BUTT": "butt", "PROJECTING": "square"}.get(cap, "butt")
+            if dash:
+                entry["dash"] = dash
+            plan.append(("line", entry))
+
+        elif isinstance(prim, Primitives.Polyline):
+            pts = []
+            for px, py in prim.points:
+                tx, ty = T(px, py)
+                pts.append((tx, ty))
+            entry: dict[str, Any] = {
+                "points": pts,
+                "closed": bool(getattr(prim, "closed", False)),
+            }
+            if fill:
+                entry["fill"] = fill
+            if stroke:
+                entry["stroke"] = stroke
+                entry["width"] = width
+            join = getattr(getattr(sty, "line_join", None), "name", None)
+            if join:
+                entry["join"] = {"ROUND": "round", "BEVEL": "bevel", "MITER": "miter"}.get(join, "miter")
+            if dash:
+                entry["dash"] = dash
+            plan.append(("polyline", entry))
+
+        else:
+            # Unknown primitive; ignore rather than exploding in export
+            continue
+
+    return plan
+
+
+# ---------------- SVG render of plan -----------------
+
+
+def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]):
+    for op, kw in plan:
+        if op == "circle":
+            cx, cy, r = kw["cx"], kw["cy"], kw["r"]
+            fill = kw.get("fill")
+            stroke = kw.get("stroke")
+            width = kw.get("width")
+            if fill:
+                parts.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{fill}"/>')
+            if stroke:
+                parts.append(
+                    f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{stroke}" stroke-width="{width or 1}"/>'
+                )
+        elif op == "rect":
+            x, y, w, h = kw["x"], kw["y"], kw["w"], kw["h"]
+            fill = kw.get("fill")
+            stroke = kw.get("stroke")
+            width = kw.get("width")
+            if fill:
+                parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{fill}"/>')
+            if stroke:
+                parts.append(
+                    f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="none" stroke="{stroke}" stroke-width="{width or 1}"/>'
+                )
+        elif op == "line":
+            x1, y1, x2, y2 = kw["x1"], kw["y1"], kw["x2"], kw["y2"]
+            stroke = kw.get("stroke")
+            width = kw.get("width", 1)
+            parts.append(f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="{stroke}" stroke-width="{width}"/>')
+        elif op == "polyline":
+            pts = " ".join(f"{x},{y}" for x, y in kw["points"])
+            closed = kw.get("closed", False)
+            fill = kw.get("fill")
+            stroke = kw.get("stroke")
+            width = kw.get("width", 1)
+            join = kw.get("join")
+            dash = kw.get("dash")
+            cap = kw.get("cap")
+            if closed:
+                tag = f'<polygon points="{pts}"'
+            else:
+                tag = f'<polyline points="{pts}"'
+            attrs = []
+            if fill and closed:
+                attrs.append(f'fill="{fill}"')
+            else:
+                attrs.append('fill="none"')
+            if stroke:
+                attrs.append(f'stroke="{stroke}"')
+                attrs.append(f'stroke-width="{width}"')
+            if join:
+                attrs.append(f'stroke-linejoin="{join}"')
+            if cap and not closed:
+                attrs.append(f'stroke-linecap="{cap}"')
+            if dash:
+                attrs.append('stroke-dasharray="' + ",".join(str(int(d)) for d in dash) + '"')
+            parts.append(tag + " " + " ".join(attrs) + "/>")
+
+
+# ---------------- PIL render of plan -----------------
+
+
+def _emit_pil_plan(draw: ImageDraw.ImageDraw, plan: list[tuple[str, dict[str, Any]]], cx: int, cy: int, rot_deg: int):
+    # render onto a temp layer if rotation is non-zero
+    needs_rot = (rot_deg % 360) != 0
+    if needs_rot:
+        # estimate a box big enough for rotation
+        box = max(
+            64,
+            max(
+                [abs(int(p[1].get("x2", 0))) for p in plan if p[0] == "line"]
+                + [abs(int(p[1].get("x", 0))) + int(p[1].get("w", 0)) for p in plan if p[0] == "rect"]
+                + [abs(int(p[1].get("cx", 0))) + int(p[1].get("r", 0)) for p in plan if p[0] == "circle"]
+            )
+            * 3,
+        )
+        layer = Image.new("RGBA", (box, box), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(layer)
+        cxl = cyl = box // 2
+
+        def P(px: int, py: int) -> tuple[int, int]:
+            return (cxl + px, cyl + py)
+
+        for op, kw in plan:
+            if op == "circle":
+                r = int(kw["r"])
+                fill = kw.get("fill")
+                stroke = kw.get("stroke")
+                width = int(kw.get("width", 1))
+                cx0, cy0 = P(int(kw["cx"]), int(kw["cy"]))
+                if fill:
+                    ld.ellipse([cx0 - r, cy0 - r, cx0 + r, cy0 + r], fill=_rgba(fill))
+                if stroke:
+                    # approximate stroked circle by thicker ellipse
+                    ld.ellipse([cx0 - r, cy0 - r, cx0 + r, cy0 + r], outline=_rgba(stroke), width=width)
+            elif op == "rect":
+                x, y, w, h = int(kw["x"]), int(kw["y"]), int(kw["w"]), int(kw["h"])
+                fill = kw.get("fill")
+                stroke = kw.get("stroke")
+                width = int(kw.get("width", 1))
+                x0, y0 = P(x, y)
+                x1, y1 = P(x + w, y + h)
+                if fill:
+                    ld.rectangle([x0, y0, x1, y1], fill=_rgba(fill))
+                if stroke:
+                    ld.rectangle([x0, y0, x1, y1], outline=_rgba(stroke), width=width)
+            elif op == "line":
+                x1, y1, x2, y2 = int(kw["x1"]), int(kw["y1"]), int(kw["x2"]), int(kw["y2"])
+                width = int(kw.get("width", 1))
+                stroke = kw.get("stroke")
+                ld.line([P(x1, y1), P(x2, y2)], fill=_rgba(stroke), width=width)
+            elif op == "polyline":
+                pts = [P(int(x), int(y)) for (x, y) in kw["points"]]
+                width = int(kw.get("width", 1))
+                stroke = kw.get("stroke")
+                fill = kw.get("fill")
+                if kw.get("closed", False):
+                    if fill:
+                        ld.polygon(pts, fill=_rgba(fill))
+                    if stroke:
+                        ld.polygon(pts, outline=_rgba(stroke), width=width)
+                else:
+                    if stroke:
+                        ld.line(pts, fill=_rgba(stroke), width=width)
+
+        layer = layer.rotate(-rot_deg, resample=Image.Resampling.BICUBIC, expand=True)
+        lw, lh = layer.size
+        draw.im.alpha_composite(layer, (int(round(cx - lw / 2)), int(round(cy - lh / 2))))
+    else:
+        for op, kw in plan:
+            if op == "circle":
+                r = int(kw["r"])
+                fill = kw.get("fill")
+                stroke = kw.get("stroke")
+                width = int(kw.get("width", 1))
+                cx0, cy0 = cx + int(kw["cx"]), cy + int(kw["cy"])
+                if fill:
+                    draw.ellipse([cx0 - r, cy0 - r, cx0 + r, cy0 + r], fill=_rgba(fill))
+                if stroke:
+                    draw.ellipse([cx0 - r, cy0 - r, cx0 + r, cy0 + r], outline=_rgba(stroke), width=width)
+            elif op == "rect":
+                x, y, w, h = int(kw["x"]), int(kw["y"]), int(kw["w"]), int(kw["h"])
+                fill = kw.get("fill")
+                stroke = kw.get("stroke")
+                width = int(kw.get("width", 1))
+                x0, y0 = cx + x, cy + y
+                x1, y1 = x0 + w, y0 + h
+                if fill:
+                    draw.rectangle([x0, y0, x1, y1], fill=_rgba(fill))
+                if stroke:
+                    draw.rectangle([x0, y0, x1, y1], outline=_rgba(stroke), width=width)
+            elif op == "line":
+                x1, y1, x2, y2 = int(kw["x1"]), int(kw["y1"]), int(kw["x2"]), int(kw["y2"])
+                width = int(kw.get("width", 1))
+                stroke = kw.get("stroke")
+                draw.line([cx + x1, cy + y1, cx + x2, cy + y2], fill=_rgba(stroke), width=width)
+
+            elif op == "polyline":
+                pts = [(cx + int(x), cy + int(y)) for (x, y) in kw["points"]]
+                width = int(kw.get("width", 1))
+                stroke = kw.get("stroke")
+                fill = kw.get("fill")
+                if kw.get("closed", False):
+                    if fill:
+                        draw.polygon(pts, fill=_rgba(fill))
+                    if stroke:
+                        draw.polygon(pts, outline=_rgba(stroke), width=width)
+                else:
+                    if stroke:
+                        draw.line(pts, fill=_rgba(stroke), width=width)
+
+
+def _rgba(svg_hex: str) -> tuple[int, int, int, int]:
+    # svg_hex like "#rrggbb"
+    r = int(svg_hex[1:3], 16)
+    g = int(svg_hex[3:5], 16)
+    b = int(svg_hex[5:7], 16)
+    return (r, g, b, 255)
+
+
+# -----------------------------------------------------------------------------
+# PIL dashed stroker for Lines
+# -----------------------------------------------------------------------------
+
+
 def _stroke_dashed_line(draw: ImageDraw.ImageDraw, line: Line) -> None:
     ux, uy, L = line.unit()
     if L <= 0 or int(line.width) <= 0:
@@ -299,7 +572,11 @@ def _stroke_dashed_line(draw: ImageDraw.ImageDraw, line: Line) -> None:
             draw.ellipse([cxB - r_cap, cyB - r_cap, cxB + r_cap, cyB + r_cap], fill=rgba)
 
 
-# ------------------------------- Exporter class ------------------------------ #
+# -----------------------------------------------------------------------------
+# Exporter
+# -----------------------------------------------------------------------------
+
+
 class Exporter:
     """
     Public API:
@@ -319,9 +596,7 @@ class Exporter:
 
     @classmethod
     def match_supported(cls) -> dict[Formats, Callable[[Params], Path]]:
-        """
-        Build the string-keyed dispatch: {"png": png, "webp": webp, "svg": svg}
-        """
+        """Build the dispatch table from Formats → handler methods."""
         sups: dict[Formats, Callable[[Params], Path]] = {}
         for fmt in Formats:
             handler = getattr(cls, fmt.name, None)
@@ -331,42 +606,10 @@ class Exporter:
         cls.supported = sups
         return sups
 
-    # ---------- Raster draw (PIL) ---------- #
+    # ---------------- Internal helpers ----------------
     @staticmethod
-    def _draw(params: Params) -> Image.Image:
-        img = Image.new("RGBA", (params.width, params.height), params.bg_mode.rgba)
-        draw = ImageDraw.Draw(img)
-
-        _draw_grid(draw, params)
-        _draw_lines(draw, params)
-        _draw_labels(img, params)
-        _draw_icons(img, params)
-
-        return img
-
-    @classmethod
-    def webp(cls, params: Params) -> Path:
-        if RASTER_BACKEND == RASTERISERS.pil:
-            frame = cls._draw(params)
-            frame.save(params.output_file, format=Formats.webp.upper(), lossless=True, method=6)
-        else:
-            if raster := _rasterize_via_svg(params, Formats.webp):
-                params.output_file.write_bytes(raster)
-        return params.output_file
-
-    @classmethod
-    def png(cls, params: Params) -> Path:
-        if RASTER_BACKEND == RASTERISERS.pil:
-            frame = cls._draw(params)
-            frame.save(params.output_file, format=Formats.png.upper())
-        else:
-            if raster := _rasterize_via_svg(params, Formats.png):
-                params.output_file.write_bytes(raster)
-        return params.output_file
-
-    # ---------- SVG ---------- #
-    @staticmethod
-    def svg(params: Params) -> Path:
+    def _svg_string(params: Params) -> str:
+        """Generate SVG markup as a single string."""
         W, H = params.width, params.height
         parts: list[str] = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']
 
@@ -394,68 +637,161 @@ class Exporter:
 
         # labels
         for lab in params.labels:
+            if not lab.text:
+                continue
             fill, fop = _col_and_opacity(lab.col)
             ta, db = lab.anchor.svg  # ("start"/"middle"/"end", baseline)
             parts.append(
                 f'<text x="{lab.p.x}" y="{lab.p.y}" fill="{fill}" font-size="{lab.size}" '
-                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({-lab.rotation} {lab.p.x} {lab.p.y})"{fop}>'
+                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({-int(getattr(lab, "rotation", 0) or 0)} {lab.p.x} {lab.p.y})"{fop}>'
                 f"{_escape(lab.text)}</text>"
             )
 
         # icons
         for ico in params.icons:
-            col, cop = _col_and_opacity(ico.col)
             bw, bh = ico.bbox_wh()
             cx, cy = ico.anchor._centre(ico.p.x, ico.p.y, bw, bh)
 
-            # One transform. Rotate sign matches your PIL (-ico.rotation)
-            parts.append(f'<g transform="translate({cx} {cy}) rotate({-ico.rotation})">')
+            # picture-backed
+            if isinstance(ico, Picture_Icon):
+                data, mime = _picture_bytes_and_mime(Path(ico.src))
+                b64 = base64.b64encode(data).decode("ascii")
+                parts.append(
+                    f'<g transform="translate({cx} {cy}) rotate({-int(getattr(ico, "rotation", 0) or 0)}) translate({-bw / 2} {-bh / 2})">'
+                )
+                parts.append(f'<image href="data:{mime};base64,{b64}" width="{bw}" height="{bh}"/>')
+                parts.append("</g>")
+                continue
 
-            if ico.name == Icon_Name.SIGNAL:
-                r = ico.size // 2
-                parts.append(f'<circle cx="0" cy="0" r="{r}" fill="{col}"{cop}/>')
-                parts.append(
-                    f'<rect x="{-r // 3}" y="{r}" width="{2 * (r // 3)}" height="{ico.size}" fill="{col}"{cop}/>'
-                )
-            elif ico.name == Icon_Name.BUFFER:
-                w = ico.size
-                h = ico.size // 2
-                parts.append(
-                    f'<rect x="{-w // 2}" y="{-h // 2}" width="{w}" height="{h}" '
-                    f'fill="none" stroke="{col}" stroke-width="2" stroke-linejoin="round"{cop}/>'
-                )
-            elif ico.name == Icon_Name.CROSSING:
-                Ls = ico.size
-                parts.append(
-                    f'<line x1="{-Ls}" y1="{-Ls}" x2="{Ls}" y2="{Ls}" stroke="{col}" stroke-width="2" '
-                    f'stroke-linecap="round" stroke-linejoin="round"{cop}/>'
-                )
-                parts.append(
-                    f'<line x1="{-Ls}" y1="{Ls}" x2="{Ls}" y2="{-Ls}" stroke="{col}" stroke-width="2" '
-                    f'stroke-linecap="round" stroke-linejoin="round"{cop}/>'
-                )
-            elif ico.name == Icon_Name.SWITCH:
-                Ls = ico.size
-                parts.append(
-                    f'<line x1="0" y1="0" x2="{Ls}" y2="0" stroke="{col}" stroke-width="2" '
-                    f'stroke-linecap="round" stroke-linejoin="round"{cop}/>'
-                )
-                parts.append(
-                    f'<line x1="0" y1="0" x2="{Ls}" y2="{Ls // 2}" stroke="{col}" stroke-width="2" '
-                    f'stroke-linecap="round" stroke-linejoin="round"{cop}/>'
-                )
-            else:
-                r = ico.size // 3
-                parts.append(f'<circle cx="0" cy="0" r="{r}" fill="{col}"{cop}/>')
+            # vector built-ins using unified plan
+            col_svg, cop = _col_and_opacity(ico.col)
+            parts.append(f'<g transform="translate({cx} {cy}) rotate({-int(getattr(ico, "rotation", 0) or 0)})">')
+            _emit_svg_plan(parts, _builtin_icon_plan(ico.name, ico.size, col_svg))
             parts.append("</g>")
 
         parts.append("</svg>")
-        with open(params.output_file, "w", encoding="utf-8") as f:
-            f.write("\n".join(parts))
+        return "\n".join(parts)
+
+    # ---------------- Raster draw (PIL) ----------------
+    @staticmethod
+    def _draw(params: Params) -> Image.Image:
+        img = Image.new("RGBA", (params.width, params.height), params.bg_mode.rgba)
+        draw = ImageDraw.Draw(img)
+
+        _draw_grid(draw, params)
+        _draw_lines(draw, params)
+        _draw_labels(img, params)
+
+        # icons
+        for ico in params.icons:
+            bw, bh = ico.bbox_wh()
+            cxw, cyw = ico.anchor._centre(ico.p.x, ico.p.y, bw, bh)
+
+            if isinstance(ico, Picture_Icon):
+                im = _open_rgba(Path(ico.src), bw, bh)
+                rot = int(getattr(ico, "rotation", 0) or 0) % 360
+                if rot:
+                    im = im.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
+                x0 = int(round(cxw - im.width / 2))
+                y0 = int(round(cyw - im.height / 2))
+                img.alpha_composite(im, (x0, y0))
+            else:
+                col_svg, _ = _col_and_opacity(ico.col)  # rgb hex, ignore opacity here (we draw with full alpha)
+                _emit_pil_plan(
+                    draw,
+                    _builtin_icon_plan(ico.name, ico.size, col_svg),
+                    int(cxw),
+                    int(cyw),
+                    int(getattr(ico, "rotation", 0) or 0),
+                )
+
+        return img
+
+    @staticmethod
+    def _save_via_pil_rgb(params: Params, fmt: Formats) -> Path:
+        """
+        For opaque formats, draw with PIL directly if selected,
+        else rasterise SVG then transcode to RGB.
+        """
+        if RASTER_BACKEND is RASTERISERS.pil:
+            frame = Exporter._draw(params)
+        else:
+            # go via SVG → PNG bytes, then decode for PIL
+            png_bytes = _rasterize_via_svg(params, Formats.png, Exporter._svg_string(params))
+            if png_bytes is None:
+                raise RuntimeError("Failed to rasterise to PNG for RGB export")
+            frame = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+
+        # composite onto solid background if canvas has transparency
+        bg = Image.new("RGB", frame.size, params.bg_mode.rgb if params.bg_mode.alpha else (255, 255, 255))
+        bg.paste(frame, mask=frame.split()[-1])  # A as mask
+        bg.save(params.output_file, format=fmt.upper())
+        return params.output_file
+
+    # ---------------- Public handlers ----------------
+    @staticmethod
+    def svg(params: Params) -> Path:
+        params.output_file.write_text(Exporter._svg_string(params), encoding="utf-8")
+        return params.output_file
+
+    @classmethod
+    def webp(cls, params: Params) -> Path:
+        if RASTER_BACKEND is RASTERISERS.pil:
+            frame = cls._draw(params)
+            frame.save(params.output_file, format=Formats.webp.upper(), lossless=True, method=6)
+        else:
+            raster = _rasterize_via_svg(params, Formats.webp, cls._svg_string(params))
+            if raster is not None:
+                params.output_file.write_bytes(raster)
+        return params.output_file
+
+    @classmethod
+    def png(cls, params: Params) -> Path:
+        if RASTER_BACKEND is RASTERISERS.pil:
+            frame = cls._draw(params)
+            frame.save(params.output_file, format=Formats.png.upper())
+        else:
+            raster = _rasterize_via_svg(params, Formats.png, cls._svg_string(params))
+            if raster is not None:
+                params.output_file.write_bytes(raster)
+        return params.output_file
+
+    @classmethod
+    def jpg(cls, params: Params) -> Path:
+        if RASTER_BACKEND is RASTERISERS.pil:
+            return cls._save_via_pil_rgb(params, Formats.jpg)
+        else:
+            raster = _rasterize_via_svg(params, Formats.png, cls._svg_string(params))
+            if raster is not None:
+                params.output_file.write_bytes(raster)
+        return params.output_file
+
+    @classmethod
+    def jpeg(cls, params: Params) -> Path:
+        if RASTER_BACKEND is RASTERISERS.pil:
+            return cls._save_via_pil_rgb(params, Formats.jpeg)
+        else:
+            raster = _rasterize_via_svg(params, Formats.png, cls._svg_string(params))
+            if raster is not None:
+                params.output_file.write_bytes(raster)
+        return params.output_file
+
+    @classmethod
+    def bmp(cls, params: Params) -> Path:
+        if RASTER_BACKEND is RASTERISERS.pil:
+            return cls._save_via_pil_rgb(params, Formats.bmp)
+        else:
+            raster = _rasterize_via_svg(params, Formats.png, cls._svg_string(params))
+            if raster is not None:
+                params.output_file.write_bytes(raster)
         return params.output_file
 
 
-# -------------------------- Raster sub-painters (PIL) ------------------------- #
+# -----------------------------------------------------------------------------
+# Raster sub-painters (PIL)
+# -----------------------------------------------------------------------------
+
+
 def _draw_grid(draw: ImageDraw.ImageDraw, params: Params) -> None:
     if not (params.grid_visible and params.grid_size > 0):
         return
@@ -519,66 +855,45 @@ def _draw_labels(img: Image.Image, params: Params) -> None:
         img.alpha_composite(temp)
 
 
-def _draw_icons(img: Image.Image, params: Params) -> None:
-    draw = ImageDraw.Draw(img)
-    for ico in params.icons:
-        size = ico.size
-        # compute centre from anchor
-        bw, bh = ico.bbox_wh()
-        cx, cy = ico.anchor._centre(ico.p.x, ico.p.y, bw, bh)
-        col = ico.col.rgba
-
-        if ico.rotation % 360 != 0:
-            box = max(size * 3, 64)
-            layer = Image.new("RGBA", (box, box), (0, 0, 0, 0))
-            ld = ImageDraw.Draw(layer)
-            cx = cy = box // 2
-
-            def P(px: int, py: int) -> tuple[int, int]:
-                return (cx + px, cy + py)
-
-            if ico.name == Icon_Name.SIGNAL:
-                r = size // 2
-                ld.ellipse([P(-r, -r), P(r, r)], fill=col)
-                ld.rectangle([P(-r // 3, r), P(r // 3, r + size)], fill=col)
-            elif ico.name == Icon_Name.BUFFER:
-                w, h = size, size // 2
-                ld.rectangle([P(-w // 2, -h // 2), P(w // 2, h // 2)], outline=col, width=2)
-            elif ico.name == Icon_Name.CROSSING:
-                Ls = size
-                ld.line([P(-Ls, -Ls), P(Ls, Ls)], fill=col, width=2)
-                ld.line([P(-Ls, Ls), P(Ls, -Ls)], fill=col, width=2)
-            elif ico.name == Icon_Name.SWITCH:
-                Ls = size
-                ld.line([P(0, 0), P(Ls, 0)], fill=col, width=2)
-                ld.line([P(0, 0), P(Ls, Ls // 2)], fill=col, width=2)
-            else:
-                r = size // 3
-                ld.ellipse([P(-r, -r), P(r, r)], fill=col)
-
-            layer = layer.rotate(-ico.rotation, resample=Image.Resampling.BICUBIC, expand=True)
-            lw, lh = layer.size
-            img.alpha_composite(layer, (int(cx - lw // 2), int(cy - lh // 2)))
-        else:
-            if ico.name == Icon_Name.SIGNAL:
-                r = size // 2
-                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
-                draw.rectangle([cx - r // 3, cy + r, cx + r // 3, cy + size], fill=col)
-            elif ico.name == Icon_Name.BUFFER:
-                w = size
-                h = size // 2
-                draw.rectangle([cx - w // 2, cy - h // 2, cx + w // 2, cy + h // 2], outline=col, width=2)
-            elif ico.name == Icon_Name.CROSSING:
-                Ls = size
-                draw.line([cx - Ls, cy - Ls, cx + Ls, cy + Ls], fill=col, width=2)
-                draw.line([cx - Ls, cy + Ls, cx + Ls, cy - Ls], fill=col, width=2)
-            elif ico.name == Icon_Name.SWITCH:
-                Ls = size
-                draw.line([cx, cy, cx + Ls, cy], fill=col, width=2)
-                draw.line([cx, cy, cx + Ls, cy + Ls // 2], fill=col, width=2)
-            else:
-                r = size // 3
-                draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=col)
+# -----------------------------------------------------------------------------
+# SVG → raster backends
+# -----------------------------------------------------------------------------
 
 
+def _rasterize_via_svg(params: Params, fmt: Formats, svg_text: str) -> bytes | None:
+    svg_bytes = svg_text.encode("utf-8")
+
+    if RASTER_BACKEND is RASTERISERS.cairosvg:
+        if fmt == Formats.png:
+            png = cairosvg.svg2png(bytestring=svg_bytes, output_width=params.width, output_height=params.height)
+            return png if isinstance(png, bytes) else None
+        if fmt == Formats.webp:
+            # cairosvg → PNG, then transcode with PIL
+            png = cairosvg.svg2png(bytestring=svg_bytes, output_width=params.width, output_height=params.height)
+            if not isinstance(png, bytes):
+                return None
+            img = Image.open(io.BytesIO(png)).convert("RGBA")
+            buf = io.BytesIO()
+            img.save(buf, format=fmt.upper(), lossless=True, method=6)
+            return buf.getvalue()
+
+    if RASTER_BACKEND is RASTERISERS.resvg:
+        # requires `resvg` CLI on PATH
+        with tempfile.NamedTemporaryFile(suffix="." + fmt.value, delete=False) as out:
+            out_path = Path(out.name)
+        try:
+            subprocess.run(
+                ["resvg", "-w", str(params.width), "-h", str(params.height), "-o", str(out_path), "-"],
+                input=svg_bytes,
+                check=True,
+            )
+            data = out_path.read_bytes()
+            return data
+        finally:
+            out_path.unlink(missing_ok=True)
+
+    raise RuntimeError("Unknown or unavailable SVG raster backend")
+
+
+# Build the dispatch table immediately on import
 Exporter.match_supported()

@@ -1,11 +1,20 @@
 from collections.abc import Collection
+from dataclasses import dataclass
+from enum import StrEnum
 import math
+from pathlib import Path
 import tkinter as tk
-from typing import Self
+from typing import Annotated, Literal, Self
+
+from pydantic import Field
 
 from canvas.layers import Hit_Kind, Layer_Name, layer_tag, tag_list
-from models.geo_icons import Icon_Name
-from models.styling import Anchor, CapStyle, Colour, LineStyle, Model, scaled_pattern
+
+
+from models.styling import Anchor, CapStyle, Colour, JoinStyle, LineStyle, Model, scaled_pattern
+from models.assets import Builtins, Formats, Primitives, Style, _open_rgba, probe_wh, Icon_Name
+
+from PIL import Image, ImageTk
 
 
 class Point(Model):
@@ -68,12 +77,37 @@ class Label(Model):
         return self.model_copy(update={"p": Point(x=x, y=y)})
 
 
-class Icon(Model):
+class Icon_Type(StrEnum):
+    builtin = "builtin"
+    picture = "picture"
+
+
+@dataclass(frozen=True, slots=True)
+class Icon_Source:
+    kind: Icon_Type
+    name: Icon_Name | None = None
+    src: Path | None = None
+
+    def __post_init__(self):
+        if isinstance(self.name, str):
+            object.__setattr__(self, "name", Icon_Name(self.name))
+        if isinstance(self.src, str):
+            object.__setattr__(self, "src", Path(self.src))
+
+    @classmethod
+    def builtin(cls, name: Icon_Name) -> "Icon_Source":
+        return cls(kind=Icon_Type.builtin, name=name)
+
+    @classmethod
+    def picture(cls, src: Path) -> "Icon_Source":
+        return cls(kind=Icon_Type.picture, src=Path(src))
+
+
+class Base_Icon(Model):
     p: Point
-    name: Icon_Name
     col: Colour
     anchor: Anchor = Anchor.SE
-    size: int = 16
+    size: int = 48
     rotation: int = 0
     snap: bool = True
 
@@ -84,17 +118,45 @@ class Icon(Model):
         return self.model_copy(update={"p": Point(x=x, y=y)})
 
     def bbox_wh(self) -> tuple[int, int]:
+        raise NotImplementedError
+
+
+class Builtin_Icon(Base_Icon):
+    kind: Literal["builtin"] = "builtin"
+    name: Icon_Name
+
+    def bbox_wh(self) -> tuple[int, int]:
         s = self.size
-        if self.name == Icon_Name.SIGNAL:
-            return (s, s + s // 2)
-        if self.name == Icon_Name.BUFFER:
-            return (s, max(1, s // 2))
-        if self.name == Icon_Name.CROSSING:
-            return (2 * s, 2 * s)
-        if self.name == Icon_Name.SWITCH:
-            return (s, max(1, s // 2))
-        r = max(1, s // 3)
-        return (2 * r, 2 * r)
+        return (s, s)
+
+
+class Tint_Mode(StrEnum):
+    none = "none"
+    multiply = "multiply"
+    mask = "mask"
+
+
+class Picture_Icon(Base_Icon):
+    kind: Literal["picture"] = "picture"
+    src: Path
+    size: int = 192
+    format: Formats | None = None
+    preserve_aspect: bool = True
+    tint_mode: Tint_Mode = Tint_Mode.none
+    # Scale rule: scale natural dimensions so that max(w,h) == size
+
+    def bbox_wh(self) -> tuple[int, int]:
+        # tiny helper (see below)
+        w, h = probe_wh(self.src, self.format)
+        if w <= 0 or h <= 0:
+            return (self.size, self.size)
+        if self.preserve_aspect:
+            s = self.size / max(w, h)
+            return (max(1, int(round(w * s))), max(1, int(round(h * s))))
+        return (self.size, self.size)
+
+
+Iconlike = Annotated[Builtin_Icon | Picture_Icon, Field(discriminator="kind")]
 
 
 class ItemID(int): ...
@@ -205,92 +267,150 @@ class CanvasLW(tk.Canvas):
 
     def create_with_icon(
         self,
-        icon: Icon,
+        icon: Builtin_Icon,
         *,
         idx: int | None = None,
         extra_tags: Collection[str] = (),
         override_base_tags: Collection[Layer_Name] | None = None,
     ) -> None:
-        x, y, s, col, rot = icon.p.x, icon.p.y, icon.size, icon.col.hex, float(icon.rotation or 0)
-
-        # --- helpers ---------------------------------------------------------
-        def _rot(px: float, py: float, cx: float, cy: float, deg: float) -> tuple[float, float]:
-            r = math.radians(deg)
-            dx, dy = px - cx, py - cy
-            cs, sn = math.cos(r), math.sin(r)
-            return (cx + dx * cs - dy * sn, cy + dx * sn + dy * cs)
-
-        def _centre_from_anchor(px: int, py: int, w: int, h: int, a: Anchor) -> tuple[int, int]:
-            # map anchor to centre offset; same semantics as labels
-            if a in (Anchor.NW, Anchor.W, Anchor.SW):
-                dx = +w / 2
-            elif a in (Anchor.NE, Anchor.E, Anchor.SE):
-                dx = -w / 2
-            else:
-                dx = 0.0
-
-            if a in (Anchor.NW, Anchor.N, Anchor.NE):
-                dy = +h / 2
-            elif a in (Anchor.SW, Anchor.S, Anchor.SE):
-                dy = -h / 2
-            else:
-                dy = 0.0
-
-            return int(round(px + dx)), int(round(py + dy))
-
         tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
+        col = icon.col.hex
+        size = float(icon.size)
+        rot = float(icon.rotation or 0.0)
 
-        # derive centre from the anchored point
+        idef = Builtins.icon_def(icon.name)
+        minx, miny, vbw, vbh = idef.viewbox
+        s = size / max(vbw, vbh)  # uniform scale
+
+        # centre in world coords from anchor using the post-scale bbox (size x size)
         bw, bh = icon.bbox_wh()
-        cx, cy = icon.anchor._centre(x, y, bw, bh)
+        cx, cy = icon.anchor._centre(icon.p.x, icon.p.y, bw, bh)
 
-        # --- draw each icon relative to centre (cx, cy) ----------------------
-        if icon.name == Icon_Name.SIGNAL:
-            r = s // 2
-            # head
-            super().create_oval(cx - r, cy - r, cx + r, cy + r, fill=col, outline="", tags=tag)
-            # mast: centred rectangle under the circle
-            mx0, my0 = cx - r // 3, cy + r
-            mx1, my1 = cx + r // 3, cy + r
-            mx2, my2 = cx + r // 3, cy + s
-            mx3, my3 = cx - r // 3, cy + s
-            pts = [_rot(px, py, cx, cy, rot) for (px, py) in [(mx0, my0), (mx1, my1), (mx2, my2), (mx3, my3)]]
-            super().create_polygon(*sum(pts, ()), fill=col, outline="", tags=tag)
+        ang = math.radians(rot)
+        cs, sn = math.cos(ang), math.sin(ang)
 
-        elif icon.name == Icon_Name.BUFFER:
-            w, h = s, max(1, s // 2)
-            corners = [
-                (cx - w // 2, cy - h // 2),
-                (cx + w // 2, cy - h // 2),
-                (cx + w // 2, cy + h // 2),
-                (cx - w // 2, cy + h // 2),
-            ]
-            pts = [_rot(px, py, cx, cy, rot) for (px, py) in corners]
-            super().create_polygon(*sum(pts, ()), outline=col, width=2, fill="", tags=tag)
+        def M(px: float, py: float) -> tuple[float, float]:
+            # model → centre viewbox → scale → rotate about origin → translate to (cx, cy)
+            x0 = (px - (minx + vbw / 2.0)) * s
+            y0 = (py - (miny + vbh / 2.0)) * s
+            xr = x0 * cs - y0 * sn
+            yr = x0 * sn + y0 * cs
+            return (cx + xr, cy + yr)
 
-        elif icon.name == Icon_Name.CROSSING:
-            L = s
-            x1, y1 = _rot(cx - L, cy - L, cx, cy, rot)
-            x2, y2 = _rot(cx + L, cy + L, cx, cy, rot)
-            x3, y3 = _rot(cx - L, cy + L, cx, cy, rot)
-            x4, y4 = _rot(cx + L, cy - L, cx, cy, rot)
-            super().create_line(x1, y1, x2, y2, fill=col, width=2, tags=tag)
-            super().create_line(x3, y3, x4, y4, fill=col, width=2, tags=tag)
+        # options builders — keep capstyle for lines only
+        def _opts_line(sty: Style) -> dict:
+            if not sty.stroke:
+                return {}
+            w = max(1.0, sty.stroke_width * s)
+            join = {JoinStyle.ROUND: "round", JoinStyle.BEVEL: "bevel", JoinStyle.MITER: "miter"}[sty.line_join]
+            cap = {CapStyle.ROUND: "round", CapStyle.BUTT: "butt", CapStyle.PROJECTING: "projecting"}[sty.line_cap]
+            opts = dict(width=w, joinstyle=join, capstyle=cap)
+            if sty.dash:
+                opts["dash"] = tuple(max(1.0, d * s) for d in sty.dash)
+            return opts
 
-        elif icon.name == Icon_Name.SWITCH:
-            # Centred geometry (previously pivoted at left end)
-            L = s
-            a1, b1 = _rot(cx - L // 2, cy, cx, cy, rot)
-            a2, b2 = _rot(cx + L // 2, cy, cx, cy, rot)
-            a3, b3 = _rot(cx + L // 2, cy + L // 4, cx, cy, rot)
-            super().create_line(a1, b1, a2, b2, fill=col, width=2, tags=tag)
-            super().create_line(a1, b1, a3, b3, fill=col, width=2, tags=tag)
+        def _opts_poly(sty: Style) -> dict:
+            if not sty.stroke:
+                return {}
+            w = max(1.0, sty.stroke_width * s)
+            join = {JoinStyle.ROUND: "round", JoinStyle.BEVEL: "bevel", JoinStyle.MITER: "miter"}[sty.line_join]
+            # No capstyle on polygons/ovals; Tk throws if you pass it. Dash is flaky here — skip it.
+            return dict(width=w, joinstyle=join)
 
-        else:
-            r = max(1, s // 3)
-            super().create_oval(cx - r, cy - r, cx + r, cy + r, fill=col, outline="", tags=tag)
+        for prim in idef.prims:
+            if isinstance(prim, Primitives.Circle):
+                # rotate+translate the centre, then draw an axis-aligned oval with scaled radius
+                cxp, cyp = M(prim.cx, prim.cy)
+                rr = prim.r * s
+                fill = col if prim.style.fill else ""
+                outline = col if prim.style.stroke else ""
+                width = max(1.0, prim.style.stroke_width * s) if prim.style.stroke else 1.0
+                super().create_oval(
+                    cxp - rr, cyp - rr, cxp + rr, cyp + rr, fill=fill, outline=outline, width=width, tags=tag
+                )
+
+            elif isinstance(prim, Primitives.Rect):
+                # draw as polygon so rotation is respected
+                x0, y0 = M(prim.x, prim.y)
+                x1, y1 = M(prim.x + prim.w, prim.y)
+                x2, y2 = M(prim.x + prim.w, prim.y + prim.h)
+                x3, y3 = M(prim.x, prim.y + prim.h)
+                pts = [x0, y0, x1, y1, x2, y2, x3, y3]
+                opts = _opts_poly(prim.style)
+                fill = col if prim.style.fill else ""
+                outline = col if prim.style.stroke else ""
+                super().create_polygon(*pts, fill=fill, outline=outline, tags=tag, **opts)
+
+            elif isinstance(prim, Primitives.Line):
+                x1, y1 = M(prim.x1, prim.y1)
+                x2, y2 = M(prim.x2, prim.y2)
+                opts = _opts_line(prim.style)
+                super().create_line(x1, y1, x2, y2, fill=col if prim.style.stroke else "", tags=tag, **opts)
+
+            elif isinstance(prim, Primitives.Polyline):
+                pts = []
+                for px, py in prim.points:
+                    X, Y = M(px, py)
+                    pts += [X, Y]
+                if prim.closed:
+                    opts = _opts_poly(prim.style)
+                    super().create_polygon(
+                        *pts,
+                        outline=col if prim.style.stroke else "",
+                        fill=col if prim.style.fill else "",
+                        tags=tag,
+                        **opts,
+                    )
+                else:
+                    opts = _opts_line(prim.style)
+                    super().create_line(*pts, fill=col if prim.style.stroke else "", tags=tag, **opts)
+
+            elif isinstance(prim, Primitives.Path):
+                # Not supported on Tk canvas; pre-approximate to Polyline if you need curves.
+                continue
 
         return None
+
+    def create_with_picture(
+        self,
+        pic: "Picture_Icon",
+        *,
+        idx: int | None = None,
+        extra_tags: Collection[str] = (),
+        override_base_tags: Collection[Layer_Name] | None = None,
+    ) -> ItemID:
+        # tags identical to built-ins so selection/move tools keep working
+        tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
+
+        # centre from anchor using the final bbox (after scaling)
+        bw, bh = pic.bbox_wh()
+        cx, cy = pic.anchor._centre(pic.p.x, pic.p.y, bw, bh)
+
+        # caches so images don't get GC'd and we don't repeatedly rasterize
+        cache = getattr(self, "_picture_cache", None)
+        if cache is None:
+            cache = self._picture_cache = {}
+        item_map = getattr(self, "_item_images", None)
+        if item_map is None:
+            item_map = self._item_images = {}
+
+        key = (str(Path(pic.src)), int(bw), int(bh), int(pic.rotation) % 360)
+
+        ph = cache.get(key)
+        if ph is None:
+            # load → scale → rotate → PhotoImage
+            im = _open_rgba(pic.src, bw, bh)
+            rot = int(pic.rotation or 0) % 360
+            if rot:
+                # rotate around centre; expand bounds then place by centre on canvas
+                im = im.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
+            ph = ImageTk.PhotoImage(im)
+            cache[key] = ph
+
+        # draw single image item, centred at (cx, cy)
+        iid = super().create_image(cx, cy, image=ph, tags=tag)
+        item_map[iid] = ph  # keep a strong ref tied to the item
+        return ItemID(iid)
 
     # ---------- updates ----------
     def coords_p(self, item: ItemID, *points: Point) -> None:

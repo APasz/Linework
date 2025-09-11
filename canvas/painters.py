@@ -1,19 +1,24 @@
 from __future__ import annotations
 
-from typing import Protocol
 
 from canvas.layers import Layer_Name
-from models.geo import CanvasLW, Icon, Label, Line, Point
+from models.geo import Builtin_Icon, CanvasLW, Iconlike, Label, Line, Point
 from models.params import Params
 from models.styling import CapStyle
 
 
-class Scene(Protocol):
-    params: Params
+class Scene:
+    def __init__(self, params: Params):
+        self.params = params
 
-    def lines(self) -> list[Line]: ...
-    def labels(self) -> list[Label]: ...
-    def icons(self) -> list[Icon]: ...
+    def lines(self):
+        return self.params.lines
+
+    def labels(self):
+        return self.params.labels
+
+    def icons(self):
+        return self.params.icons
 
 
 class Painters:
@@ -66,5 +71,8 @@ class Painters:
         for idx, ico in enumerate(self.s.icons()):
             self._paint_icon(canvas, ico, idx)
 
-    def _paint_icon(self, canvas: CanvasLW, ico: Icon, idx: int):
-        canvas.create_with_icon(ico, idx=idx)
+    def _paint_icon(self, canvas: CanvasLW, ico, idx: int):
+        if isinstance(ico, Builtin_Icon):
+            canvas.create_with_icon(ico, idx=idx)
+        else:
+            canvas.create_with_picture(ico, idx=idx)

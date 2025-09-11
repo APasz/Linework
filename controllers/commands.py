@@ -4,7 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from models.geo import Icon, Label, Line, Point
+from models.geo import Iconlike, Label, Line, Point
 from models.params import Params
 
 
@@ -88,7 +88,7 @@ class Add_Label:
 @dataclass
 class Add_Icon:
     params: Params
-    icon: Icon
+    icon: Iconlike
     on_after: Callable[[], None]
 
     def do(self):

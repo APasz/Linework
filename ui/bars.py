@@ -6,10 +6,17 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from tkinter import ttk
 
+from models.assets import Icon_Name
 from models.geo import CanvasLW
 from models.styling import Colour, Colours, LineStyle
 from ui.widgets.composite_spinbox import Composite_Spinbox
-from models.geo_icons import Icon_Name
+
+
+class Tool_Name(StrEnum):
+    draw = "draw"
+    label = "label"
+    icon = "icon"
+    select = "select"
 
 
 @dataclass
@@ -165,19 +172,19 @@ class Bars:
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Save As…", command=on_save_as))
 
         # Modes
-        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Select", value="select", variable=mode_var))
-        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Draw", value="draw", variable=mode_var))
-        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Label", value="label", variable=mode_var))
-        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Icon:", value="icon", variable=mode_var))
+        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Select", value=Tool_Name.select, variable=mode_var))
+        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Draw", value=Tool_Name.draw, variable=mode_var))
+        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Label", value=Tool_Name.label, variable=mode_var))
+        cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Icon", value=Tool_Name.icon, variable=mode_var))
 
         # Icon picker
-        cls._add_labeled(
-            frame,
-            lambda p: ttk.Combobox(
-                p, textvariable=icon_var, values=[name.value for name in Icon_Name], state="readonly", width=10
-            ),
-            # "Icon:",
-        )
+        # cls._add_labeled(
+        #    frame,
+        #    lambda p: ttk.Combobox(
+        #        p, textvariable=icon_var, values=[name.value for name in Icon_Name], state="readonly", width=10
+        #    ),
+        #    # "Icon:",
+        # )
 
         return Header_Handles(frame=frame)
 

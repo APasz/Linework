@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, computed_field, model_validator
 
 
 class Model(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
     def replace(self, **updates) -> Self:
         return self.model_copy(update=updates)
@@ -117,6 +117,12 @@ class CapStyle(StrEnum):
     ROUND = "round"
     BUTT = "butt"
     PROJECTING = "projecting"
+
+
+class JoinStyle(StrEnum):
+    MITER = "miter"
+    ROUND = "round"
+    BEVEL = "bevel"
 
 
 # Base patterns defined in *stroke-width units*
@@ -285,7 +291,7 @@ class Colours:
     def _map(cls, *, include_sys: bool = False, min_alpha: int = 0) -> Mapping[str, Colour]:
         items = ((k, c) for k, c in cls._iter(include_sys=include_sys) if c.alpha >= min_alpha)
         # return a read-only, name-sorted mapping
-        return MappingProxyType(dict(sorted(items, key=lambda kv: kv[0])))
+        return MappingProxyType(dict(items))
 
     # ---------- public helpers ----------
     @classmethod

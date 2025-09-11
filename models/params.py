@@ -2,8 +2,9 @@ from pathlib import Path
 
 from pydantic import Field
 
-from models.geo import Icon, Label, Line
 from models.styling import Colour, Colours, LineStyle, Model
+from models.geo import Icon_Source, Iconlike, Label, Line
+
 
 SCHEMA_VERSION = 1
 
@@ -22,5 +23,6 @@ class Params(Model):
     output_file: Path = Path("output.webp")
     lines: list[Line] = Field(default_factory=list)
     labels: list[Label] = Field(default_factory=list)
-    icons: list[Icon] = Field(default_factory=list)
+    icons: list[Iconlike] = Field(default_factory=list)
+    recent_icons: list[Icon_Source] = Field(default_factory=list)
     version: int = Field(default=SCHEMA_VERSION)
