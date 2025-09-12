@@ -14,9 +14,9 @@ from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool
 from disk.export import Exporter
 from disk.storage import IO
 from models.assets import Formats, Icon_Name, get_asset_library
-from models.geo import Builtin_Icon, CanvasLW, Picture_Icon, Point
+from models.geo import CanvasLW, Point
 from models.params import Params
-from models.styling import Anchor, CapStyle, Colours, LineStyle
+from models.styling import Colours, LineStyle
 from ui.bars import Bars, Side, Tool_Name
 
 
@@ -424,85 +424,20 @@ class App:
             return
 
         if k == Hit_Kind.label:
-            lab = self.params.labels[i]
-            data = self.editors.edit_label(self.root, lab)
-            if not data:
-                return
-
-            point = Point(x=int(data["x"]), y=int(data["y"]))
-
-            if data.get("snap_to_grid"):
-                point = self.snap(point)
-
-            # apply
-            lab.text = data["text"]
-            lab.p = point
-            lab.snap = bool(data.get("snap_flag", lab.snap))
-            lab.size = int(data["size"])
-            lab.rotation = int(data.get("rotation", 0))
-            lab.anchor = Anchor.parse(data["anchor"]) or lab.anchor
-            lab.col = Colours.parse_colour(data["colour"]) if data["colour"] else lab.col
-            self.layers.redraw(Layer_Name.labels)
-            self.mark_dirty()
-
+            obj = self.params.labels[i]
+            layer = Layer_Name.labels
         elif k == Hit_Kind.icon:
-            ico = self.params.icons[i]
-            if isinstance(ico, Builtin_Icon):
-                data = self.editors.edit_icon(self.root, ico)
-            elif isinstance(ico, Picture_Icon):
-                data = self.editors.edit_picture(self.root, ico)
-            else:
-                return
-            if not data:
-                return
-
-            point = Point(x=data["x"], y=data["y"])
-
-            if data.get("snap_to_grid"):
-                point = self.snap(point)
-
-            # apply
-
-            if isinstance(ico, Builtin_Icon):
-                ico.name = data["name"]
-            elif isinstance(ico, Picture_Icon):
-                ico.src = Path(data["src"])
-            else:
-                return
-            ico.p = point
-            ico.snap = data.get("snap_flag", ico.snap)
-            ico.size = data["size"]
-            ico.rotation = data.get("rotation", 0)
-            ico.anchor = Anchor.parse(data["anchor"]) or ico.anchor
-            ico.col = Colours.parse_colour(data["colour"]) if data["colour"] else ico.col
-            self.layers.redraw(Layer_Name.icons)
-            self.mark_dirty()
-
+            obj = self.params.icons[i]
+            layer = Layer_Name.icons
         elif k == Hit_Kind.line:
-            lin = self.params.lines[i]
-            data = self.editors.edit_line(self.root, lin)
-            if not data:
-                return
-
-            point_a = Point(x=data["x1"], y=data["y1"])
-            point_b = Point(x=data["x2"], y=data["y2"])
-
-            if data.get("snap_to_grid"):
-                point_a = self.snap(point_a)
-                point_b = self.snap(point_b)
-
-            # apply
-            lin.a = point_a
-            lin.b = point_b
-            lin.width = data["width"]
-            lin.capstyle = CapStyle(data["capstyle"])
-            lin.style = LineStyle(data["style"])
-            lin.col = Colours.parse_colour(data["colour"]) if data["colour"] else lin.col
-            lin.dash_offset = data.get("dash_offset", 0)
-            self.layers.redraw(Layer_Name.lines)
-            self.mark_dirty()
+            obj = self.params.lines[i]
+            layer = Layer_Name.lines
         else:
-            print("_edit_selected: Unknown Hit_Kind")
+            return
+
+        if self.editors.edit(self.root, obj):
+            self.layers.redraw(layer)
+            self.mark_dirty()
 
     def _nearest_multiple(self, n: int, m: int) -> int:
         return n if m <= 0 else round(n / m) * m

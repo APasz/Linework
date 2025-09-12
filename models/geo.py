@@ -83,14 +83,14 @@ class Icon_Type(StrEnum):
 class Icon_Source:
     kind: Icon_Type
     name: Icon_Name | None = None
-    path: Path | None = None
+    src: Path | None = None
 
     def __post_init__(self):
         if self.kind is Icon_Type.builtin:
-            if self.name is None or self.path is not None:
+            if self.name is None or self.src is not None:
                 raise ValueError("builtin Icon_Source requires name and forbids src")
         elif self.kind is Icon_Type.picture:
-            if self.path is None or self.name is not None:
+            if self.src is None or self.name is not None:
                 raise ValueError("picture Icon_Source requires src and forbids name")
 
     @classmethod
@@ -98,9 +98,10 @@ class Icon_Source:
         return cls(kind=Icon_Type.builtin, name=Icon_Name(name))
 
     @classmethod
-    def picture(cls, path: Path | str) -> "Icon_Source":
-        return cls(kind=Icon_Type.picture, path=Path(path))
+    def picture(cls, src: Path | str) -> "Icon_Source":
+        return cls(kind=Icon_Type.picture, src=Path(src))
 
+    @classmethod
     def coerce(cls, x: "Icon_Source | Iconlike | Path | str | Icon_Name") -> "Icon_Source":
         # Handy when refactoring call sites incrementally
         if isinstance(x, Icon_Source):
@@ -144,19 +145,12 @@ class Builtin_Icon(Base_Icon):
         return (s, s)
 
 
-class Tint_Mode(StrEnum):
-    none = "none"
-    multiply = "multiply"
-    mask = "mask"
-
-
 class Picture_Icon(Base_Icon):
     kind: Literal["picture"] = "picture"
     src: Path
     size: int = 192
     format: Formats | None = None
     preserve_aspect: bool = True
-    tint_mode: Tint_Mode = Tint_Mode.none
     # Scale rule: scale natural dimensions so that max(w,h) == size
 
     def bbox_wh(self) -> tuple[int, int]:

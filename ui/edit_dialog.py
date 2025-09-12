@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Iterable
-from enum import StrEnum
+from enum import Enum, StrEnum
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import TYPE_CHECKING, Any
@@ -139,9 +139,9 @@ class Icon_Gallery(tk.Toplevel):
             if src.kind == Icon_Type.builtin and src.name:
                 thumb = self._thumb_for_builtin(src.name)
                 txt = src.name.name
-            elif src.kind == Icon_Type.picture and src.path:
-                thumb = self._thumb_for_picture(src.path)
-                txt = src.path.name
+            elif src.kind == Icon_Type.picture and src.src:
+                thumb = self._thumb_for_picture(src.src)
+                txt = src.src.name
             else:
                 raise ValueError(f"Unknown kind: {src.kind}")
             b = ttk.Button(frame.body, image=thumb, text=txt, compound="top", command=lambda s=src: self._choose(s))
@@ -210,17 +210,29 @@ class EditDialog_Kind(StrEnum):
 
 
 class GenericEditDialog(simpledialog.Dialog):
-    """Schema-based modal editor. Returns a dict on success via self.result."""
+    """
+    Schema-based modal editor.
+    schema: list of dicts with keys:
+        - name (str)
+        - label (str)
+        - kind  ("int"|"float"|"str"|"text"|"bool"|"choice"|"choice_dict")
+        - choices (list[str] for "choice", or dict[str, Any] for "choice_dict")
+        - min/max (optional for numeric kinds)
+    values: dict[str, Any] initial values
+    Result is a dict on success in self.result, else None.
+    """
 
     def __init__(self, parent: tk.Misc, title: str, schema: list[dict[str, Any]], values: dict[str, Any]):
-        self.schema = schema
-        self.values = dict(values)
+        self.schema = list(schema)
+        self.values = dict(values or {})
         self.widgets: dict[str, tk.Widget] = {}
+        # per-field metadata (var, mapping, etc.)
+        self._meta: dict[str, dict[str, Any]] = {}
         super().__init__(parent, title)
 
-    # ---- Dialog overrides ----
+    # ---- Dialog hooks ----
     def body(self, master: tk.Frame) -> tk.Widget:
-        # Grid form
+        # grid: label | widget
         for r, fld in enumerate(self.schema):
             label = fld.get("label", fld["name"])
             ttk.Label(master, text=label).grid(row=r, column=0, sticky="w", padx=6, pady=4)
@@ -228,84 +240,138 @@ class GenericEditDialog(simpledialog.Dialog):
             w.grid(row=r, column=1, sticky="ew", padx=6, pady=4)
             self.widgets[fld["name"]] = w
         master.columnconfigure(1, weight=1)
+        # focus first widget if any
         return next(iter(self.widgets.values())) if self.widgets else master
 
+    def buttonbox(self):
+        box = ttk.Frame(self)
+        ok = ttk.Button(box, text="OK", width=10, command=self.ok)
+        ca = ttk.Button(box, text="Cancel", width=10, command=self.cancel)
+        ok.pack(side="left", padx=5)
+        ca.pack(side="left", padx=5)
+        box.pack(pady=8)
+        self.bind("<Return>", lambda e: self.ok())
+        self.bind("<Escape>", lambda e: self.cancel())
+
     def validate(self) -> bool:
-        # Pull and type-check inputs
         out: dict[str, Any] = {}
         try:
             for fld in self.schema:
                 name = fld["name"]
-                kind = fld.get("kind", "str")
-                raw = self._get_widget_value(self.widgets[name], kind)
-                # optional extra validators
-                if "min" in fld and isinstance(raw, (int, float)) and raw < fld["min"]:
-                    raise ValueError(f"{fld.get('label', name)} must be ≥ {fld['min']}")
-                if "max" in fld and isinstance(raw, (int, float)) and raw > fld["max"]:
-                    raise ValueError(f"{fld.get('label', name)} must be ≤ {fld['max']}")
+                kind = str(fld.get("kind", "str")).lower()
+                raw = self._get_widget_value(name, kind, fld)
+                # numeric clamps
+                if kind in ("int", "float"):
+                    if "min" in fld and raw < fld["min"]:
+                        raise ValueError(f"{fld.get('label', name)} must be ≥ {fld['min']}")
+                    if "max" in fld and raw > fld["max"]:
+                        raise ValueError(f"{fld.get('label', name)} must be ≤ {fld['max']}")
                 out[name] = raw
         except Exception as e:
             messagebox.showerror("Invalid input", str(e), parent=self)
             return False
-        self.result = out
+        self._result = out
         return True
 
-    # ---- field makers / extractors ----
-    def _make_field(self, parent: tk.Misc, fld: dict[str, Any], value: Any) -> tk.Widget:
-        kind = fld.get("kind", "str")
-        if kind == "int":
-            sv = tk.StringVar(value=str(int(value if value is not None else 0)))
-            ent = ttk.Entry(parent, textvariable=sv, width=8, justify="right")
-            ent._alpha = sv  # type: ignore[attr-defined]
-            return ent
-        elif kind == "float":
-            sv = tk.StringVar(value=str(float(value if value is not None else 0.0)))
-            ent = ttk.Entry(parent, textvariable=sv, width=8, justify="right")
-            ent._alpha = sv  # type: ignore[attr-defined]
-            return ent
-        elif kind == "text":
-            sv = tk.StringVar(value=str(value if value is not None else ""))
-            ent = ttk.Entry(parent, textvariable=sv)
-            ent._alpha = sv  # type: ignore[attr-defined]
-            return ent
-        elif kind == "choice":
-            sv = tk.StringVar(value=str(value if value is not None else ""))
-            cb = ttk.Combobox(parent, textvariable=sv, values=list(fld.get("choices", [])), state="readonly")
-            cb._alpha = sv  # type: ignore[attr-defined]
-            return cb
-        elif kind == "choice_dict":
-            sv = tk.StringVar(value=str(value if value is not None else ""))
-            opts = fld.get("choices", {})
-            cb = ttk.Combobox(parent, textvariable=sv, values=[k for k in opts.keys()], state="readonly")
-            cb._alpha = sv  # type: ignore[attr-defined]
-            cb._bravo = opts  # type: ignore[attr-defined]
-            return cb
-        elif kind == "bool":
-            sv = tk.BooleanVar(value=bool(value))
-            cb = ttk.Checkbutton(parent, variable=sv)
-            cb._alpha = sv  # type: ignore[attr-defined]
-            return cb
-        # default string
-        sv = tk.StringVar(value=str(value if value is not None else ""))
-        ent = ttk.Entry(parent, textvariable=sv)
-        ent._alpha = sv  # type: ignore[attr-defined]
-        return ent
+    def apply(self):
+        self.result = getattr(self, "_result", None)
 
-    def _get_widget_value(self, widget: tk.Widget, kind: str) -> Any:
-        _alpha: tk.Variable | None = getattr(widget, "_alpha", None)
-        _bravo: tk.Variable | None = getattr(widget, "_bravo", None)
-        alpha = _alpha.get() if _alpha is not None else ""
-        bravo = _bravo.get() if _bravo is not None else ""
-        if kind == "int":
-            return int(alpha)
-        if kind == "float":
-            return float(alpha)
-        if kind == "choice":
-            return str(alpha)
-        if kind == "choice_dict" and isinstance(bravo, dict):
-            return str(bravo[alpha])
-        if kind == "text":
-            return str(alpha)
+    # ---- builders ----
+    def _make_field(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
+        kind = str(fld.get("kind", "str")).lower()
+        name = fld["name"]
+        self._meta[name] = meta = {}
+
         if kind == "bool":
-            return bool(alpha)
-        return str(alpha)
+            var = tk.BooleanVar(value=bool(init_val))
+            meta["var"] = var
+            w = ttk.Checkbutton(parent, variable=var)
+            return w
+
+        if kind in ("int", "float", "str"):
+            init_str = self._stringify_init(init_val)
+            var = tk.StringVar(value=init_str)
+            meta["var"] = var
+            ent = ttk.Entry(parent, textvariable=var)
+            if kind in ("int", "float"):
+                ent.configure(width=8)
+            return ent
+
+        if kind == "text":
+            txt = tk.Text(parent, width=32, height=4, wrap="word")
+            if init_val not in (None, ""):
+                txt.insert("1.0", self._stringify_init(init_val))
+            return txt
+
+        if kind == "choice":
+            choices = list(fld.get("choices") or [])
+            init_str = self._stringify_init(init_val)
+            var = tk.StringVar(value=init_str if init_str in choices else (init_str or (choices[0] if choices else "")))
+            meta["var"] = var
+            cb = ttk.Combobox(parent, values=choices, textvariable=var, state="readonly")
+            return cb
+
+        if kind == "choice_dict":
+            mapping: dict[str, Any] = dict(fld.get("choices") or {})
+            meta["map"] = mapping
+            keys = list(mapping.keys())
+            init_key = None
+            if isinstance(init_val, str) and init_val in mapping:
+                init_key = init_val
+            else:
+                for k, v in mapping.items():
+                    if v == init_val or (isinstance(v, Path) and str(v) == str(init_val)):
+                        init_key = k
+                        break
+            var = tk.StringVar(value=init_key or (keys[0] if keys else ""))
+            meta["var"] = var
+            cb = ttk.Combobox(parent, values=keys, textvariable=var, state="readonly")
+            return cb
+
+        # fallback to plain entry
+        var = tk.StringVar(value=self._stringify_init(init_val))
+        meta["var"] = var
+        return ttk.Entry(parent, textvariable=var)
+
+    # ---- reads ----
+    def _get_widget_value(self, name: str, kind: str, fld: dict) -> Any:
+        w = self.widgets[name]
+        meta = self._meta.get(name, {})
+
+        if kind == "bool":
+            return bool(meta["var"].get())
+
+        if kind == "text":
+            return w.get("1.0", "end-1c")  # pyright: ignore[reportAttributeAccessIssue]
+
+        if kind == "choice":
+            return str(meta["var"].get()).strip()
+
+        if kind == "choice_dict":
+            key = str(meta["var"].get())
+            mapping: dict[str, Any] = meta.get("map", {})
+            # return mapped value if present; else return key
+            return mapping.get(key, key)
+
+        # entries
+        s = str(meta["var"].get()).strip() if "var" in meta else str(getattr(w, "get")())
+        if kind == "int":
+            try:
+                return int(float(s))
+            except Exception:
+                raise ValueError(f"{fld.get('label', name)} must be an integer")
+        if kind == "float":
+            try:
+                return float(s)
+            except Exception:
+                raise ValueError(f"{fld.get('label', name)} must be a number")
+        return s
+
+    # ---- helpers ----
+    @staticmethod
+    def _stringify_init(v: Any) -> str:
+        if isinstance(v, Enum):
+            return str(getattr(v, "value", str(v)))
+        if isinstance(v, Path):
+            return v.name
+        return "" if v is None else str(v)

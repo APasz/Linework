@@ -336,7 +336,7 @@ class Icon_Tool:
         else:
             icon = Picture_Icon(
                 p=point,
-                src=src.path,  # pyright: ignore[reportArgumentType]
+                src=src.src,  # pyright: ignore[reportArgumentType]
                 size=self.size,
                 rotation=self.rotation,
                 anchor=self.anchor,
