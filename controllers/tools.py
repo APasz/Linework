@@ -423,12 +423,13 @@ class Select_Tool:
         cur_k, cur_i = app._selected()
         if cur_k == hit.kind and cur_i == hit.tag_idx:
             app._set_selected(Hit_Kind.miss, None)
+            if app._selected() != (hit.kind, hit.tag_idx):
+                app._set_selected(hit.kind, hit.tag_idx)
             self._drag_kind = Hit_Kind.miss
             self._drag_canvas_id = None
             self._drag_index = None
             self._drag_icon_ids = None
             self._start_pos = None
-            return
 
         app._set_selected(hit.kind, hit.tag_idx)
         self._drag_kind = hit.kind
@@ -455,17 +456,24 @@ class Select_Tool:
         dx, dy = evt.x - self._start_pos.x, evt.y - self._start_pos.y
         if dx or dy:
             self._dragged = True
+
         if self._drag_kind == Hit_Kind.label and self._drag_canvas_id is not None:
+            # move the actual text item
             app.canvas.move(self._drag_canvas_id, dx, dy)
+            # keep marquee in sync with the drag
+            app.draw_selection_overlay()
+
         elif self._drag_kind == Hit_Kind.icon and self._drag_index is not None:
             app.canvas.move(f"{Hit_Kind.icon.value}:{self._drag_index}", dx, dy)
+            app.draw_selection_overlay()
+
         elif (
             self._drag_kind == Hit_Kind.line
             and self._drag_line_endpoint
             and self._drag_line_item is not None
             and self._drag_index is not None
         ):
-            # live update line coords while dragging a handle
+            # live update the line segment from the cursor (snapped if needed)
             target = self._maybe_snap_point(
                 app, Point(x=evt.x, y=evt.y), kind=Hit_Kind.line, index=self._drag_index, evt=evt
             )
@@ -473,7 +481,16 @@ class Select_Tool:
             a = target if self._drag_line_endpoint == "a" else lin.a
             b = target if self._drag_line_endpoint == "b" else lin.b
             app.canvas.coords(self._drag_line_item, a.x, a.y, b.x, b.y)
-            app.draw_selection_overlay()  # keep handle visuals in sync
+
+            # refresh marquee bbox to match the live line position
+            app.draw_selection_overlay()
+
+            # and manually keep the dragged endpoint handle dot in sync (model isn't updated yet)
+            r = app.HANDLE_R
+            hid = f"handle:line:{self._drag_index}:{self._drag_line_endpoint}"
+            for cid in app.canvas.find_withtag(hid):
+                app.canvas.coords(cid, target.x - r, target.y - r, target.x + r, target.y + r)
+
         self._start_pos = Point(x=evt.x, y=evt.y)
 
     def on_release(self, app: App, evt: tk.Event):
@@ -506,6 +523,7 @@ class Select_Tool:
                 app.mark_dirty()
             else:
                 app.layers_redraw(Layer_Name.labels)
+            app.draw_selection_overlay()
 
         elif self._drag_kind == Hit_Kind.icon:
             # compute end centre from the ids we actually dragged
@@ -566,6 +584,7 @@ class Select_Tool:
                 app.mark_dirty()
             else:
                 app.layers_redraw(Layer_Name.icons)
+            app.draw_selection_overlay()
 
         elif self._drag_kind == Hit_Kind.line and self._drag_line_endpoint and self._drag_index is not None:
             end_pt = self._maybe_snap_point(
