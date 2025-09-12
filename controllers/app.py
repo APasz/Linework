@@ -683,6 +683,7 @@ class App:
         self.canvas.config(width=self.params.width, height=self.params.height)
         self._apply_size_increments(self.params.grid_size, self.tbar)
         self.layers.redraw_all()
+        self.layers.redraw(Layer_Name.grid, force=True)
         self.mark_clean()
 
     def drag_to_draw(self) -> bool:
