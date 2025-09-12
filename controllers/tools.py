@@ -1,20 +1,30 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
 import math
 import tkinter as tk
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from canvas.layers import Hit_Kind, Layer_Name, item_tag, layer_tag, test_hit
 from controllers.commands import Add_Icon, Add_Label, Add_Line, Move_Icon, Move_Label
-
-from models.geo import Builtin_Icon, CanvasLW, Icon_Source, Icon_Type, ItemID, Label, Line, Picture_Icon, Point
+from models.geo import (
+    Builtin_Icon,
+    CanvasLW,
+    Icon_Source,
+    Icon_Type,
+    ItemID,
+    Label,
+    Line,
+    Picture_Icon,
+    Point,
+)
 from models.styling import Anchor, TkCursor, scaled_pattern
 from ui.bars import Side, Tool_Name
 from ui.edit_dialog import Icon_Gallery
 
 SHIFT_MASK = 0x0001  # Tk modifier mask for Shift
+CONTROL_MASK = 0x0004  # Tk modifier mask for Control
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -110,7 +120,12 @@ class Draw_Tool(Tool):
     def _dir_snap_on(self, app: App, evt: tk.Event) -> bool:
         """Return True if direction cardial should be applied for this event."""
         base = app.cardinal()  # your UI toggle
-        shift = bool(getattr(evt, "state", 0) & SHIFT_MASK)
+
+        if isinstance(evt.state, str):
+            state = 0
+        else:
+            state = evt.state
+        shift = bool(state & SHIFT_MASK)
         return (not base) if shift else base  # Shift inverts
 
     def _snap_directional(self, app: App, point: Point, start: Point) -> Point:
@@ -273,7 +288,7 @@ class Icon_Tool:
 
     def on_key(self, app: App, evt: tk.Event) -> None:
         ch = evt.keysym.lower()
-        if ch in ("plus", "equal"):  # =
+        if ch in ("plus", "equal"):
             self.size = min(512, self.size + 1)
             app.layers.redraw_all()
         elif ch in ("minus", "underscore"):
@@ -302,16 +317,16 @@ class Icon_Tool:
                 self._set_current(app, chosen)
 
         # place the chosen icon
-        point = Point(x=evt.x, y=evt.y)
-        src = self.current  # pyright: ignore[reportAssignmentType]
+        src = self.current
         if not src:
             return
 
-        if src.kind == Icon_Type.builtin:
-            src: Builtin_Icon
+        point = Point(x=evt.x, y=evt.y)
+
+        if src.kind is Icon_Type.builtin:
             icon = Builtin_Icon(
                 p=point,
-                name=src.name,
+                name=src.name,  # pyright: ignore[reportArgumentType]
                 size=self.size,
                 rotation=self.rotation,
                 anchor=self.anchor,
@@ -319,10 +334,9 @@ class Icon_Tool:
                 col=app.params.brush_colour,
             )
         else:
-            src: Picture_Icon
             icon = Picture_Icon(
                 p=point,
-                src=src.src,
+                src=src.path,  # pyright: ignore[reportArgumentType]
                 size=self.size,
                 rotation=self.rotation,
                 anchor=self.anchor,
@@ -468,9 +482,9 @@ class Select_Tool:
 
             # compute unrotated bbox size for this icon type (match your painter/export)
             bw, bh = ico.bbox_wh()
-            ox, oy = self._anchor_offset(bw, bh, ico.anchor.tk)
-            rox, roy = self._rot(ox, oy, float(ico.rotation or 0))
-            end_anchor_pt = Point(x=int(round(cx + rox)), y=int(round(cy + roy)))
+            ox, oy = ico.anchor.offset(bw, bh)
+            rox, roy = ico.anchor.centre_for(ox, oy, bw, bh, ico.rotation)
+            end_anchor_pt = Point(x=round(cx + rox), y=round(cy + roy))
 
             # commit if moved enough (anchor vs anchor)
             if not (self._dragged and self._moved_enough(self._press_ref, end_anchor_pt)):
@@ -530,19 +544,6 @@ class Select_Tool:
         if anchor == "se":
             return Point(x=int(x2), y=int(y2))
         return Point(x=cx, y=cy)
-
-    @staticmethod
-    def _anchor_offset(w: int, h: int, anc: str) -> tuple[float, float]:
-        # vector from centre -> anchor in *unrotated* frame
-        ax = -w / 2 if anc in ("nw", "w", "sw") else (w / 2 if anc in ("ne", "e", "se") else 0.0)
-        ay = -h / 2 if anc in ("nw", "n", "ne") else (h / 2 if anc in ("sw", "s", "se") else 0.0)
-        return ax, ay
-
-    @staticmethod
-    def _rot(dx: float, dy: float, deg: float) -> tuple[float, float]:
-        r = math.radians(deg)
-        cs, sn = math.cos(r), math.sin(r)
-        return dx * cs - dy * sn, dx * sn + dy * cs
 
     @staticmethod
     def _centre_of_tag(canvas: CanvasLW, tag: str) -> Point | None:
@@ -613,15 +614,20 @@ class Select_Tool:
         # App-wide toggle
         base = app.cardinal()
         # Ctrl inverts (hold to bypass, or hold to force if base==False)
-        ctrl = (getattr(evt, "state", 0) & 0x0004) != 0  # ControlMask bit on X11/Windows; tweak on mac if needed
+        if not evt or isinstance(evt.state, str):
+            state = 0
+        else:
+            state = evt.state
+
+        ctrl = (state & CONTROL_MASK) != 0  # ControlMask bit on X11/Windows; tweak on mac if needed
         want = base ^ ctrl
         # Per-object preference (only matters if want==True)
         if not want:
             return False
         if kind == Hit_Kind.label:
-            return bool(getattr(app.params.labels[index], "snap", True))
+            return app.params.labels[index].snap
         if kind == Hit_Kind.icon:
-            return bool(getattr(app.params.icons[index], "snap", True))
+            return app.params.icons[index].snap
         return True
 
     def _maybe_snap_point(

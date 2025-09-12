@@ -69,7 +69,31 @@ class Anchor(Enum):
             dy = -h / 2
         else:
             dy = 0.0
-        return int(round(px + dx)), int(round(py + dy))
+        return round(px + dx), round(py + dy)
+
+    def offset(self, w: int, h: int) -> tuple[float, float]:
+        # vector from centre to this anchor in unrotated space
+        ax = (
+            -w / 2
+            if self in (Anchor.NW, Anchor.W, Anchor.SW)
+            else (w / 2 if self in (Anchor.NE, Anchor.E, Anchor.SE) else 0.0)
+        )
+        ay = (
+            -h / 2
+            if self in (Anchor.NW, Anchor.N, Anchor.NE)
+            else (h / 2 if self in (Anchor.SW, Anchor.S, Anchor.SE) else 0.0)
+        )
+        return ax, ay
+
+    def centre_for(self, px: int | float, py: int | float, w: int, h: int, rot_deg: int = 0) -> tuple[int, int]:
+        # apply rotated offset to find the item centre
+        from math import cos, radians, sin
+
+        dx, dy = self.offset(w, h)
+        if rot_deg:
+            r = radians(rot_deg)
+            dx, dy = (dx * cos(r) - dy * sin(r), dx * sin(r) + dy * cos(r))
+        return round(px - dx), round(py - dy)
 
 
 TK_CARDINALS = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
@@ -162,9 +186,9 @@ def scaled_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
     base = _BASE.get(style, _BASE[None])
     if not base:
         return ()
-    w = max(1, int(width_px))
+    w = max(1, width_px)
     # scale each segment by width; clamp to at least 1px so it remains visible
-    scaled = [max(1, int(round(seg * w))) for seg in base]
+    scaled = [max(1, round(seg * w)) for seg in base]
     return _normalise_pairs(scaled)
 
 

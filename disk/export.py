@@ -1,22 +1,21 @@
 from __future__ import annotations
 
+import base64
+import io
+import subprocess
+import tempfile
 from collections.abc import Callable, Sequence
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-import base64
-import io
-import subprocess
-import tempfile
-
 import cairosvg
 from PIL import Image, ImageDraw, ImageFont
 
-from models.assets import Formats, _open_rgba, Builtins, Primitives
-from models.geo import Icon_Name, Line, Picture_Icon
+from models.assets import Formats, _builtin_icon_plan, _open_rgba
+from models.geo import Line, Picture_Icon
 from models.params import Params
-from models.styling import CapStyle, JoinStyle, svg_dasharray
+from models.styling import CapStyle, Colour, svg_dasharray
 
 # -----------------------------------------------------------------------------
 # Tunables
@@ -40,10 +39,10 @@ RASTER_BACKEND = RASTERISERS.cairosvg  # pil | cairosvg | resvg
 # -----------------------------------------------------------------------------
 
 
-def _col_and_opacity(col) -> tuple[str, str]:
+def _col_and_opacity(col: Colour) -> tuple[str, str]:
     """Return (svg_hex, extra_opacity_attr) for SVG emitters."""
     hex_rgb = col.hex  # "#rrggbb"
-    if getattr(col, "alpha", 255) < 255:
+    if col.alpha < 255:
         op = f' opacity="{col.alpha / 255:.3f}"'
     else:
         op = ""
@@ -156,17 +155,17 @@ def _escape(string: str) -> str:
     return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _svg_line_fast(lin) -> str:
+def _svg_line_fast(line: Line) -> str:
     """Native SVG: one <line>, rely on stroke-linecap + dasharray + dashoffset."""
-    stroke, sop = _col_and_opacity(lin.col)
-    arr = svg_dasharray(getattr(lin, "style", None), lin.width)  # "6,3" or ""
+    stroke, sop = _col_and_opacity(line.col)
+    arr = svg_dasharray(line.style, line.width)  # "6,3" or ""
     dash_attr = f' stroke-dasharray="{arr}"' if arr else ""
-    off = getattr(lin, "dash_offset", 0)
+    off = line.dash_offset
     off_attr = f' stroke-dashoffset="{off}"' if arr and off else ""
     return (
-        f'<line x1="{lin.a.x}" y1="{lin.a.y}" x2="{lin.b.x}" y2="{lin.b.y}" '
-        f'stroke="{stroke}" stroke-width="{lin.width}" '
-        f'stroke-linecap="{_svg_cap(lin.capstyle)}" stroke-linejoin="round"{sop}{dash_attr}{off_attr}/>'
+        f'<line x1="{line.a.x}" y1="{line.a.y}" x2="{line.b.x}" y2="{line.b.y}" '
+        f'stroke="{stroke}" stroke-width="{line.width}" '
+        f'stroke-linecap="{_svg_cap(line.capstyle)}" stroke-linejoin="round"{sop}{dash_attr}{off_attr}/>'
     )
 
 
@@ -221,118 +220,6 @@ def _svg_line_strict(lin) -> list[str]:
             out.append(f'<circle cx="{xA}" cy="{yA}" r="{r}" fill="{stroke}"{sop}/>')
             out.append(f'<circle cx="{xB}" cy="{yB}" r="{r}" fill="{stroke}"{sop}/>')
     return out
-
-
-# -----------------------------------------------------------------------------
-# Built‑in icon plan → single source of truth
-# -----------------------------------------------------------------------------
-
-# The plan is expressed around the origin. A renderer will translate/rotate.
-# Each step is (op, kwargs):
-#   ("circle", {cx, cy, r, fill, width(optional), stroke(optional)})
-#   ("rect",   {x, y, w, h, fill, width(optional), stroke(optional)})
-#   ("line",   {x1, y1, x2, y2, width, stroke})
-
-
-def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[str, dict[str, Any]]]:
-    """
-    Build a device-agnostic drawing plan for a builtin icon using the single
-    source of truth in Builtins.icon_def. Coordinates are expressed around
-    the origin and scaled to `size` so renderers can translate/rotate.
-    """
-    idef = Builtins.icon_def(name)
-    minx, miny, vbw, vbh = idef.viewbox
-    # uniform scale to fit a square of `size`
-    s = size / max(vbw, vbh) if max(vbw, vbh) else 1.0
-    cx = minx + vbw / 2.0
-    cy = miny + vbh / 2.0
-
-    def T(px: float, py: float) -> tuple[int, int]:
-        """Transform idef-space to origin-centered, scaled icon-space."""
-        return int(round((px - cx) * s)), int(round((py - cy) * s))
-
-    plan: list[tuple[str, dict[str, Any]]] = []
-
-    for prim in idef.prims:
-        sty = prim.style
-        # width scales with icon size; clamp to at least 1
-        width = max(1, int(round((getattr(sty, "stroke_width", 1.0) or 1.0) * s)))
-        stroke = col_svg if getattr(sty, "stroke", False) else None
-        fill = col_svg if getattr(sty, "fill", False) else None
-        dash = None
-        if getattr(sty, "dash", None):
-            # scale dash pattern
-            dash = [max(1, int(round(d * s))) for d in sty.dash]
-
-        if isinstance(prim, Primitives.Circle):
-            x, y = T(prim.cx, prim.cy)
-            r = max(1, int(round(prim.r * s)))
-            entry: dict[str, Any] = {"cx": x, "cy": y, "r": r}
-            if fill:
-                entry["fill"] = fill
-            if stroke:
-                entry["stroke"] = stroke
-                entry["width"] = width
-            plan.append(("circle", entry))
-
-        elif isinstance(prim, Primitives.Rect):
-            x0, y0 = T(prim.x, prim.y)
-            # Rect in idef is axis-aligned; just scale w/h
-            w = int(round(prim.w * s))
-            h = int(round(prim.h * s))
-            entry: dict[str, Any] = {"x": x0, "y": y0, "w": w, "h": h}
-            if fill:
-                entry["fill"] = fill
-            if stroke:
-                entry["stroke"] = stroke
-                entry["width"] = width
-            plan.append(("rect", entry))
-
-        elif isinstance(prim, Primitives.Line):
-            x1, y1 = T(prim.x1, prim.y1)
-            x2, y2 = T(prim.x2, prim.y2)
-            entry: dict[str, Any] = {
-                "x1": x1,
-                "y1": y1,
-                "x2": x2,
-                "y2": y2,
-                "width": width,
-                "stroke": stroke or col_svg,
-            }
-            # cap/join mainly matter for thick strokes; include if present
-            cap = getattr(getattr(sty, "line_cap", None), "name", None)
-            if cap:
-                entry["cap"] = {"ROUND": "round", "BUTT": "butt", "PROJECTING": "square"}.get(cap, "butt")
-            if dash:
-                entry["dash"] = dash
-            plan.append(("line", entry))
-
-        elif isinstance(prim, Primitives.Polyline):
-            pts = []
-            for px, py in prim.points:
-                tx, ty = T(px, py)
-                pts.append((tx, ty))
-            entry: dict[str, Any] = {
-                "points": pts,
-                "closed": bool(getattr(prim, "closed", False)),
-            }
-            if fill:
-                entry["fill"] = fill
-            if stroke:
-                entry["stroke"] = stroke
-                entry["width"] = width
-            join = getattr(getattr(sty, "line_join", None), "name", None)
-            if join:
-                entry["join"] = {"ROUND": "round", "BEVEL": "bevel", "MITER": "miter"}.get(join, "miter")
-            if dash:
-                entry["dash"] = dash
-            plan.append(("polyline", entry))
-
-        else:
-            # Unknown primitive; ignore rather than exploding in export
-            continue
-
-    return plan
 
 
 # ---------------- SVG render of plan -----------------
@@ -448,7 +335,7 @@ def _emit_pil_plan(draw: ImageDraw.ImageDraw, plan: list[tuple[str, dict[str, An
                 x1, y1, x2, y2 = int(kw["x1"]), int(kw["y1"]), int(kw["x2"]), int(kw["y2"])
                 width = int(kw.get("width", 1))
                 stroke = kw.get("stroke")
-                ld.line([P(x1, y1), P(x2, y2)], fill=_rgba(stroke), width=width)
+                ld.line([P(x1, y1), P(x2, y2)], fill=_rgba(str(stroke)), width=width)
             elif op == "polyline":
                 pts = [P(int(x), int(y)) for (x, y) in kw["points"]]
                 width = int(kw.get("width", 1))
@@ -465,7 +352,7 @@ def _emit_pil_plan(draw: ImageDraw.ImageDraw, plan: list[tuple[str, dict[str, An
 
         layer = layer.rotate(-rot_deg, resample=Image.Resampling.BICUBIC, expand=True)
         lw, lh = layer.size
-        draw.im.alpha_composite(layer, (int(round(cx - lw / 2)), int(round(cy - lh / 2))))
+        draw.im.alpha_composite(layer, (round(cx - lw / 2), round(cy - lh / 2)))
     else:
         for op, kw in plan:
             if op == "circle":
@@ -493,7 +380,7 @@ def _emit_pil_plan(draw: ImageDraw.ImageDraw, plan: list[tuple[str, dict[str, An
                 x1, y1, x2, y2 = int(kw["x1"]), int(kw["y1"]), int(kw["x2"]), int(kw["y2"])
                 width = int(kw.get("width", 1))
                 stroke = kw.get("stroke")
-                draw.line([cx + x1, cy + y1, cx + x2, cy + y2], fill=_rgba(stroke), width=width)
+                draw.line([cx + x1, cy + y1, cx + x2, cy + y2], fill=_rgba(str(stroke)), width=width)
 
             elif op == "polyline":
                 pts = [(cx + int(x), cy + int(y)) for (x, y) in kw["points"]]
@@ -643,7 +530,7 @@ class Exporter:
             ta, db = lab.anchor.svg  # ("start"/"middle"/"end", baseline)
             parts.append(
                 f'<text x="{lab.p.x}" y="{lab.p.y}" fill="{fill}" font-size="{lab.size}" '
-                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({-int(getattr(lab, "rotation", 0) or 0)} {lab.p.x} {lab.p.y})"{fop}>'
+                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({-lab.rotation} {lab.p.x} {lab.p.y})"{fop}>'
                 f"{_escape(lab.text)}</text>"
             )
 
@@ -657,7 +544,7 @@ class Exporter:
                 data, mime = _picture_bytes_and_mime(Path(ico.src))
                 b64 = base64.b64encode(data).decode("ascii")
                 parts.append(
-                    f'<g transform="translate({cx} {cy}) rotate({-int(getattr(ico, "rotation", 0) or 0)}) translate({-bw / 2} {-bh / 2})">'
+                    f'<g transform="translate({cx} {cy}) rotate({-ico.rotation}) translate({-bw / 2} {-bh / 2})">'
                 )
                 parts.append(f'<image href="data:{mime};base64,{b64}" width="{bw}" height="{bh}"/>')
                 parts.append("</g>")
@@ -665,7 +552,7 @@ class Exporter:
 
             # vector built-ins using unified plan
             col_svg, cop = _col_and_opacity(ico.col)
-            parts.append(f'<g transform="translate({cx} {cy}) rotate({-int(getattr(ico, "rotation", 0) or 0)})">')
+            parts.append(f'<g transform="translate({cx} {cy}) rotate({-ico.rotation})">')
             _emit_svg_plan(parts, _builtin_icon_plan(ico.name, ico.size, col_svg))
             parts.append("</g>")
 
@@ -689,20 +576,20 @@ class Exporter:
 
             if isinstance(ico, Picture_Icon):
                 im = _open_rgba(Path(ico.src), bw, bh)
-                rot = int(getattr(ico, "rotation", 0) or 0) % 360
+                rot = ico.rotation % 360
                 if rot:
                     im = im.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
-                x0 = int(round(cxw - im.width / 2))
-                y0 = int(round(cyw - im.height / 2))
+                x0 = round(cxw - im.width / 2)
+                y0 = round(cyw - im.height / 2)
                 img.alpha_composite(im, (x0, y0))
             else:
                 col_svg, _ = _col_and_opacity(ico.col)  # rgb hex, ignore opacity here (we draw with full alpha)
                 _emit_pil_plan(
                     draw,
                     _builtin_icon_plan(ico.name, ico.size, col_svg),
-                    int(cxw),
-                    int(cyw),
-                    int(getattr(ico, "rotation", 0) or 0),
+                    cxw,
+                    cyw,
+                    ico.rotation,
                 )
 
         return img
@@ -847,7 +734,7 @@ def _draw_labels(img: Image.Image, params: Params) -> None:
             anchor=lab.anchor.pil,
         )
         temp = temp.rotate(
-            int(getattr(lab, "rotation", 0) or 0),
+            lab.rotation,
             resample=Image.Resampling.BICUBIC,
             center=(lab.p.x, lab.p.y),
             expand=False,

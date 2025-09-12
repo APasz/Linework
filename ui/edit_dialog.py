@@ -1,15 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
-from pathlib import Path
 import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
-from tkinter import filedialog
+from collections.abc import Iterable
+from enum import StrEnum
+from pathlib import Path
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import TYPE_CHECKING, Any
-from models.assets import _open_rgba
-from models.geo import Builtin_Icon, Icon_Name, Icon_Source, Icon_Type, Picture_Icon
-from models.assets import Builtins, Primitives
-from PIL import Image, ImageTk
+
+from PIL import Image, ImageDraw, ImageTk
+
+from disk.export import _emit_pil_plan
+from models.assets import _builtin_icon_plan, _open_rgba
+from models.geo import Icon_Name, Icon_Source, Icon_Type
+from models.styling import Colours
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -87,62 +90,15 @@ class Icon_Gallery(tk.Toplevel):
         if key in self._thumb_cache:
             return self._thumb_cache[key]
 
-        idef = Builtins.icon_def(name)
-        minx, miny, vbw, vbh = idef.viewbox
-        s = (THUMB - 8) / max(vbw, vbh) if max(vbw, vbh) else 1.0
-        cx = minx + vbw / 2.0
-        cy = miny + vbh / 2.0
+        plan = _builtin_icon_plan(name, THUMB - 8, Colours.white.hex)
 
-        def T(px: float, py: float) -> tuple[int, int]:
-            return int(round((px - cx) * s)), int(round((py - cy) * s))
+        img = Image.new("RGBA", (THUMB, THUMB), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
 
-        from PIL import ImageDraw
+        # render centered in the thumbnail, no rotation
+        _emit_pil_plan(draw, plan, THUMB // 2, THUMB // 2, 0)
 
-        im = Image.new("RGBA", (THUMB, THUMB), (0, 0, 0, 0))
-        d = ImageDraw.Draw(im)
-        wx = wy = THUMB // 2
-
-        for prim in idef.prims:
-            sty = prim.style
-            width = max(1, int(round((getattr(sty, "stroke_width", 1.0) or 1.0) * s)))
-            stroke = (255, 255, 255, 255) if getattr(sty, "stroke", False) else None
-            fill = (255, 255, 255, 255) if getattr(sty, "fill", False) else None
-
-            if isinstance(prim, Primitives.Circle):
-                x, y = T(prim.cx, prim.cy)
-                r = max(1, int(round(prim.r * s)))
-                if fill:
-                    d.ellipse([wx + x - r, wy + y - r, wx + x + r, wy + y + r], fill=fill)
-                if stroke:
-                    d.ellipse([wx + x - r, wy + y - r, wx + x + r, wy + y + r], outline=stroke, width=width)
-
-            elif isinstance(prim, Primitives.Rect):
-                x0, y0 = T(prim.x, prim.y)
-                x1, y1 = T(prim.x + prim.w, prim.y + prim.h)
-                if fill:
-                    d.rectangle([wx + x0, wy + y0, wx + x1, wy + y1], fill=fill)
-                if stroke:
-                    d.rectangle([wx + x0, wy + y0, wx + x1, wy + y1], outline=stroke, width=width)
-
-            elif isinstance(prim, Primitives.Line):
-                x1, y1 = T(prim.x1, prim.y1)
-                x2, y2 = T(prim.x2, prim.y2)
-                if stroke:
-                    d.line([wx + x1, wy + y1, wx + x2, wy + y2], fill=stroke, width=width)
-
-            elif isinstance(prim, Primitives.Polyline):
-                pts = [T(px, py) for (px, py) in prim.points]
-                pts = [(wx + x, wy + y) for (x, y) in pts]
-                if getattr(prim, "closed", False):
-                    if fill:
-                        d.polygon(pts, fill=fill)
-                    if stroke:
-                        d.polygon(pts, outline=stroke, width=width)
-                else:
-                    if stroke:
-                        d.line(pts, fill=stroke, width=width)
-
-        ph = ImageTk.PhotoImage(im)
+        ph = ImageTk.PhotoImage(img)
         self._thumb_cache[key] = ph
         return ph
 
@@ -180,16 +136,15 @@ class Icon_Gallery(tk.Toplevel):
     def _build_recent(self, parent, recent: list[Icon_Source]):
         frame = _ScrollGrid(parent)
         for src in recent:  # pyright: ignore[reportAssignmentType]
-            if src.kind == Icon_Type.builtin:
-                src: Builtin_Icon
+            if src.kind == Icon_Type.builtin and src.name:
                 thumb = self._thumb_for_builtin(src.name)
                 txt = src.name.name
+            elif src.kind == Icon_Type.picture and src.path:
+                thumb = self._thumb_for_picture(src.path)
+                txt = src.path.name
             else:
-                src: Picture_Icon
-                thumb = self._thumb_for_picture(src.src)
-                txt = src.src.name
+                raise ValueError(f"Unknown kind: {src.kind}")
             b = ttk.Button(frame.body, image=thumb, text=txt, compound="top", command=lambda s=src: self._choose(s))
-            # b.image = thumb
             frame.add(b)
         frame.pack(fill="both", expand=True)
 
@@ -203,7 +158,7 @@ class Icon_Gallery(tk.Toplevel):
         )
         if not paths:
             return
-        self.app.asset_lib.import_files([Path(p) for p in paths])  # copy into project assets
+        self.app.asset_lib.import_files([Path(p) for p in paths])
         self._refresh_pictures()
 
     def _cancel(self):
@@ -239,6 +194,19 @@ class _ScrollGrid(ttk.Frame):
             c.destroy()
         self._col = 0
         self._row = 0
+
+
+class EditDialog_Kind(StrEnum):
+    str = "str"
+    int = "int"
+    float = "float"
+    list = "list"
+    tuple = "tuple"
+    set = "set"
+    dict = "dict"
+    text = "text"
+    choice = "choice"
+    choice_dict = "choice_dict"
 
 
 class GenericEditDialog(simpledialog.Dialog):
@@ -288,55 +256,56 @@ class GenericEditDialog(simpledialog.Dialog):
         if kind == "int":
             sv = tk.StringVar(value=str(int(value if value is not None else 0)))
             ent = ttk.Entry(parent, textvariable=sv, width=8, justify="right")
-            ent._var = sv  # type: ignore[attr-defined]
+            ent._alpha = sv  # type: ignore[attr-defined]
             return ent
-        if kind == "float":
+        elif kind == "float":
             sv = tk.StringVar(value=str(float(value if value is not None else 0.0)))
             ent = ttk.Entry(parent, textvariable=sv, width=8, justify="right")
-            ent._var = sv  # type: ignore[attr-defined]
+            ent._alpha = sv  # type: ignore[attr-defined]
             return ent
-        if kind == "text":
+        elif kind == "text":
             sv = tk.StringVar(value=str(value if value is not None else ""))
             ent = ttk.Entry(parent, textvariable=sv)
-            ent._var = sv  # type: ignore[attr-defined]
+            ent._alpha = sv  # type: ignore[attr-defined]
             return ent
-        if kind == "choice":
+        elif kind == "choice":
             sv = tk.StringVar(value=str(value if value is not None else ""))
             cb = ttk.Combobox(parent, textvariable=sv, values=list(fld.get("choices", [])), state="readonly")
-            cb._var = sv  # type: ignore[attr-defined]
+            cb._alpha = sv  # type: ignore[attr-defined]
             return cb
-        if kind == "choice_dict":
+        elif kind == "choice_dict":
             sv = tk.StringVar(value=str(value if value is not None else ""))
             opts = fld.get("choices", {})
             cb = ttk.Combobox(parent, textvariable=sv, values=[k for k in opts.keys()], state="readonly")
-            cb._var = sv  # type: ignore[attr-defined]
-            cb._var2 = opts  # type: ignore[attr-defined]
+            cb._alpha = sv  # type: ignore[attr-defined]
+            cb._bravo = opts  # type: ignore[attr-defined]
             return cb
-        if kind == "bool":
+        elif kind == "bool":
             sv = tk.BooleanVar(value=bool(value))
             cb = ttk.Checkbutton(parent, variable=sv)
-            cb._var = sv  # type: ignore[attr-defined]
+            cb._alpha = sv  # type: ignore[attr-defined]
             return cb
         # default string
         sv = tk.StringVar(value=str(value if value is not None else ""))
         ent = ttk.Entry(parent, textvariable=sv)
-        ent._var = sv  # type: ignore[attr-defined]
+        ent._alpha = sv  # type: ignore[attr-defined]
         return ent
 
-    def _get_widget_value(self, w: tk.Widget, kind: str) -> Any:
-        sv = getattr(w, "_var", None)
-        s = sv.get() if sv is not None else ""  # type: ignore[assignment]
+    def _get_widget_value(self, widget: tk.Widget, kind: str) -> Any:
+        _alpha: tk.Variable | None = getattr(widget, "_alpha", None)
+        _bravo: tk.Variable | None = getattr(widget, "_bravo", None)
+        alpha = _alpha.get() if _alpha is not None else ""
+        bravo = _bravo.get() if _bravo is not None else ""
         if kind == "int":
-            return int(s)
+            return int(alpha)
         if kind == "float":
-            return float(s)
+            return float(alpha)
         if kind == "choice":
-            return str(s)
-        if kind == "choice_dict":
-            sv2 = getattr(w, "_var2", {})
-            return str(sv2[s])
+            return str(alpha)
+        if kind == "choice_dict" and isinstance(bravo, dict):
+            return str(bravo[alpha])
         if kind == "text":
-            return str(s)
+            return str(alpha)
         if kind == "bool":
-            return bool(s)
-        return str(s)
+            return bool(alpha)
+        return str(alpha)

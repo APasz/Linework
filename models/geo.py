@@ -1,20 +1,17 @@
+import math
+import tkinter as tk
 from collections.abc import Collection
 from dataclasses import dataclass
 from enum import StrEnum
-import math
 from pathlib import Path
-import tkinter as tk
 from typing import Annotated, Literal, Self
 
+from PIL import Image, ImageTk
 from pydantic import Field
 
 from canvas.layers import Hit_Kind, Layer_Name, layer_tag, tag_list
-
-
+from models.assets import Builtins, Formats, Icon_Name, Primitives, Style, _open_rgba, probe_wh
 from models.styling import Anchor, CapStyle, Colour, JoinStyle, LineStyle, Model, scaled_pattern
-from models.assets import Builtins, Formats, Primitives, Style, _open_rgba, probe_wh, Icon_Name
-
-from PIL import Image, ImageTk
 
 
 class Point(Model):
@@ -86,21 +83,38 @@ class Icon_Type(StrEnum):
 class Icon_Source:
     kind: Icon_Type
     name: Icon_Name | None = None
-    src: Path | None = None
+    path: Path | None = None
 
     def __post_init__(self):
-        if isinstance(self.name, str):
-            object.__setattr__(self, "name", Icon_Name(self.name))
-        if isinstance(self.src, str):
-            object.__setattr__(self, "src", Path(self.src))
+        if self.kind is Icon_Type.builtin:
+            if self.name is None or self.path is not None:
+                raise ValueError("builtin Icon_Source requires name and forbids src")
+        elif self.kind is Icon_Type.picture:
+            if self.path is None or self.name is not None:
+                raise ValueError("picture Icon_Source requires src and forbids name")
 
     @classmethod
-    def builtin(cls, name: Icon_Name) -> "Icon_Source":
-        return cls(kind=Icon_Type.builtin, name=name)
+    def builtin(cls, name: Icon_Name | str) -> "Icon_Source":
+        return cls(kind=Icon_Type.builtin, name=Icon_Name(name))
 
     @classmethod
-    def picture(cls, src: Path) -> "Icon_Source":
-        return cls(kind=Icon_Type.picture, src=Path(src))
+    def picture(cls, path: Path | str) -> "Icon_Source":
+        return cls(kind=Icon_Type.picture, path=Path(path))
+
+    def coerce(cls, x: "Icon_Source | Iconlike | Path | str | Icon_Name") -> "Icon_Source":
+        # Handy when refactoring call sites incrementally
+        if isinstance(x, Icon_Source):
+            return x
+        if isinstance(x, Icon_Name) or isinstance(x, str) and x in Icon_Name.__members__:
+            return cls.builtin(x)  # type: ignore[arg-type]
+        if isinstance(x, (str, Path)):
+            return cls.picture(x)
+        # If someone passes a full Iconlike (Builtin_Icon/Picture_Icon), strip it to a source:
+        if isinstance(x, Builtin_Icon):
+            return cls.builtin(x.name)
+        if isinstance(x, Picture_Icon):
+            return cls.picture(x.src)
+        raise TypeError(f"Cannot coerce {type(x)} to Icon_Source")
 
 
 class Base_Icon(Model):
@@ -152,7 +166,7 @@ class Picture_Icon(Base_Icon):
             return (self.size, self.size)
         if self.preserve_aspect:
             s = self.size / max(w, h)
-            return (max(1, int(round(w * s))), max(1, int(round(h * s))))
+            return (max(1, round(w * s)), max(1, round(h * s)))
         return (self.size, self.size)
 
 
@@ -165,7 +179,7 @@ class ItemID(int): ...
 def _flat_points(*points: Point) -> tuple[int, ...]:
     out: list[int] = []
     for p in points:
-        out += [int(p.x), int(p.y)]
+        out += [p.x, p.y]
     return tuple(out)
 
 
@@ -265,6 +279,29 @@ class CanvasLW(tk.Canvas):
         )
         return ItemID(iid)
 
+    def create_with_iconlike(
+        self,
+        icon: Iconlike,
+        *,
+        idx: int | None = None,
+        extra_tags: Collection[str] = (),
+        override_base_tags: Collection[Layer_Name] | None = None,
+    ):
+        if isinstance(icon, Picture_Icon):
+            return self.create_with_picture(
+                icon,
+                idx=idx,
+                extra_tags=extra_tags,
+                override_base_tags=override_base_tags,
+            )
+        else:
+            return self.create_with_icon(
+                icon,
+                idx=idx,
+                extra_tags=extra_tags,
+                override_base_tags=override_base_tags,
+            )
+
     def create_with_icon(
         self,
         icon: Builtin_Icon,
@@ -272,7 +309,7 @@ class CanvasLW(tk.Canvas):
         idx: int | None = None,
         extra_tags: Collection[str] = (),
         override_base_tags: Collection[Layer_Name] | None = None,
-    ) -> None:
+    ):
         tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
         col = icon.col.hex
         size = float(icon.size)
@@ -304,7 +341,7 @@ class CanvasLW(tk.Canvas):
             w = max(1.0, sty.stroke_width * s)
             join = {JoinStyle.ROUND: "round", JoinStyle.BEVEL: "bevel", JoinStyle.MITER: "miter"}[sty.line_join]
             cap = {CapStyle.ROUND: "round", CapStyle.BUTT: "butt", CapStyle.PROJECTING: "projecting"}[sty.line_cap]
-            opts = dict(width=w, joinstyle=join, capstyle=cap)
+            opts: dict[str, str | float | int | tuple[int | float, ...]] = dict(width=w, joinstyle=join, capstyle=cap)
             if sty.dash:
                 opts["dash"] = tuple(max(1.0, d * s) for d in sty.dash)
             return opts
@@ -394,13 +431,13 @@ class CanvasLW(tk.Canvas):
         if item_map is None:
             item_map = self._item_images = {}
 
-        key = (str(Path(pic.src)), int(bw), int(bh), int(pic.rotation) % 360)
+        key = (str(Path(pic.src)), bw, bh, pic.rotation % 360)
 
         ph = cache.get(key)
         if ph is None:
             # load → scale → rotate → PhotoImage
             im = _open_rgba(pic.src, bw, bh)
-            rot = int(pic.rotation or 0) % 360
+            rot = pic.rotation % 360
             if rot:
                 # rotate around centre; expand bounds then place by centre on canvas
                 im = im.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
@@ -425,7 +462,7 @@ class CanvasLW(tk.Canvas):
             return
         cx = (bbox[0] + bbox[2]) / 2
         cy = (bbox[1] + bbox[3]) / 2
-        super().move(item, int(round(target.x - cx)), int(round(target.y - cy)))
+        super().move(item, round(target.x - cx), round(target.y - cy))
 
     # ---------- queries ----------
     def centre_of_tag(self, tag: str) -> Point | None:

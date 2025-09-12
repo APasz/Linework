@@ -141,7 +141,7 @@ class Composite_Spinbox(ttk.Frame):
     def _format(self, v):
         # keep ints pretty; floats if increment isn’t integral
         if isinstance(self._inc, int) or (isinstance(self._inc, float) and self._inc.is_integer()):
-            return str(int(round(v)))
+            return str(round(v))
         return f"{v:.6g}"
 
     def _validate_and_clamp(self, call_command=True):
@@ -168,7 +168,7 @@ class Composite_Spinbox(ttk.Frame):
                 # simple wrap for ints; for floats, clamp after stepping
                 if isinstance(self._inc, int):
                     rng = self._max - self._min + 1
-                    v2 = ((int(round(v2)) - self._min) % rng) + self._min
+                    v2 = ((round(v2) - self._min) % rng) + self._min
                 else:
                     # float wrap is messy; just clamp
                     v2 = min(max(v2, self._min), self._max)

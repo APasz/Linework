@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-
 from canvas.layers import Layer_Name
-from models.geo import Builtin_Icon, CanvasLW, Iconlike, Label, Line, Point
+from models.geo import CanvasLW, Label, Line, Point
 from models.params import Params
 from models.styling import CapStyle
 
@@ -72,7 +71,4 @@ class Painters:
             self._paint_icon(canvas, ico, idx)
 
     def _paint_icon(self, canvas: CanvasLW, ico, idx: int):
-        if isinstance(ico, Builtin_Icon):
-            canvas.create_with_icon(ico, idx=idx)
-        else:
-            canvas.create_with_picture(ico, idx=idx)
+        canvas.create_with_iconlike(ico, idx=idx)

@@ -2,9 +2,8 @@ from pathlib import Path
 
 from pydantic import Field
 
-from models.styling import Colour, Colours, LineStyle, Model
 from models.geo import Icon_Source, Iconlike, Label, Line
-
+from models.styling import Colour, Colours, LineStyle, Model
 
 SCHEMA_VERSION = 1
 

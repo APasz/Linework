@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from pathlib import Path
 import tkinter as tk
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from models.geo import Builtin_Icon, Iconlike, Label, Line, Picture_Icon
 from models.assets import Icon_Name
+from models.geo import Builtin_Icon, Label, Line, Picture_Icon
 from models.styling import Anchor, CapStyle, Colours, LineStyle
 from ui.edit_dialog import GenericEditDialog
 
@@ -53,13 +53,14 @@ class Editors:
             "x": lab.p.x,
             "y": lab.p.y,
             "snap_to_grid": False,
-            "snap_flag": getattr(lab, "snap", True),
+            "snap_flag": lab.snap,
             "size": lab.size,
-            "rotation": getattr(lab, "rotation", 0),
+            "rotation": lab.rotation,
             "anchor": lab.anchor.tk,
             "colour": lab.col.name,
         }
         dlg = GenericEditDialog(parent, "Edit Label", schema, init)
+
         return getattr(dlg, "result", None)
 
     def edit_icon(self, parent: tk.Misc, ico: Builtin_Icon, choices: list[str] | None = None) -> dict[str, Any] | None:
@@ -79,9 +80,9 @@ class Editors:
             "x": ico.p.x,
             "y": ico.p.y,
             "snap_to_grid": False,
-            "snap_flag": getattr(ico, "snap", True),
+            "snap_flag": ico.snap,
             "size": ico.size,
-            "rotation": getattr(ico, "rotation", 0),
+            "rotation": ico.rotation,
             "anchor": ico.anchor.tk,
             "colour": ico.col.name,
         }
@@ -107,13 +108,13 @@ class Editors:
             "x": pic.p.x,
             "y": pic.p.y,
             "snap_to_grid": False,
-            "snap_flag": getattr(pic, "snap", True),
+            "snap_flag": pic.snap,
             "size": pic.size,
-            "rotation": getattr(pic, "rotation", 0),
+            "rotation": pic.rotation,
             "anchor": pic.anchor.tk,
             "colour": pic.col.name,
         }
-        dlg = GenericEditDialog(parent, "Edit Icon", schema, init)
+        dlg = GenericEditDialog(parent, "Edit Picture", schema, init)
         return getattr(dlg, "result", None)
 
     def edit_line(self, parent: tk.Misc, lin: Line) -> dict[str, Any] | None:
@@ -137,9 +138,9 @@ class Editors:
             "snap_to_grid": False,
             "width": lin.width,
             "capstyle": lin.capstyle,
-            "style": getattr(lin, "style", None) or "solid",
+            "style": lin.style,
             "colour": lin.col.name,
-            "dash_offset": getattr(lin, "dash_offset", 0),
+            "dash_offset": lin.dash_offset,
         }
         dlg = GenericEditDialog(parent, "Edit Line", schema, init)
         return getattr(dlg, "result", None)

@@ -8,7 +8,7 @@ from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
 from shutil import copy2
-from typing import Literal
+from typing import Any, Literal
 
 import cairosvg
 from PIL import Image
@@ -265,3 +265,111 @@ class Builtins:
             Icon_Name.SWITCH_RIGHT: cls._switch("right"),
         }
         return ICONS[name]
+
+
+# -----------------------------------------------------------------------------
+# Built‑in icon plan → single source of truth
+# -----------------------------------------------------------------------------
+
+# The plan is expressed around the origin. A renderer will translate/rotate.
+# Each step is (op, kwargs):
+#   ("circle", {cx, cy, r, fill, width(optional), stroke(optional)})
+#   ("rect",   {x, y, w, h, fill, width(optional), stroke(optional)})
+#   ("line",   {x1, y1, x2, y2, width, stroke})
+
+
+def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[str, dict[str, Any]]]:
+    """
+    Build a device-agnostic drawing plan for a builtin icon using the single
+    source of truth in Builtins.icon_def. Coordinates are expressed around
+    the origin and scaled to `size` so renderers can translate/rotate.
+    """
+    idef = Builtins.icon_def(name)
+    minx, miny, vbw, vbh = idef.viewbox
+    # uniform scale to fit a square of `size`
+    s = size / max(vbw, vbh) if max(vbw, vbh) else 1.0
+    cx = minx + vbw / 2.0
+    cy = miny + vbh / 2.0
+
+    def T(px: float, py: float) -> tuple[int, int]:
+        """Transform idef-space to origin-centered, scaled icon-space."""
+        return round((px - cx) * s), round((py - cy) * s)
+
+    plan: list[tuple[str, dict[str, Any]]] = []
+
+    for prim in idef.prims:
+        sty = prim.style
+        # width scales with icon size; clamp to at least 1
+        width = max(1, round((sty.stroke_width or 1.0) * s))
+        stroke = col_svg if sty.stroke else None
+        fill = col_svg if sty.fill else None
+        dash = None
+        if sty.dash:
+            # scale dash pattern
+            dash = [max(1, round(d * s)) for d in sty.dash]
+
+        if isinstance(prim, Primitives.Circle):
+            x, y = T(prim.cx, prim.cy)
+            r = max(1, round(prim.r * s))
+            entry: dict[str, Any] = {"cx": x, "cy": y, "r": r}
+            if fill:
+                entry["fill"] = fill
+            if stroke:
+                entry["stroke"] = stroke
+                entry["width"] = width
+            plan.append(("circle", entry))
+
+        elif isinstance(prim, Primitives.Rect):
+            x0, y0 = T(prim.x, prim.y)
+            # Rect in idef is axis-aligned; just scale w/h
+            w = round(prim.w * s)
+            h = round(prim.h * s)
+            entry: dict[str, Any] = {"x": x0, "y": y0, "w": w, "h": h}
+            if fill:
+                entry["fill"] = fill
+            if stroke:
+                entry["stroke"] = stroke
+                entry["width"] = width
+            plan.append(("rect", entry))
+
+        elif isinstance(prim, Primitives.Line):
+            x1, y1 = T(prim.x1, prim.y1)
+            x2, y2 = T(prim.x2, prim.y2)
+            entry: dict[str, Any] = {
+                "x1": x1,
+                "y1": y1,
+                "x2": x2,
+                "y2": y2,
+                "width": width,
+                "stroke": stroke or col_svg,
+            }
+            # cap/join mainly matter for thick strokes; include if present
+            entry["cap"] = sty.line_cap.value
+            if dash:
+                entry["dash"] = dash
+            plan.append(("line", entry))
+
+        elif isinstance(prim, Primitives.Polyline):
+            pts = []
+            for px, py in prim.points:
+                tx, ty = T(px, py)
+                pts.append((tx, ty))
+            entry: dict[str, Any] = {
+                "points": pts,
+                "closed": prim.closed,
+            }
+            if fill:
+                entry["fill"] = fill
+            if stroke:
+                entry["stroke"] = stroke
+                entry["width"] = width
+            entry["join"] = sty.line_join.value
+            if dash:
+                entry["dash"] = dash
+            plan.append(("polyline", entry))
+
+        else:
+            # Unknown primitive; ignore rather than exploding in export
+            continue
+
+    return plan

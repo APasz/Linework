@@ -394,7 +394,7 @@ class App:
             self.layers.redraw(Layer_Name.labels)
             self.mark_dirty()
         elif k == Hit_Kind.line:
-            ln = self.params.lines[i]
+            lin = self.params.lines[i]
             order = [
                 LineStyle.SOLID,
                 LineStyle.SHORT,
@@ -405,10 +405,10 @@ class App:
                 LineStyle.DOT,
             ]
             try:
-                j = order.index(getattr(ln, "style", LineStyle.SOLID))
+                j = order.index(lin.style)
             except ValueError:
                 j = 0
-            ln.style = order[(j + step) % len(order)]
+            lin.style = order[(j + step) % len(order)]
             self.layers.redraw(Layer_Name.lines)
             self.mark_dirty()
 
@@ -437,7 +437,7 @@ class App:
             # apply
             lab.text = data["text"]
             lab.p = point
-            lab.snap = bool(data.get("snap_flag", getattr(lab, "snap", True)))
+            lab.snap = bool(data.get("snap_flag", lab.snap))
             lab.size = int(data["size"])
             lab.rotation = int(data.get("rotation", 0))
             lab.anchor = Anchor.parse(data["anchor"]) or lab.anchor
@@ -456,7 +456,7 @@ class App:
             if not data:
                 return
 
-            point = Point(x=int(data["x"]), y=int(data["y"]))
+            point = Point(x=data["x"], y=data["y"])
 
             if data.get("snap_to_grid"):
                 point = self.snap(point)
@@ -470,9 +470,9 @@ class App:
             else:
                 return
             ico.p = point
-            ico.snap = bool(data.get("snap_flag", getattr(ico, "snap", True)))
-            ico.size = int(data["size"])
-            ico.rotation = int(data.get("rotation", 0))
+            ico.snap = data.get("snap_flag", ico.snap)
+            ico.size = data["size"]
+            ico.rotation = data.get("rotation", 0)
             ico.anchor = Anchor.parse(data["anchor"]) or ico.anchor
             ico.col = Colours.parse_colour(data["colour"]) if data["colour"] else ico.col
             self.layers.redraw(Layer_Name.icons)
@@ -484,8 +484,8 @@ class App:
             if not data:
                 return
 
-            point_a = Point(x=int(data["x1"]), y=int(data["y1"]))
-            point_b = Point(x=int(data["x2"]), y=int(data["y2"]))
+            point_a = Point(x=data["x1"], y=data["y1"])
+            point_b = Point(x=data["x2"], y=data["y2"])
 
             if data.get("snap_to_grid"):
                 point_a = self.snap(point_a)
@@ -494,11 +494,11 @@ class App:
             # apply
             lin.a = point_a
             lin.b = point_b
-            lin.width = int(data["width"])
+            lin.width = data["width"]
             lin.capstyle = CapStyle(data["capstyle"])
             lin.style = LineStyle(data["style"])
             lin.col = Colours.parse_colour(data["colour"]) if data["colour"] else lin.col
-            lin.dash_offset = int(data.get("dash_offset", 0))
+            lin.dash_offset = data.get("dash_offset", 0)
             self.layers.redraw(Layer_Name.lines)
             self.mark_dirty()
         else:
@@ -509,7 +509,7 @@ class App:
 
     def _apply_size_increments(self, g: int, tbar=None):
         """Align W/H spinbox steps to grid size and optionally snap current canvas."""
-        step = max(1, int(g))
+        step = max(1, g)
         # when called at init we can receive tbar; later calls can find spins by name
         if tbar:
             tbar.spin_w.configure(increment=step, from_=step)

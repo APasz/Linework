@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from tkinter import ttk
 
-from models.assets import Icon_Name
 from models.geo import CanvasLW
 from models.styling import Colour, Colours, LineStyle
 from ui.widgets.composite_spinbox import Composite_Spinbox
