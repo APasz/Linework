@@ -143,3 +143,57 @@ class Move_Icon:
         ico.p = self.old_point
         self.params.icons[self.index] = ico
         self.on_after()
+
+
+@dataclass
+class Delete_Line:
+    params: Params
+    index: int
+    on_after: Callable[[], None]
+    _removed: Line | None = None
+
+    def do(self):
+        if 0 <= self.index < len(self.params.lines):
+            self._removed = self.params.lines.pop(self.index)
+            self.on_after()
+
+    def undo(self):
+        if self._removed is not None:
+            self.params.lines.insert(self.index, self._removed)
+            self.on_after()
+
+
+@dataclass
+class Delete_Label:
+    params: Params
+    index: int
+    on_after: Callable[[], None]
+    _removed: Label | None = None
+
+    def do(self):
+        if 0 <= self.index < len(self.params.labels):
+            self._removed = self.params.labels.pop(self.index)
+            self.on_after()
+
+    def undo(self):
+        if self._removed is not None:
+            self.params.labels.insert(self.index, self._removed)
+            self.on_after()
+
+
+@dataclass
+class Delete_Icon:
+    params: Params
+    index: int
+    on_after: Callable[[], None]
+    _removed: Iconlike | None = None
+
+    def do(self):
+        if 0 <= self.index < len(self.params.icons):
+            self._removed = self.params.icons.pop(self.index)
+            self.on_after()
+
+    def undo(self):
+        if self._removed is not None:
+            self.params.icons.insert(self.index, self._removed)
+            self.on_after()

@@ -8,7 +8,7 @@ import sv_ttk
 
 from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name
 from canvas.painters import Painters, Scene
-from controllers.commands import Command_Stack
+from controllers.commands import Command_Stack, Delete_Line, Delete_Label, Delete_Icon
 from controllers.editors import Editors
 from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool
 from disk.export import Exporter
@@ -192,6 +192,8 @@ class App:
         self.root.bind("<bracketright>", lambda e: self._nudge(True))
         self.canvas.bind("<Double-1>", lambda e: (self._edit_selected(), "break")[-1])
         self.root.bind("<Return>", lambda e: self._edit_selected())
+        self.root.bind("<Delete>", self.on_delete)
+        self.root.bind("<BackSpace>", self.on_delete)
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         # watch mode changes
@@ -230,6 +232,31 @@ class App:
         return Point(x=x, y=y)
 
     # --------- UI callbacks ---------
+    def on_delete(self, _evt=None):
+        # cancel any live preview/drag first
+        self.current_tool.on_cancel(self)
+
+        kind, idx = self._selected()
+        if idx is None or not kind or str(kind) == "" or kind.value == "":
+            self.status.temp("Nothing selected to delete", 1500)
+            return
+
+        if kind == Hit_Kind.line:
+            self.cmd.push_and_do(Delete_Line(self.params, idx, on_after=lambda: self.layers_redraw(Layer_Name.lines)))
+            self.status.temp("Deleted line", 1500)
+
+        elif kind == Hit_Kind.label:
+            self.cmd.push_and_do(Delete_Label(self.params, idx, on_after=lambda: self.layers_redraw(Layer_Name.labels)))
+            self.status.temp("Deleted label", 1500)
+
+        elif kind == Hit_Kind.icon:
+            self.cmd.push_and_do(Delete_Icon(self.params, idx, on_after=lambda: self.layers_redraw(Layer_Name.icons)))
+            self.status.temp("Deleted icon", 1500)
+
+        # clear selection and mark dirty
+        self._set_selected(Hit_Kind.miss, None)
+        self.mark_dirty()
+
     def on_style_change(self, *_):
         try:
             self.params.line_style = LineStyle(self.var_line_style.get())
