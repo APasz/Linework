@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from models.geo import Iconlike, Label, Line, Point
 from models.params import Params
@@ -100,6 +100,34 @@ class Add_Icon:
             if self.params.icons[idx] == self.icon:
                 del self.params.icons[idx]
                 break
+        self.on_after()
+
+
+@dataclass
+class Move_Line_End:
+    params: Params
+    index: int
+    end: Literal["a", "b"]
+    old_point: Point
+    new_point: Point
+    on_after: Callable[[], None]
+
+    def do(self):
+        lin = self.params.lines[self.index]
+        if self.end == "a":
+            lin.a = self.new_point
+        else:
+            lin.b = self.new_point
+        self.params.lines[self.index] = lin
+        self.on_after()
+
+    def undo(self):
+        lin = self.params.lines[self.index]
+        if self.end == "a":
+            lin.a = self.old_point
+        else:
+            lin.b = self.old_point
+        self.params.lines[self.index] = lin
         self.on_after()
 
 

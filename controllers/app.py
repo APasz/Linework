@@ -6,7 +6,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import sv_ttk
 
-from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name
+from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, layer_tag
 from canvas.painters import Painters, Scene
 from controllers.commands import Command_Stack, Delete_Line, Delete_Label, Delete_Icon
 from controllers.editors import Editors
@@ -16,7 +16,7 @@ from disk.storage import IO
 from models.assets import Formats, Icon_Name, get_asset_library
 from models.geo import CanvasLW, Point
 from models.params import Params
-from models.styling import Colours, LineStyle
+from models.styling import Colour, Colours, LineStyle
 from ui.bars import Bars, Side, Tool_Name
 
 
@@ -46,6 +46,14 @@ class App:
             style = ttk.Style()
             print(f"Currently installed themes: {', '.join(style.theme_names())} | Defaulting to Alt")
             style.theme_use("Alt")
+
+        self.SEL_COLOUR: Colour = Colours.sys.sky
+        self.HANDLE_R: int = 5
+        self.MARQUEE_DASH: tuple[int, int] = (2, 12)
+        self.MARQUEE_STEP: float = 1
+        self.MARQUEE_INTERVAL_MS: int = 40
+        self._sel_anim_after_id: str | None = None
+        self._sel_anim_alive: bool = False
 
         # ---- UI state vars ----
         self.var_drag_to_draw = tk.BooleanVar(value=True)
@@ -363,6 +371,90 @@ class App:
         self.mark_dirty()
         self.status.temp("Cleared")
 
+    # --- selection overlay (bbox, halo, handles) ---
+
+    def clear_selection_overlay(self):
+        # wipe shapes and stop anim
+        self.layers.clear(Layer_Name.selection, force=True)
+        self._stop_marquee_anim()
+
+    def draw_selection_overlay(self):
+        self.clear_selection_overlay()
+        kind, idx = self._selected()
+        if not kind or kind == Hit_Kind.miss or idx is None:
+            return
+
+        tag = f"{kind.value}:{idx}"
+
+        # 1) Draw a marching-ants marquee around the axis-aligned bbox
+        bbox = self.canvas.bbox(tag)
+        if bbox:
+            self._draw_marquee_bbox(*bbox)
+
+        # 2) Extra visuals for lines (halo + endpoint handles)
+        if kind == Hit_Kind.line:
+            lin = self.params.lines[idx]
+            for end_name, p in (("a", lin.a), ("b", lin.b)):
+                self.canvas.create_oval(
+                    p.x - self.HANDLE_R,
+                    p.y - self.HANDLE_R,
+                    p.x + self.HANDLE_R,
+                    p.y + self.HANDLE_R,
+                    outline="white",
+                    fill=self.SEL_COLOUR.hex,
+                    tags=(layer_tag(Layer_Name.selection), "handle", f"handle:line:{idx}:{end_name}", tag),
+                )
+
+        self._start_marquee_anim()
+
+    def _draw_marquee_bbox(self, x1: int, y1: int, x2: int, y2: int) -> None:
+        self.canvas.create_rectangle(
+            x1,
+            y1,
+            x2,
+            y2,
+            outline=self.SEL_COLOUR.hex,
+            width=2,
+            dash=self.MARQUEE_DASH,
+            tags=(layer_tag(Layer_Name.selection), "marquee"),
+        )
+
+    def _start_marquee_anim(self) -> None:
+        if self._sel_anim_alive:
+            return
+        self._sel_anim_alive = True
+
+        def tick() -> None:
+            if not self._sel_anim_alive:
+                return
+
+            items = self.canvas.find_withtag("marquee")
+            if not items:
+                self._stop_marquee_anim()
+                return
+
+            for cid in items:
+                cur = self.canvas.itemcget(cid, "dashoffset")
+                try:
+                    cur_val = int(cur) if cur else 0
+                except ValueError:
+                    cur_val = 0
+                self.canvas.itemconfig(cid, dashoffset=cur_val + self.MARQUEE_STEP)
+
+            self._sel_anim_after_id = self.canvas.after(self.MARQUEE_INTERVAL_MS, tick)
+
+        self._sel_anim_after_id = self.canvas.after(self.MARQUEE_INTERVAL_MS, tick)
+
+    def _stop_marquee_anim(self):
+        self._sel_anim_alive = False
+        if self._sel_anim_after_id is not None:
+            try:
+                self.canvas.after_cancel(self._sel_anim_after_id)
+            except Exception:
+                pass
+            finally:
+                self._sel_anim_after_id = None
+
     # --------- persistence ---------
     def export_image(self):
         # default file name & type based on params
@@ -444,6 +536,7 @@ class App:
 
     def _set_selected(self, kind: Hit_Kind, idx: int | None):
         self.selection_kind, self.selection_index = kind, idx
+        self.draw_selection_overlay()
 
     def _edit_selected(self):
         k, i = self._selected()
@@ -514,6 +607,7 @@ class App:
         return True
 
     def _on_close(self):
+        self._stop_marquee_anim()
         if self._maybe_save_changes():
             self.root.destroy()
 

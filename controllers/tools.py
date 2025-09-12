@@ -4,10 +4,10 @@ import math
 import tkinter as tk
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from canvas.layers import Hit_Kind, Layer_Name, item_tag, layer_tag, test_hit
-from controllers.commands import Add_Icon, Add_Label, Add_Line, Move_Icon, Move_Label
+from controllers.commands import Add_Icon, Add_Label, Add_Line, Move_Icon, Move_Label, Move_Line_End
 from models.geo import (
     Builtin_Icon,
     CanvasLW,
@@ -30,7 +30,6 @@ if TYPE_CHECKING:
     from controllers.app import App
 
 
-# ---- base tool ----
 class Tool(Protocol):
     name: Tool_Name
     cursor: TkCursor | None
@@ -42,7 +41,6 @@ class Tool(Protocol):
     def on_cancel(self, app: App): ...
 
 
-# ---- DrawTool ----
 class Draw_Tool(Tool):
     name: Tool_Name = Tool_Name.draw
     cursor: TkCursor | None = TkCursor.CROSSHAIR
@@ -219,7 +217,6 @@ class Draw_Tool(Tool):
         app.status.release("drawline")
 
 
-# ---- LabelTool ----
 @dataclass
 class Label_Tool:
     name: Tool_Name = Tool_Name.label
@@ -229,10 +226,14 @@ class Label_Tool:
     def on_press(self, app: App, evt: tk.Event):
         point = app.snap(Point(x=evt.x, y=evt.y))
 
-        text = app.prompt_text("New Label", "Text:")
-        if not text:
+        # seed a temp label with sensible defaults
+        lab = Label(p=point, text="", col=app.params.brush_colour, size=12)
+
+        # open the multi-field editor; returns True if user pressed OK
+        ok = app.editors.edit(app.root, lab)
+        if not ok or not lab.text.strip():
             return
-        lab = Label(p=point, text=text, col=app.params.brush_colour, size=12)
+
         app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers_redraw(Layer_Name.labels)))
         app.mark_dirty()
         app.status.temp(f"Label @ ({point.x},{point.y})", 2500)
@@ -242,7 +243,6 @@ class Label_Tool:
     def on_cancel(self, app: App): ...
 
 
-# ---- IconTool ----
 @dataclass
 class Icon_Tool:
     name: Tool_Name = Tool_Name.icon
@@ -361,9 +361,46 @@ class Select_Tool:
     _start_pos: Point | None = None
     _press_ref: Point | None = None
     _dragged: bool = False
+    _drag_line_endpoint: Literal["a", "b"] | None = None
+    _drag_line_item: int | None = None
 
     def on_press(self, app: App, evt: tk.Event):
+        # First, see if we clicked an endpoint handle.
+        items = app.canvas.find_overlapping(evt.x, evt.y, evt.x, evt.y)
+        handle_info: tuple[int, str] | None = None
+        for cid in reversed(items):
+            for t in app.canvas.gettags(cid):
+                # tag format: "handle:line:{idx}:{end}"
+                if t.startswith("handle:line:"):
+                    try:
+                        _, _, idx_s, end = t.split(":")
+                        handle_info = (int(idx_s), end)
+                        break
+                    except Exception:
+                        pass
+            if handle_info:
+                break
+
+        if handle_info:
+            idx, end = handle_info
+            self._drag_kind = Hit_Kind.line
+            self._drag_index = idx
+            self._drag_line_endpoint = "a" if end == "a" else "b" if end == "b" else None
+            ids = app.canvas.find_withtag(f"{Hit_Kind.line.value}:{idx}")
+            self._drag_line_item = ids[0] if ids else None
+            self._press_ref = getattr(app.params.lines[idx], end)
+            app._set_selected(Hit_Kind.line, idx)  # refresh overlay
+            self._start_pos = Point(x=evt.x, y=evt.y)
+            self._dragged = False
+            try:
+                app.canvas.grab_set()
+            except tk.TclError:
+                pass
+            return
+
+        # Otherwise, normal hit test.
         hit = test_hit(app.canvas, evt.x, evt.y)
+
         self._dragged = False
         self._press_ref = None
 
@@ -373,6 +410,7 @@ class Select_Tool:
             self._drag_index = None
             self._drag_icon_ids = None
             self._start_pos = None
+            app._set_selected(Hit_Kind.miss, None)  # click empty space → deselect
             return
 
         app.canvas.focus_set()
@@ -381,22 +419,35 @@ class Select_Tool:
         except tk.TclError:
             pass
 
+        # Toggle deselect if clicking the already-selected thing
+        cur_k, cur_i = app._selected()
+        if cur_k == hit.kind and cur_i == hit.tag_idx:
+            app._set_selected(Hit_Kind.miss, None)
+            self._drag_kind = Hit_Kind.miss
+            self._drag_canvas_id = None
+            self._drag_index = None
+            self._drag_icon_ids = None
+            self._start_pos = None
+            return
+
         app._set_selected(hit.kind, hit.tag_idx)
         self._drag_kind = hit.kind
         self._drag_canvas_id = hit.canvas_idx
         self._drag_index = hit.tag_idx
         self._start_pos = Point(x=evt.x, y=evt.y)
 
-        if self._drag_kind == Hit_Kind.icon and self._drag_index is not None:
+        # app.canvas.tag_raise(int(self._drag_canvas_id))
+
+        if self._drag_kind == Hit_Kind.label and self._drag_canvas_id is not None:
+            coords = app.canvas.coords(self._drag_canvas_id)
+            if coords:
+                self._press_ref = Point(x=round(coords[0]), y=round(coords[1]))
+
+        elif self._drag_kind == Hit_Kind.icon and self._drag_index is not None:
             tag = item_tag(Hit_Kind.icon, self._drag_index)
             self._drag_icon_ids = tuple(app.canvas.find_withtag(tag))
             # press reference = model’s anchored point
             self._press_ref = app.params.icons[self._drag_index].p
-
-        elif self._drag_kind == Hit_Kind.label and self._drag_canvas_id is not None:
-            coords = app.canvas.coords(self._drag_canvas_id)
-            if coords:
-                self._press_ref = Point(x=round(coords[0]), y=round(coords[1]))
 
     def on_motion(self, app: App, evt: tk.Event):
         if not self._start_pos or not self._drag_kind:
@@ -408,6 +459,21 @@ class Select_Tool:
             app.canvas.move(self._drag_canvas_id, dx, dy)
         elif self._drag_kind == Hit_Kind.icon and self._drag_index is not None:
             app.canvas.move(f"{Hit_Kind.icon.value}:{self._drag_index}", dx, dy)
+        elif (
+            self._drag_kind == Hit_Kind.line
+            and self._drag_line_endpoint
+            and self._drag_line_item is not None
+            and self._drag_index is not None
+        ):
+            # live update line coords while dragging a handle
+            target = self._maybe_snap_point(
+                app, Point(x=evt.x, y=evt.y), kind=Hit_Kind.line, index=self._drag_index, evt=evt
+            )
+            lin = app.params.lines[self._drag_index]
+            a = target if self._drag_line_endpoint == "a" else lin.a
+            b = target if self._drag_line_endpoint == "b" else lin.b
+            app.canvas.coords(self._drag_line_item, a.x, a.y, b.x, b.y)
+            app.draw_selection_overlay()  # keep handle visuals in sync
         self._start_pos = Point(x=evt.x, y=evt.y)
 
     def on_release(self, app: App, evt: tk.Event):
@@ -501,6 +567,27 @@ class Select_Tool:
             else:
                 app.layers_redraw(Layer_Name.icons)
 
+        elif self._drag_kind == Hit_Kind.line and self._drag_line_endpoint and self._drag_index is not None:
+            end_pt = self._maybe_snap_point(
+                app, Point(x=evt.x, y=evt.y), kind=Hit_Kind.line, index=self._drag_index, evt=evt
+            )
+            old_pt = self._press_ref or getattr(app.params.lines[self._drag_index], self._drag_line_endpoint)
+            if self._moved_enough(old_pt, end_pt):
+                app.cmd.push_and_do(
+                    Move_Line_End(
+                        app.params,
+                        self._drag_index,
+                        self._drag_line_endpoint,
+                        old_pt,
+                        end_pt,
+                        on_after=lambda: app.layers_redraw(Layer_Name.lines),
+                    )
+                )
+                app.mark_dirty()
+            else:
+                app.layers.redraw(Layer_Name.lines)
+            app.draw_selection_overlay()
+
         self._reset()
 
     def on_cancel(self, app: App):
@@ -514,6 +601,8 @@ class Select_Tool:
         self._start_pos = None
         self._press_ref = None
         self._dragged = False
+        self._drag_line_endpoint = None
+        self._drag_line_item = None
 
     # ---- helpers ----
 
@@ -557,7 +646,7 @@ class Select_Tool:
     def _label_index_from_canvas(app: App, cid: int) -> int:
         # rebuild a fresh map (labels aren't huge)
         # draw order matches params.labels order in painters, but ids differ per redraw
-        # so we re-hit labels by position/text match:
+        # so re-hit labels by position/text match:
         tags = app.canvas.gettags(cid)
         for tag in tags:
             if tag.startswith(f"{Hit_Kind.label.value}:"):
@@ -619,9 +708,8 @@ class Select_Tool:
         else:
             state = evt.state
 
-        ctrl = (state & CONTROL_MASK) != 0  # ControlMask bit on X11/Windows; tweak on mac if needed
+        ctrl = (state & CONTROL_MASK) != 0  # TODO ControlMask bit on X11/Windows; tweak for mac needed
         want = base ^ ctrl
-        # Per-object preference (only matters if want==True)
         if not want:
             return False
         if kind == Hit_Kind.label:

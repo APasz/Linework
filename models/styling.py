@@ -264,6 +264,7 @@ Colour_Name = Literal[
     "gray",
     "light_gray",
     "dark_gray",
+    "sky",
 ]
 
 
@@ -297,6 +298,7 @@ class Colours:
     class sys:
         light_gray: ClassVar[Colour] = Colour(red=200, green=200, blue=200)
         dark_gray: ClassVar[Colour] = Colour(red=60, green=60, blue=60)
+        sky: ClassVar[Colour] = Colour(red=30, green=200, blue=255)
 
     # ---------- internals ----------
     @classmethod

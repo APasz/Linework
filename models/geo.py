@@ -62,9 +62,9 @@ class Label(Model):
     p: Point
     text: str
     col: Colour
-    anchor: Anchor = Anchor.NW
+    anchor: Anchor = Anchor.W
     size: int = 12
-    rotation: int = 0
+    rotation: int = 37
     snap: bool = True
 
     def with_point(self, p: Point) -> Self:

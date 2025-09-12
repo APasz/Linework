@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from models.geo import CanvasLW
+    from canvas.painters import Painters
 
 
 class Hit_Kind(StrEnum):
@@ -40,19 +41,42 @@ def _find_hit(canvas: "CanvasLW", cid: int, prefix: Hit_Kind) -> Hit | None:
     return Hit(prefix, cid, tag_idx)
 
 
+def _nearest_label_hit(canvas: "CanvasLW", items: tuple[int, ...], x: int, y: int) -> Hit | None:
+    best: tuple[float, Hit] | None = None
+    for item in items:
+        hit = _find_hit(canvas, item, Hit_Kind.label)
+        if not hit:
+            continue
+        # For text items, canvas.coords(id) returns the ANCHOR position (your Label.p)
+        coords = canvas.coords(item)
+        if not coords:
+            continue
+        lx, ly = float(coords[0]), float(coords[1])
+        d2 = (lx - x) * (lx - x) + (ly - y) * (ly - y)
+        if best is None or d2 < best[0]:
+            best = (d2, hit)
+    return best[1] if best else None
+
+
 def test_hit(canvas: "CanvasLW", x: int, y: int) -> Hit | None:
     items = canvas.find_overlapping(x, y, x, y)
     if not items:
         return None
-    for item in reversed(items):
-        if hit := _find_hit(canvas, item, Hit_Kind.label):
-            return hit
+
+    # 1) Prefer the overlapping LABEL whose *anchor* is closest to the cursor.
+    if (hit := _nearest_label_hit(canvas, items, x, y)) is not None:
+        return hit
+
+    # 2) Icons: still prefer the visually-topmost overlapping icon.
     for item in reversed(items):
         if hit := _find_hit(canvas, item, Hit_Kind.icon):
             return hit
+
+    # 3) Lines last.
     for item in reversed(items):
         if hit := _find_hit(canvas, item, Hit_Kind.line):
             return hit
+
     return None
 
 
@@ -62,6 +86,7 @@ class Layer_Name(StrEnum):
     labels = "labels"
     icons = "icons"
     preview = "preview"
+    selection = "selection"
 
 
 LAYER_TAGS = {
@@ -70,6 +95,7 @@ LAYER_TAGS = {
     Layer_Name.labels: f"layer:{Layer_Name.labels.value}",
     Layer_Name.icons: f"layer:{Layer_Name.icons.value}",
     Layer_Name.preview: f"layer:{Layer_Name.preview.value}",
+    Layer_Name.selection: f"layer:{Layer_Name.selection.value}",
 }
 
 
@@ -84,10 +110,6 @@ def layer_tag(layer: Layer_Name) -> str:
 def tag_list(kind: Hit_Kind, idx: int, layer: Layer_Name) -> list[str]:
     # order matters for your selection code
     return [kind.value, layer_tag(layer), item_tag(kind, idx)]
-
-
-if TYPE_CHECKING:
-    from canvas.painters import Painters
 
 
 class Layer_Manager:
@@ -105,6 +127,7 @@ class Layer_Manager:
         self.canvas.tag_raise_l(Layer_Name.icons)
         self.canvas.tag_raise_l(Layer_Name.labels)
         self.canvas.tag_raise_l(Layer_Name.preview)
+        self.canvas.tag_raise_l(Layer_Name.selection)
 
     # --- clears ---
     def clear(self, layer: Layer_Name, force: bool = False):
