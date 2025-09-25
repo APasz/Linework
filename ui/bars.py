@@ -49,6 +49,7 @@ class Colour_Palette(ttk.Frame):
             sw.pack(side="left", padx=2)
 
             sw.bind("<Button-1>", lambda _e, name=col.name_str: self._select(name))
+            sw.bind("<Button-2>", lambda _e, name=col.name_str: self._set_bg(name))
             sw.bind("<Button-3>", lambda _e, name=col.name_str: self._set_bg(name))
             self._swatches.append((sw, col.name_str))
 

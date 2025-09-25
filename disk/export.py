@@ -9,7 +9,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-import cairosvg
 from PIL import Image, ImageDraw, ImageFont
 
 from models.assets import Formats, _builtin_icon_plan, _open_rgba
@@ -27,7 +26,13 @@ class RASTERISERS(StrEnum):
     resvg = "resvg"
 
 
-RASTER_BACKEND = RASTERISERS.cairosvg
+try:
+    import cairosvg
+
+    RASTER_BACKEND = RASTERISERS.cairosvg
+except Exception:
+    cairosvg = None
+    RASTER_BACKEND = RASTERISERS.pil
 
 
 def _col_and_opacity(col: Colour) -> tuple[str, str]:
@@ -686,7 +691,7 @@ def _draw_labels(img: Image.Image, params: Params):
 def _rasterize_via_svg(params: Params, fmt: Formats, svg_text: str) -> bytes | None:
     svg_bytes = svg_text.encode("utf-8")
 
-    if RASTER_BACKEND is RASTERISERS.cairosvg:
+    if RASTER_BACKEND is RASTERISERS.cairosvg and cairosvg is not None:
         if fmt == Formats.png:
             png = cairosvg.svg2png(bytestring=svg_bytes, output_width=params.width, output_height=params.height)
             return png if isinstance(png, bytes) else None
