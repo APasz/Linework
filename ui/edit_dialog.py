@@ -236,11 +236,9 @@ def _coerce_schema_item(item: Any) -> dict[str, Any]:
             d["choices"] = item.choices_dict() if callable(item.choices_dict) else dict(item.choices_dict)
         return d
 
-    # Legacy dict path
     if not isinstance(item, dict):
         raise TypeError(f"Schema entries must be dict or _FieldSpec, got {type(item)}")
     d = dict(item)
-    # normalize kind to stable string
     k = d.get("kind", "str")
     if isinstance(k, ED_Kind):
         d["kind"] = k.value
