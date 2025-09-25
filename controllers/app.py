@@ -412,7 +412,7 @@ class App:
         self.params.bg_mode = col
         display_bg = Colours.sys.dark_gray if col.alpha == 0 else col
         self.canvas.config(bg=display_bg.hex)
-        self.layers.redraw(Layer_Name.grid)
+        self.layers.redraw(Layer_Name.grid, force=True)
 
     def apply_colour(self, *_):
         raw = (self.var_colour.get().strip() if self.var_colour else "") or "black"

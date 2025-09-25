@@ -112,7 +112,7 @@ class Layer_Manager:
 
     def clear_all(self):
         for layer in Layer_Name:
-            self.clear(layer)
+            self.clear(layer, force=True)
         known = set(LAYER_TAGS.values())
         for iid in self.canvas.find_all():
             tags = set(self.canvas.gettags(iid))
@@ -123,7 +123,7 @@ class Layer_Manager:
         self.clear(Layer_Name.preview)
 
     # --- redraws ---
-    def redraw(self, layer: Layer_Name, force: bool = False):
+    def redraw(self, layer: Layer_Name, /, force: bool = False):
         if not layer:
             return
         self.clear(layer, force)
