@@ -531,7 +531,7 @@ class App:
     # ========= export / persistence =========
     @property
     def _autosave_path(self) -> Path:
-        return self.project_path / ".autosave"
+        return Path(f"{self.project_path.name}.autosave")
 
     def _maybe_autosave(self):
         if getattr(self, "autosave_every", 0) <= 0:
