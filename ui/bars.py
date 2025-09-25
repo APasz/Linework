@@ -87,7 +87,6 @@ class Toolbar_Handles:
     cb_dtd: ttk.Checkbutton
     cb_cardinal: ttk.Checkbutton
     cb_style: ttk.Combobox
-    # spin_offset: Composite_Spinbox
     palette: Palette_Handles
 
 
@@ -99,21 +98,43 @@ class Side(StrEnum):
 
 @dataclass(order=True)
 class _Overlay:
-    # sort by (-priority, seq) so higher priority appears first,
-    # and among equals, earlier seq wins
     sort_key: tuple[int, int] = field(init=False, repr=False)
     key: str
     text: str
     priority: int = 0
     side: Side = Side.left
-    seq: int = 0  # insertion order
+    seq: int = 0
 
     def __post_init__(self):
-        # negative priority to get descending in sorted()
         self.sort_key = (-self.priority, self.seq)
 
 
+class Status_Handles(ttk.Frame):
+    def __init__(self, master, status: "Bars.Status"):
+        super().__init__(master)
+        self.frame = self
+
+        # three lanes: left | centre | right
+        self.lbl_left = ttk.Label(self, textvariable=status.var_left, anchor="w")
+        self.lbl_centre = ttk.Label(self, textvariable=status.var_centre, anchor="center")
+        self.lbl_right = ttk.Label(self, textvariable=status.var_right, anchor="e")
+
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=1)
+        self.columnconfigure(2, weight=1)
+
+        self.lbl_left.grid(row=0, column=0, sticky="ew", padx=6)
+        self.lbl_centre.grid(row=0, column=1, sticky="ew", padx=6)
+        self.lbl_right.grid(row=0, column=2, sticky="ew", padx=6)
+
+
 class Bars:
+    @classmethod
+    def create_status(cls, master, status: "Bars.Status") -> Status_Handles:
+        strip = Status_Handles(master, status)
+        strip.pack(fill="x", side="bottom")
+        return strip
+
     @staticmethod
     def _add_labeled(master: ttk.Frame, make_widget, text: str = "", right_label: bool = False):
         f = ttk.Frame(master)
@@ -143,8 +164,7 @@ class Bars:
     def create_header(
         cls,
         master,
-        mode_var: tk.StringVar,  # "draw" | "label" | "icon" | "select"
-        icon_var: tk.StringVar,
+        mode_var: tk.StringVar,
         on_toggle_grid,
         on_undo,
         on_redo,
@@ -154,6 +174,7 @@ class Bars:
         on_new,
         on_open,
         on_save_as,
+        icon_label_var: tk.StringVar | None = None,
     ):
         """Builds the header strip and returns handles."""
         frame = ttk.Frame(master)
@@ -176,14 +197,8 @@ class Bars:
         cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Label", value=Tool_Name.label, variable=mode_var))
         cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Icon", value=Tool_Name.icon, variable=mode_var))
 
-        # Icon picker
-        # cls._add_labeled(
-        #    frame,
-        #    lambda p: ttk.Combobox(
-        #        p, textvariable=icon_var, values=[name.value for name in Icon_Name], state="readonly", width=10
-        #    ),
-        #    # "Icon:",
-        # )
+        if icon_label_var is not None:
+            cls._add_labeled(frame, lambda p: ttk.Label(p, textvariable=icon_label_var), "")
 
         return Header_Handles(frame=frame)
 
@@ -199,7 +214,6 @@ class Bars:
         drag_to_draw_var: tk.BooleanVar,
         cardinal_var: tk.BooleanVar,
         style_var: tk.StringVar,
-        offset_var: tk.IntVar,
         on_grid_change,
         on_brush_change,
         on_canvas_size_change,
@@ -275,14 +289,6 @@ class Bars:
             "Style:",
         )
         cb_style.bind("<<ComboboxSelected>>", lambda _e: on_style_change())
-        # spin_off = cls._add_labeled(
-        #    frame,
-        #    lambda p: Composite_Spinbox(
-        #        p, from_=0, to=999, increment=1, width=3, textvariable=offset_var, command=on_style_change
-        #    ),
-        #    "Offset:",
-        # )
-
         pal = cls.create_palette(
             frame,
             colours=Colours.list(min_alpha=25),
@@ -291,9 +297,10 @@ class Bars:
             selected_name=selected_colour_name,
         )
 
-        # Enter key triggers
-        for sb in (sbox_grid, sbox_brush, sbox_w, sbox_h):
-            sb.bind("<Return>", lambda _e: (on_grid_change(), on_brush_change(), on_canvas_size_change()))
+        sbox_grid.bind("<Return>", lambda _e: on_grid_change())
+        sbox_brush.bind("<Return>", lambda _e: on_brush_change())
+        sbox_w.bind("<Return>", lambda _e: on_canvas_size_change())
+        sbox_h.bind("<Return>", lambda _e: on_canvas_size_change())
 
         return Toolbar_Handles(
             frame=frame,
@@ -305,26 +312,14 @@ class Bars:
             cb_dtd=cbut_dtd,
             cb_cardinal=cbut_cardinal,
             cb_style=cb_style,
-            # spin_offset=spin_off,
             palette=pal,
         )
 
     class Status:
-        """
-        Weighted, ordered status:
-            - set(text) -> base left text
-            - hold(key, text, priority=0, side='left')
-            - release(key)
-            - temp(text, ms=1200, priority=50, side='left')
-            - set_suffix(text) -> sugar for hold('suffix', text, side='right', priority=-10)
-        Render rule:
-            For each side (left/right), show the highest-priority overlay if any,
-            else the base (left) + optional right overlay.
-            If both sides have overlays, left | right are joined with an em dash.
-        """
-
         def __init__(self, root: tk.Misc):
-            self.var = tk.StringVar(value="")
+            self.var_left = tk.StringVar(value="")
+            self.var_centre = tk.StringVar(value="")
+            self.var_right = tk.StringVar(value="")
             self._root = root
 
             self._base_left: str = ""
@@ -334,23 +329,22 @@ class Bars:
             self._temp_key: str | None = None
             self._temp_after: str | None = None
 
-            # default “suffix” slot (right channel)
-            self._suffix_key = "__suffix__"
+            self._centre_key = "__centre__"
 
         # ---- base ----
         def set(self, text: str):
             self._base_left = text
             self._render()
 
-        # ---- suffix sugar ----
-        def set_suffix(self, text: str):
+        # ---- centre sugar ----
+        def set_centre(self, text: str):
             if text:
-                self.hold(self._suffix_key, text, priority=-10, side=Side.right)
+                self.hold(self._centre_key, text, priority=-10, side=Side.centre)
             else:
-                self.release(self._suffix_key)
+                self.release(self._centre_key)
 
-        def clear_suffix(self):
-            self.release(self._suffix_key)
+        def clear_centre(self):
+            self.release(self._centre_key)
 
         # ---- held overlays (persistent until release) ----
         def hold(self, key: str, text: str, *, priority: int = 0, side: Side = Side.left):
@@ -366,7 +360,7 @@ class Bars:
                 self._render()
 
         # ---- temporary overlays (auto-clear) ----
-        def temp(self, text: str, ms: int = 1200, *, priority: int = 50, side: Side = Side.centre):
+        def temp(self, text: str, ms: int = 7500, *, priority: int = 50, side: Side = Side.centre):
             # cancel previous timer
             if self._temp_after:
                 try:
@@ -401,11 +395,9 @@ class Bars:
 
         # ---- render ----
         def _render(self):
-            left = self._pick_side(Side.left) or self._base_left
-            centre = self._pick_side(Side.centre) or ""
-            right = self._pick_side(Side.right) or ""
-
-            self.var.set(" | ".join([s for s in (left, centre, right) if s]))
+            self.var_left.set(self._pick_side(Side.left) or self._base_left)
+            self.var_centre.set(self._pick_side(Side.centre) or "")
+            self.var_right.set(self._pick_side(Side.right) or "")
 
         def _pick_side(self, side: Side) -> str:
             # choose the highest-priority overlay on this side

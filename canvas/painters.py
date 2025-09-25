@@ -21,8 +21,6 @@ class Scene:
 
 
 class Painters:
-    """Stateless-ish painters that read from a scene (wrapping Params)"""
-
     def __init__(self, scene: Scene):
         self.s = scene
 
@@ -39,7 +37,7 @@ class Painters:
         for x in range(0, w + 1, g):
             canvas.create_with_line(
                 line.with_xy(x, 0, x, h),
-                override_base_tags=[Layer_Name.grid],  # ensure proper layer
+                override_base_tags=[Layer_Name.grid],
             )
         for y in range(0, h + 1, g):
             canvas.create_with_line(

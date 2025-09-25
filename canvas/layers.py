@@ -6,8 +6,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from models.geo import CanvasLW
     from canvas.painters import Painters
+    from models.geo import CanvasLW
 
 
 class Hit_Kind(StrEnum):
@@ -20,63 +20,28 @@ class Hit_Kind(StrEnum):
 @dataclass
 class Hit:
     kind: Hit_Kind
-    canvas_idx: int
-    tag_idx: int
-
-
-def _find_hit(canvas: "CanvasLW", cid: int, prefix: Hit_Kind) -> Hit | None:
-    """Find a {prefix}:{index} tag on this item and return a Hit with that index.
-    IMPORTANT: index 0 is valid, so check `is not None` not truthiness."""
     tag_idx: int | None = None
-    want = prefix.value + ":"
-    for t in canvas.gettags(cid):
-        if t.startswith(want):
-            try:
-                tag_idx = int(t.split(":", 1)[1])
-                break
-            except ValueError:
-                continue
-    if tag_idx is None:
-        return None
-    return Hit(prefix, cid, tag_idx)
+    endpoint: str | None = None  # "a" | "b" for line handles
 
 
-def _nearest_label_hit(canvas: "CanvasLW", items: tuple[int, ...], x: int, y: int) -> Hit | None:
-    best: tuple[float, Hit] | None = None
-    for item in items:
-        hit = _find_hit(canvas, item, Hit_Kind.label)
-        if not hit:
-            continue
-        # For text items, canvas.coords(id) returns the ANCHOR position (your Label.p)
-        coords = canvas.coords(item)
-        if not coords:
-            continue
-        lx, ly = float(coords[0]), float(coords[1])
-        d2 = (lx - x) * (lx - x) + (ly - y) * (ly - y)
-        if best is None or d2 < best[0]:
-            best = (d2, hit)
-    return best[1] if best else None
+def test_hit(canvas, x: int, y: int) -> Hit | None:
+    ids = canvas.find_overlapping(x - 3, y - 3, x + 3, y + 3)
+    for iid in reversed(ids):
+        tags = canvas.gettags(iid)
+        for t in tags:
+            if t.startswith("handle:"):
+                _, which, idx = t.split(":")
+                return Hit(kind=Hit_Kind.line, tag_idx=int(idx), endpoint=which)
 
-
-def test_hit(canvas: "CanvasLW", x: int, y: int) -> Hit | None:
-    items = canvas.find_overlapping(x, y, x, y)
-    if not items:
-        return None
-
-    # 1) Prefer the overlapping LABEL whose *anchor* is closest to the cursor.
-    if (hit := _nearest_label_hit(canvas, items, x, y)) is not None:
-        return hit
-
-    # 2) Icons: still prefer the visually-topmost overlapping icon.
-    for item in reversed(items):
-        if hit := _find_hit(canvas, item, Hit_Kind.icon):
-            return hit
-
-    # 3) Lines last.
-    for item in reversed(items):
-        if hit := _find_hit(canvas, item, Hit_Kind.line):
-            return hit
-
+    for iid in reversed(ids):
+        tags = canvas.gettags(iid)
+        for t in tags:
+            if ":" in t:
+                k, sidx = t.split(":", 1)
+                try:
+                    return Hit(kind=Hit_Kind(k), tag_idx=int(sidx))
+                except Exception:
+                    continue
     return None
 
 
@@ -108,18 +73,16 @@ def layer_tag(layer: Layer_Name) -> str:
 
 
 def tag_list(kind: Hit_Kind, idx: int, layer: Layer_Name) -> list[str]:
-    # order matters for your selection code
     return [kind.value, layer_tag(layer), item_tag(kind, idx)]
 
 
 class Layer_Manager:
-    """Thin wrapper around canvas tags for per-layer operations."""
-
     _PROTECTED: set[Layer_Name] = {Layer_Name.grid}
 
     def __init__(self, canvas: CanvasLW, painters: Painters):
         self.canvas = canvas
         self.painters = painters
+        self.canvas.tag_raise_l(Layer_Name.selection)
 
     def _enforce_z(self):
         self.canvas.tag_lower_l(Layer_Name.grid)
@@ -142,7 +105,6 @@ class Layer_Manager:
             self.clear(layer)
 
     def clear_all(self):
-        # nukes all known layers; don’t use canvas.delete("all") so you can keep temp overlays if you want
         for layer in Layer_Name:
             self.clear(layer)
         known = set(LAYER_TAGS.values())

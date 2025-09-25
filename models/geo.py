@@ -1,13 +1,12 @@
 import math
 import tkinter as tk
 from collections.abc import Collection
-from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, overload
 
 from PIL import Image, ImageTk
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from canvas.layers import Hit_Kind, Layer_Name, layer_tag, tag_list
 from models.assets import Builtins, Formats, Icon_Name, Primitives, Style, _open_rgba, probe_wh
@@ -79,11 +78,20 @@ class Icon_Type(StrEnum):
     picture = "picture"
 
 
-@dataclass(frozen=True, slots=True)
-class Icon_Source:
+class Icon_Source(Model):
     kind: Icon_Type
     name: Icon_Name | None = None
     src: Path | None = None
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.kind is Icon_Type.builtin:
+            if self.name is None or self.src is not None:
+                raise ValueError("builtin Icon_Source requires name and forbids src")
+        else:
+            if self.src is None or self.name is not None:
+                raise ValueError("picture Icon_Source requires src and forbids name")
+        return self
 
     def __post_init__(self):
         if self.kind is Icon_Type.builtin:
@@ -103,14 +111,18 @@ class Icon_Source:
 
     @classmethod
     def coerce(cls, x: "Icon_Source | Iconlike | Path | str | Icon_Name") -> "Icon_Source":
-        # Handy when refactoring call sites incrementally
         if isinstance(x, Icon_Source):
             return x
-        if isinstance(x, Icon_Name) or isinstance(x, str) and x in Icon_Name.__members__:
-            return cls.builtin(x)  # type: ignore[arg-type]
-        if isinstance(x, (str, Path)):
+        if isinstance(x, Icon_Name):
+            return cls.builtin(x)
+        if isinstance(x, str):
+            # try value→enum first, else assume file path
+            try:
+                return cls.builtin(Icon_Name(x))
+            except Exception:
+                return cls.picture(x)
+        if isinstance(x, Path):
             return cls.picture(x)
-        # If someone passes a full Iconlike (Builtin_Icon/Picture_Icon), strip it to a source:
         if isinstance(x, Builtin_Icon):
             return cls.builtin(x.name)
         if isinstance(x, Picture_Icon):
@@ -151,7 +163,6 @@ class Picture_Icon(Base_Icon):
     size: int = 192
     format: Formats | None = None
     preserve_aspect: bool = True
-    # Scale rule: scale natural dimensions so that max(w,h) == size
 
     def bbox_wh(self) -> tuple[int, int]:
         # tiny helper (see below)
@@ -273,6 +284,26 @@ class CanvasLW(tk.Canvas):
         )
         return ItemID(iid)
 
+    @overload
+    def create_with_iconlike(
+        self,
+        icon: Builtin_Icon,
+        *,
+        idx: int | None = None,
+        extra_tags: Collection[str] = (),
+        override_base_tags: Collection[Layer_Name] | None = None,
+    ) -> None: ...
+
+    @overload
+    def create_with_iconlike(
+        self,
+        icon: Picture_Icon,
+        *,
+        idx: int | None = None,
+        extra_tags: Collection[str] = (),
+        override_base_tags: Collection[Layer_Name] | None = None,
+    ) -> None: ...
+
     def create_with_iconlike(
         self,
         icon: Iconlike,
@@ -311,9 +342,8 @@ class CanvasLW(tk.Canvas):
 
         idef = Builtins.icon_def(icon.name)
         minx, miny, vbw, vbh = idef.viewbox
-        s = size / max(vbw, vbh)  # uniform scale
+        s = size / max(vbw, vbh)
 
-        # centre in world coords from anchor using the post-scale bbox (size x size)
         bw, bh = icon.bbox_wh()
         cx, cy = icon.anchor._centre(icon.p.x, icon.p.y, bw, bh)
 
@@ -321,14 +351,12 @@ class CanvasLW(tk.Canvas):
         cs, sn = math.cos(ang), math.sin(ang)
 
         def M(px: float, py: float) -> tuple[float, float]:
-            # model → centre viewbox → scale → rotate about origin → translate to (cx, cy)
             x0 = (px - (minx + vbw / 2.0)) * s
             y0 = (py - (miny + vbh / 2.0)) * s
             xr = x0 * cs - y0 * sn
             yr = x0 * sn + y0 * cs
             return (cx + xr, cy + yr)
 
-        # options builders — keep capstyle for lines only
         def _opts_line(sty: Style) -> dict:
             if not sty.stroke:
                 return {}
@@ -345,12 +373,10 @@ class CanvasLW(tk.Canvas):
                 return {}
             w = max(1.0, sty.stroke_width * s)
             join = {JoinStyle.ROUND: "round", JoinStyle.BEVEL: "bevel", JoinStyle.MITER: "miter"}[sty.line_join]
-            # No capstyle on polygons/ovals; Tk throws if you pass it. Dash is flaky here — skip it.
             return dict(width=w, joinstyle=join)
 
         for prim in idef.prims:
             if isinstance(prim, Primitives.Circle):
-                # rotate+translate the centre, then draw an axis-aligned oval with scaled radius
                 cxp, cyp = M(prim.cx, prim.cy)
                 rr = prim.r * s
                 fill = col if prim.style.fill else ""
@@ -361,7 +387,6 @@ class CanvasLW(tk.Canvas):
                 )
 
             elif isinstance(prim, Primitives.Rect):
-                # draw as polygon so rotation is respected
                 x0, y0 = M(prim.x, prim.y)
                 x1, y1 = M(prim.x + prim.w, prim.y)
                 x2, y2 = M(prim.x + prim.w, prim.y + prim.h)
@@ -397,7 +422,7 @@ class CanvasLW(tk.Canvas):
                     super().create_line(*pts, fill=col if prim.style.stroke else "", tags=tag, **opts)
 
             elif isinstance(prim, Primitives.Path):
-                # Not supported on Tk canvas; pre-approximate to Polyline if you need curves.
+                # Not supported on Tk canvas; pre-approximate to Polyline if need curves
                 continue
 
         return None
@@ -410,14 +435,11 @@ class CanvasLW(tk.Canvas):
         extra_tags: Collection[str] = (),
         override_base_tags: Collection[Layer_Name] | None = None,
     ) -> ItemID:
-        # tags identical to built-ins so selection/move tools keep working
         tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
 
-        # centre from anchor using the final bbox (after scaling)
         bw, bh = pic.bbox_wh()
         cx, cy = pic.anchor._centre(pic.p.x, pic.p.y, bw, bh)
 
-        # caches so images don't get GC'd and we don't repeatedly rasterize
         cache = getattr(self, "_picture_cache", None)
         if cache is None:
             cache = self._picture_cache = {}
@@ -429,19 +451,25 @@ class CanvasLW(tk.Canvas):
 
         ph = cache.get(key)
         if ph is None:
-            # load → scale → rotate → PhotoImage
             im = _open_rgba(pic.src, bw, bh)
             rot = pic.rotation % 360
             if rot:
-                # rotate around centre; expand bounds then place by centre on canvas
                 im = im.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
             ph = ImageTk.PhotoImage(im)
             cache[key] = ph
 
-        # draw single image item, centred at (cx, cy)
         iid = super().create_image(cx, cy, image=ph, tags=tag)
-        item_map[iid] = ph  # keep a strong ref tied to the item
+        item_map[iid] = ph
         return ItemID(iid)
+
+    def delete(self, *items):
+        ids = set()
+        for it in items or ():
+            ids.update(self.find_withtag(it) if isinstance(it, str) else (it,))
+        super().delete(*items)
+        item_map = getattr(self, "_item_images", {})
+        for iid in ids:
+            item_map.pop(iid, None)
 
     # ---------- updates ----------
     def coords_p(self, item: ItemID, *points: Point) -> None:

@@ -46,7 +46,7 @@ class Command_Stack:
 class Add_Line:
     params: Params
     line: Line
-    on_after: Callable[[], None]  # e.g., lambda: app.layers.redraw(Layer_Name.lines)
+    on_after: Callable[[], None]
 
     def do(self):
         if (self.line.a.x, self.line.a.y) == (self.line.b.x, self.line.b.y):
@@ -55,11 +55,9 @@ class Add_Line:
         self.on_after()
 
     def undo(self):
-        # pop last occurrence of this exact object (cheap path)
         if self.params.lines and self.params.lines[-1] is self.line:
             self.params.lines.pop()
         else:
-            # fall back: remove by value once
             for idx in range(len(self.params.lines) - 1, -1, -1):
                 if self.params.lines[idx] == self.line:
                     del self.params.lines[idx]

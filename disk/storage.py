@@ -11,7 +11,6 @@ def dict_to_params(dic: dict[str, Any]) -> Params:
     v = int(dic.get("version", 0))
     if v != SCHEMA_VERSION:
         dic = _migrate(dic, v)
-    # Validate/populate via model
     return Params.model_validate(dic)
 
 
@@ -28,6 +27,5 @@ class IO:
 
 def _migrate(data: dict[str, Any], from_version: int) -> dict[str, Any]:
     dic = dict(data)
-    # future: if from_version < 1: ...
     dic["version"] = SCHEMA_VERSION
     return dic

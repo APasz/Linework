@@ -1,10 +1,10 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
 
 import tkinter as tk
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
 
 from models.assets import Icon_Name
 from models.geo import Builtin_Icon, Label, Line, Picture_Icon, Point
@@ -33,7 +33,6 @@ class FieldSpec:
     kind: EKind
     min: int | float | None = None
     max: int | float | None = None
-    # One of these is used depending on kind:
     choices: Callable[[], list[str]] | None = None
     choices_dict: Callable[[], dict[str, Any]] | None = None
 
@@ -42,9 +41,7 @@ class FieldSpec:
 class EditPlan(Generic[M]):
     title: str
     fields: list[FieldSpec]
-    # Build initial dialog values from the object
     init: Callable[[M], dict[str, Any]]
-    # Apply dialog result back to object (mutate in place)
     apply: Callable[[M, dict[str, Any]], None]
 
 
@@ -55,10 +52,9 @@ class Editors:
             Label: self._plan_label,
             Line: self._plan_line,
             Builtin_Icon: self._plan_builtin_icon,
-            Picture_Icon: self._plan_picture_icon,  # can reuse common pieces
+            Picture_Icon: self._plan_picture_icon,
         }
 
-    # ---------- choice providers (typed, not raw dicts in call sites) ----------
     def _colour_choices(self) -> list[str]:
         return Colours.names(min_alpha=25)
 
@@ -192,7 +188,7 @@ class Editors:
 
         return EditPlan(title="Edit Line", fields=fields, init=init, apply=apply)
 
-    # --- Built-in Icon (expose colour) ---
+    # --- Built-in Icon ---
     def _plan_builtin_icon(self, ico: Builtin_Icon) -> EditPlan[Builtin_Icon]:
         fields_common = self._icon_common_fields()
         fields = [
@@ -233,7 +229,7 @@ class Editors:
         fields_common = self._icon_common_fields()
         fields = [
             FieldSpec("src", "Picture", EKind.CHOICE_DICT, choices_dict=self._picture_choices),
-            *fields_common,  # no colour field on purpose (no tinting yet)
+            *fields_common,
         ]
 
         def init(pic: Picture_Icon) -> dict[str, Any]:
@@ -252,7 +248,6 @@ class Editors:
             p = Point(x=int(data["x"]), y=int(data["y"]))
             if data.get("snap_to_grid"):
                 p = self.app.snap(p)
-            # choice_dict returns the *value* coerced to str in your dialog; accept both cases:
             cand = data["src"]
             pic.src = Path(cand) if Path(cand).exists() else self._picture_choices().get(cand, pic.src)
             pic.p = p

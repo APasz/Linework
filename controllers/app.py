@@ -4,19 +4,32 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-import sv_ttk
+try:
+    import sv_ttk
+except Exception:
+    sv_ttk = None
 
-from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, layer_tag
+from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, test_hit
 from canvas.painters import Painters, Scene
-from controllers.commands import Command_Stack, Delete_Line, Delete_Label, Delete_Icon
+from canvas.selection import SelectionOverlay
+from controllers.commands import (
+    Command_Stack,
+    Delete_Icon,
+    Delete_Label,
+    Delete_Line,
+)
 from controllers.editors import Editors
-from controllers.tools import Draw_Tool, Icon_Tool, Label_Tool, Select_Tool
+from controllers.tools.draw import Draw_Tool
+from controllers.tools.icon import Icon_Tool
+from controllers.tools.label import Label_Tool
+from controllers.tools.select import Select_Tool
+from controllers.tools_base import Tool, ToolManager
 from disk.export import Exporter
 from disk.storage import IO
 from models.assets import Formats, Icon_Name, get_asset_library
-from models.geo import CanvasLW, Point
+from models.geo import CanvasLW, Icon_Source, Point
 from models.params import Params
-from models.styling import Colour, Colours, LineStyle
+from models.styling import Colours, LineStyle
 from ui.bars import Bars, Side, Tool_Name
 
 
@@ -25,66 +38,37 @@ class App:
         self.root = root
         self.root.title("Linework")
 
+        # ---------- project / params ----------
         self.project_path: Path = project_path or Path("untitled.linework")
-        if self.project_path.exists():
-            self.params = IO.load_params(self.project_path)
-
-        else:
-            self.params = Params()
-
+        self.params: Params = IO.load_params(self.project_path) if self.project_path.exists() else Params()
         self.asset_lib = get_asset_library(self.project_path)
+        self.dirty = False
 
-        self.dirty: bool = False
-        self._update_title()
-
-        self.editors = Editors(self)
-
-        # ---- theme ----
-        try:
+        # ---------- theme ----------
+        if sv_ttk:
             sv_ttk.set_theme("dark")
-        except Exception:
-            style = ttk.Style()
-            print(f"Currently installed themes: {', '.join(style.theme_names())} | Defaulting to Alt")
-            style.theme_use("Alt")
+        else:
+            ttk.Style().theme_use("alt")
 
-        self.SEL_COLOUR: Colour = Colours.sys.sky
-        self.HANDLE_R: int = 5
-        self.MARQUEE_DASH: tuple[int, int] = (2, 12)
-        self.MARQUEE_STEP: float = 1
-        self.MARQUEE_INTERVAL_MS: int = 40
-        self._sel_anim_after_id: str | None = None
-        self._sel_anim_alive: bool = False
-
-        # ---- UI state vars ----
-        self.var_drag_to_draw = tk.BooleanVar(value=True)
-        self.var_cardinal = tk.BooleanVar(value=True)
+        # ---------- UI state ----------
+        self.mode = tk.StringVar(value=Tool_Name.draw)
         self.var_grid = tk.IntVar(value=self.params.grid_size)
         self.var_width_px = tk.IntVar(value=self.params.width)
         self.var_height_px = tk.IntVar(value=self.params.height)
         self.var_brush_w = tk.IntVar(value=self.params.brush_width)
         self.var_bg = tk.StringVar(value=self.params.bg_mode.name)
         self.var_colour = tk.StringVar(value=self.params.brush_colour.name)
-        self.var_colour.trace_add("write", self.apply_colour)
-        self.var_line_style = tk.StringVar(value=self.params.line_style)
-        self.var_dash_offset = tk.IntVar(value=self.params.line_dash_offset)
-        self.selection_kind: Hit_Kind = Hit_Kind.miss  # "line" | "label" | "icon" | ""
-        self.selection_index: int | None = None
-
-        self.mode = tk.StringVar(value="draw")
+        self.var_line_style = tk.StringVar(value=self.params.line_style.value)
+        self.var_drag_to_draw = tk.BooleanVar(value=True)
+        self.var_cardinal = tk.BooleanVar(value=True)
         self.var_icon = tk.StringVar(value=Icon_Name.SIGNAL.value)
+        self.var_icon_label = tk.StringVar(value=self.var_icon.get())
+        self.current_icon = Icon_Source.builtin(Icon_Name.SIGNAL)
 
-        self.var_drag_to_draw.trace_add(
-            "write", lambda *_: self.status.temp("Mode: drag to draw" if self.drag_to_draw() else "Mode: click-click")
-        )
-        self.var_cardinal.trace_add(
-            "write", lambda *_: self.status.temp("Mode: Cardinal" if self.cardinal() else "Mode: No Cardinal")
-        )
-
-        # ---- header & toolbar ----
+        # ---------- header / toolbar ----------
         self.hbar = Bars.create_header(
             self.root,
             mode_var=self.mode,
-            icon_var=self.var_icon,
             on_toggle_grid=self.toggle_grid,
             on_undo=self.on_undo,
             on_redo=self.on_redo,
@@ -94,6 +78,7 @@ class App:
             on_save=self.save_project,
             on_save_as=self.save_project_as,
             on_export=self.export_image,
+            icon_label_var=self.var_icon_label,
         )
         self.tbar = Bars.create_toolbar(
             self.root,
@@ -105,7 +90,6 @@ class App:
             drag_to_draw_var=self.var_drag_to_draw,
             cardinal_var=self.var_cardinal,
             style_var=self.var_line_style,
-            offset_var=self.var_dash_offset,
             on_style_change=self.on_style_change,
             on_grid_change=self.on_grid_change,
             on_brush_change=self.on_brush_change,
@@ -115,153 +99,167 @@ class App:
             selected_colour_name=self.var_colour.get(),
         )
 
-        # ---- canvas ----
+        # ---------- canvas ----------
         display_bg = Colours.sys.dark_gray.hex if self.params.bg_mode.alpha == 0 else self.params.bg_mode.hex
         self.canvas = CanvasLW(self.root, width=self.params.width, height=self.params.height, bg=display_bg)
         self.canvas.pack(fill="both", expand=False)
 
-        # ---- status bar ----
+        # ---------- editors ----------
+        self.editors = Editors(self)
+
+        # ---------- status ----------
         self.status = Bars.Status(self.root)
-        ttk.Label(self.root, textvariable=self.status.var, anchor="w").pack(fill="x")
+        self.status_bar = Bars.create_status(self.root, self.status)
+
         self.status.set("Ready")
 
-        self.apply_colour()
-
-        # keep palette highlight in sync when brush colour changes
-        self.var_colour.trace_add("write", lambda *_: self.tbar.palette.set_selected(self.var_colour.get()))
-        self.var_bg.trace_add("write", self.apply_bg)
-
-        # ---- scene/layers/painters ----
-
+        # ---------- scene / paint / layers ----------
         self.scene = Scene(self.params)
         self.painters = Painters(self.scene)
         self.layers = Layer_Manager(self.canvas, self.painters)
 
-        # ---- commands & tools ----
-        self.cmd = Command_Stack()
-        self.tools = {
-            Draw_Tool.name: Draw_Tool(),
-            Label_Tool.name: Label_Tool(),
-            Icon_Tool.name: Icon_Tool(),  # get_icon_name=lambda: self.var_icon.get()
-            Select_Tool.name: Select_Tool(),
+        # ---------- selection ----------
+        self.selection = SelectionOverlay(self)
+        self.selection_kind: Hit_Kind = Hit_Kind.miss
+        self.selection_index: int | None = None
+
+        # ---------- tools ----------
+        self.tools: dict[Tool_Name, Tool] = {
+            Tool_Name.select: Select_Tool(),
+            Tool_Name.draw: Draw_Tool(),
+            Tool_Name.icon: Icon_Tool(),
+            Tool_Name.label: Label_Tool(),
         }
-        self.current_tool = self.tools[Tool_Name(self.mode.get())]
-        self.canvas.config(cursor=self.current_tool.cursor.value if self.current_tool.cursor else "")
+        self.tool_mgr = ToolManager(self, self.tools)
 
-        tags = list(self.canvas.bindtags())
-        if "Canvas" in tags:
-            tags.remove("Canvas")
-            tags.insert(0, "Canvas")
-        self.canvas.bindtags(tuple(tags))
-
-        # bindings for tools
-        self.canvas.bind("<ButtonPress-1>", lambda e: (self.current_tool.on_press(self, e), "break")[-1])
-        self.canvas.bind("<B1-Motion>", lambda e: (self.current_tool.on_motion(self, e), "break")[-1])
-        self.canvas.bind("<ButtonRelease-1>", lambda e: (self.current_tool.on_release(self, e), "break")[-1])
+        # event routing (single source of truth)
+        self.canvas.bind("<ButtonPress-1>", lambda e: (self.tool_mgr.on_press(e), "break")[-1])
+        self.canvas.bind("<B1-Motion>", lambda e: (self.tool_mgr.on_motion(e), "break")[-1])
         self.canvas.bind(
-            "<Motion>", lambda e: (getattr(self.current_tool, "on_hover", lambda *_: None)(self, e), "break")[-1]
+            "<Motion>",
+            lambda e: (
+                self.tool_mgr.on_motion(e),
+                self.status.hold("pos", f"({e.x},{e.y})", priority=-100, side=Side.centre),
+                "break",
+            )[-1],
         )
-        self.root.bind("<Escape>", lambda _e: self.current_tool.on_cancel(self))
+        self.canvas.bind("<ButtonRelease-1>", lambda e: (self.tool_mgr.on_release(e), "break")[-1])
+        self.canvas.bind("<Double-Button-1>", lambda e: (self.on_double_click(e), "break")[-1])
+        self.root.bind("<Key>", lambda e: self.tool_mgr.on_key(e))
+        self.root.bind("<Escape>", lambda e: self.tool_mgr.cancel())
+        self.canvas.bind("<Leave>", lambda e: self.status.clear_centre())
 
-        # shortcuts
-        self.root.bind("<KeyPress-g>", self.on_toggle_grid)
-        self.root.bind("<KeyPress-G>", self.on_toggle_grid)
-        self.root.bind("<KeyPress-z>", self.on_undo)
-        self.root.bind("<KeyPress-Z>", self.on_undo)
-        self.root.bind("<KeyPress-y>", self.on_redo)
-        self.root.bind("<KeyPress-Y>", self.on_redo)
-        self.root.bind("<KeyPress-c>", self.on_clear)
-        self.root.bind("<KeyPress-C>", self.on_clear)
-        self.root.bind("<Control-n>", lambda e: self.new_project())
-        self.root.bind("<Control-o>", lambda e: self.open_project())
-        self.root.bind("<Control-s>", lambda e: self.save_project())
-        self.root.bind("<Control-S>", lambda e: self.save_project_as())
-        self.root.bind(
-            "<KeyPress-Shift_L>",
-            lambda e: self.status.hold(
-                "shift",
-                f"Cardinal {'OFF' if self.cardinal() else 'ON'}",
-                priority=100,
-                side=Side.right,
-            ),
-        )
-        self.root.bind("<KeyRelease-Shift_L>", lambda e: self.status.release("shift"))
-        self.root.bind(
-            "<KeyPress-Shift_R>",
-            lambda e: self.status.hold(
-                "shift",
-                f"Cardinal {'OFF' if self.cardinal() else 'ON'}",
-                priority=100,
-                side=Side.right,
-            ),
-        )
-        self.root.bind("<KeyRelease-Shift_R>", lambda e: self.status.release("shift"))
-        self.root.bind("<bracketleft>", lambda e: self._nudge(False))
-        self.root.bind("<bracketright>", lambda e: self._nudge(True))
-        self.canvas.bind("<Double-1>", lambda e: (self._edit_selected(), "break")[-1])
-        self.root.bind("<Return>", lambda e: self._edit_selected())
+        # global keys
         self.root.bind("<Delete>", self.on_delete)
-        self.root.bind("<BackSpace>", self.on_delete)
+        self.root.bind("<KeyPress-z>", self.on_undo)
+        self.root.bind("<KeyPress-y>", self.on_redo)
+        self.root.bind("<KeyPress>", self._on_any_key)
+        self.root.bind("<KeyRelease>", self._on_any_key)
+
+        # mode activation
+        self.mode.trace_add("write", self._on_mode_change)
+        self._on_mode_change()
+
+        # palette sync
+        self.var_colour.trace_add("write", self.apply_colour)
+        self.var_bg.trace_add("write", self.apply_bg)
+
+        # window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # watch mode changes
-        self.mode.trace_add("write", self._on_mode_change)
-
         # initial draw
-        self._apply_size_increments(self.params.grid_size, self.tbar)
+        self._apply_size_increments(self.params.grid_size)
         self.layers.redraw_all()
+        self._update_title()
+        self.apply_colour()
 
-    # --------- small app API used by tools ---------
+        self.var_icon.trace_add("write", self._sync_icon_from_combo)
+        self.var_drag_to_draw.trace_add("write", self._on_drag_to_draw_change)
+
+        self._status_hints_set()
+
+    # ========= small app API used by tools =========
     def prompt_text(self, title: str, prompt: str) -> str | None:
         import tkinter.simpledialog as sd
 
         return sd.askstring(title, prompt, parent=self.root)
 
-    def layers_redraw(self, *layers: Layer_Name):
-        if layers:
-            for name in layers:
-                self.layers.redraw(name)
+    def layers_redraw(self, *names: Layer_Name):
+        if names:
+            for n in names:
+                self.layers.redraw(n)
         else:
             self.layers.redraw_all()
 
-    def snap(self, point: Point) -> Point:
-        g = self.params.grid_size
+    def snap(self, p: Point, *, ignore_grid: bool = False) -> Point:
         W, H = self.params.width, self.params.height
-        X, Y = point.x, point.y
-        if g > 0:
-            sx, sy = round(X / g) * g, round(Y / g) * g
-            max_x, max_y = (W // g) * g, (H // g) * g
-            sx = 0 if sx < 0 else max_x if sx > max_x else sx
-            sy = 0 if sy < 0 else max_y if sy > max_y else sy
-            return Point(x=sx, y=sy)
-        # no grid: clamp to canvas
-        x = 0 if X < 0 else W if X > W else X
-        y = 0 if Y < 0 else H if Y > H else Y
-        return Point(x=x, y=y)
+        if ignore_grid or self.params.grid_size <= 0:
+            x = 0 if p.x < 0 else min(p.x, W)
+            y = 0 if p.y < 0 else min(p.y, H)
+            return Point(x=x, y=y)
+        g = self.params.grid_size
+        sx, sy = round(p.x / g) * g, round(p.y / g) * g
+        sx = 0 if sx < 0 else min(sx, (W // g) * g)
+        sy = 0 if sy < 0 else min(sy, (H // g) * g)
+        return Point(x=sx, y=sy)
 
-    # --------- UI callbacks ---------
+    # ========= selection =========
+    def _selected(self) -> tuple[Hit_Kind, int | None]:
+        return self.selection_kind, self.selection_index
+
+    def _set_selected(self, kind: Hit_Kind, idx: int | None):
+        self.selection_kind, self.selection_index = kind, idx
+        if kind and kind != Hit_Kind.miss and idx is not None:
+            self.selection.show(kind, idx)
+            if kind == Hit_Kind.line and idx is not None:
+                lin = self.params.lines[idx]
+                _, _, L = lin.unit()
+                self.status.hold(
+                    "sel",
+                    f"Line {idx}: {int(L)}px | width {lin.width} | {lin.style.value}",
+                    priority=10,
+                    side=Side.centre,
+                )
+            elif kind == Hit_Kind.label and idx is not None:
+                lab = self.params.labels[idx]
+                preview = (lab.text[:20] + "…") if len(lab.text) > 20 else lab.text
+                self.status.hold(
+                    "sel",
+                    f'Label {idx}: "{preview}"  |  size {lab.size} | rot {lab.rotation}°',
+                    priority=10,
+                    side=Side.centre,
+                )
+            elif kind == Hit_Kind.icon and idx is not None:
+                ico = self.params.icons[idx]
+                self.status.hold(
+                    "sel",
+                    f"Icon {idx}: size {ico.size} | rot {ico.rotation}°",
+                    priority=10,
+                    side=Side.centre,
+                )
+            else:
+                self.status.release("sel")
+        else:
+            self.selection.clear()
+
+    # ========= UI callbacks =========
     def on_delete(self, _evt=None):
-        # cancel any live preview/drag first
-        self.current_tool.on_cancel(self)
-
+        self.tool_mgr.cancel()
         kind, idx = self._selected()
-        if idx is None or not kind or str(kind) == "" or kind.value == "":
+        if idx is None or not kind or str(kind.value) == "":
             self.status.temp("Nothing selected to delete", 1500)
             return
 
         if kind == Hit_Kind.line:
             self.cmd.push_and_do(Delete_Line(self.params, idx, on_after=lambda: self.layers_redraw(Layer_Name.lines)))
-            self.status.temp("Deleted line", 1500)
-
         elif kind == Hit_Kind.label:
             self.cmd.push_and_do(Delete_Label(self.params, idx, on_after=lambda: self.layers_redraw(Layer_Name.labels)))
-            self.status.temp("Deleted label", 1500)
-
         elif kind == Hit_Kind.icon:
             self.cmd.push_and_do(Delete_Icon(self.params, idx, on_after=lambda: self.layers_redraw(Layer_Name.icons)))
-            self.status.temp("Deleted icon", 1500)
 
-        # clear selection and mark dirty
+        if kind.name:
+            self.status.temp(f"Deleted {kind.name}")
+
         self._set_selected(Hit_Kind.miss, None)
         self.mark_dirty()
 
@@ -270,28 +268,22 @@ class App:
             self.params.line_style = LineStyle(self.var_line_style.get())
         except Exception:
             self.params.line_style = LineStyle.SOLID
-        try:
-            self.params.line_dash_offset = max(0, int(self.var_dash_offset.get()))
-        except ValueError:
-            pass
-        # If you want existing lines to stay unchanged, don't redraw them here.
-        # But the preview needs the new style, so no-op is fine.
-        self.status.set(f"Line style: {self.params.line_style.value}")
+        self.status.temp(f"Line style: {self.params.line_style.value}")
 
     def _on_mode_change(self, *_):
-        self.current_tool = self.tools[Tool_Name(self.mode.get())]
-        self.canvas.config(cursor=self.current_tool.cursor.value if self.current_tool.cursor else "")
-        self.status.temp(self.mode.get().title())
-        self.status.clear_suffix()
+        name = Tool_Name(self.mode.get())
+        self.status.clear_centre()
+        self.tool_mgr.activate(name)
+        self.status.temp(f"Tool: {name.value}", 1500, priority=-50)
+        self._status_hints_set()
 
-    def on_toggle_grid(self, _evt=None):
-        self.toggle_grid()
+    def _on_any_key(self, evt):
+        self.tool_mgr.on_key(evt)
 
-    def toggle_grid(self):
+    def toggle_grid(self, *_):
         self.params.grid_visible = not self.params.grid_visible
         if self.params.grid_visible:
-            self.layers.redraw(Layer_Name.grid)
-            self.canvas.tag_lower_l(Layer_Name.grid)
+            self.layers.redraw(Layer_Name.grid, True)
         else:
             self.layers.clear(Layer_Name.grid, force=True)
         self.status.temp("Grid ON" if self.params.grid_visible else "Grid OFF")
@@ -303,9 +295,7 @@ class App:
         except ValueError:
             return
         self.params.grid_visible = self.params.grid_size > 0
-        # update size step to match grid
-        # (toolbar instance is passed at init to _apply_size_increments)
-        self._apply_size_increments(self.params.grid_size, self.tbar)
+        self._apply_size_increments(self.params.grid_size)
         self.layers.redraw(Layer_Name.grid, True)
 
     def on_brush_change(self, *_):
@@ -348,123 +338,100 @@ class App:
         self.params.brush_colour = col
         self.status.temp(f"Brush: {Colours.name_for(col) or col.hexa}")
 
+    def on_double_click(self, evt):
+        self.tool_mgr.cancel()
+
+        hit = test_hit(self.canvas, int(evt.x), int(evt.y))
+        if not hit or hit.tag_idx is None or hit.kind == Hit_Kind.miss:
+            return
+
+        if hit.kind == Hit_Kind.line:
+            obj = self.params.lines[hit.tag_idx]
+            layer = Layer_Name.lines
+        elif hit.kind == Hit_Kind.label:
+            obj = self.params.labels[hit.tag_idx]
+            layer = Layer_Name.labels
+        elif hit.kind == Hit_Kind.icon:
+            obj = self.params.icons[hit.tag_idx]
+            layer = Layer_Name.icons
+        else:
+            return
+
+        self._set_selected(hit.kind, hit.tag_idx)
+        if self.editors.edit(self.root, obj):
+            self.layers.redraw(layer, True)
+            self.selection.update_bbox()
+            self.mark_dirty()
+            self.status.temp("Updated", 1200)
+
+    # ========= undo/redo/clear =========
+    @property
+    def cmd(self) -> Command_Stack:
+        if not hasattr(self, "_cmd"):
+            self._cmd = Command_Stack()
+        return self._cmd
+
     def on_undo(self, _evt=None):
-        self.current_tool.on_cancel(self)
+        self.tool_mgr.cancel()
         self.cmd.undo()
         self.layers.redraw_all()
+        self.selection.update_bbox()
         self.mark_dirty()
         self.status.temp("Undo")
 
     def on_redo(self, _evt=None):
-        self.current_tool.on_cancel(self)
+        self.tool_mgr.cancel()
         self.cmd.redo()
         self.layers.redraw_all()
+        self.selection.update_bbox()
         self.mark_dirty()
         self.status.temp("Redo")
 
     def on_clear(self, _evt=None):
-        self.current_tool.on_cancel(self)
+        self.tool_mgr.cancel()
         self.params.lines.clear()
         self.params.labels.clear()
         self.params.icons.clear()
         self.layers.redraw_all()
+        self._set_selected(Hit_Kind.miss, None)
         self.mark_dirty()
         self.status.temp("Cleared")
 
-    # --- selection overlay (bbox, halo, handles) ---
+    def on_file_opened(self, path: Path):
+        self.status.set(f"Opened: {path.name}")
 
-    def clear_selection_overlay(self):
-        # wipe shapes and stop anim
-        self.layers.clear(Layer_Name.selection, force=True)
-        self._stop_marquee_anim()
+    def on_file_saved(self, path: Path):
+        self.status.set(f"Saved: {path.name}")
 
-    def draw_selection_overlay(self):
-        self.clear_selection_overlay()
-        kind, idx = self._selected()
-        if not kind or kind == Hit_Kind.miss or idx is None:
-            return
+    def on_ready(self):
+        self.status.set("Ready")
 
-        tag = f"{kind.value}:{idx}"
+    def on_hover_xy(self, x: int, y: int):
+        self.status.set_centre(f"({x}, {y})")
 
-        # 1) Draw a marching-ants marquee around the axis-aligned bbox
-        bbox = self.canvas.bbox(tag)
-        if bbox:
-            self._draw_marquee_bbox(*bbox)
+    def on_move_element(self, old_xy: tuple[int, int], new_xy: tuple[int, int]):
+        ox, oy = old_xy
+        nx, ny = new_xy
+        self.status.temp(f"({ox},{oy}) → ({nx},{ny})", ms=2000)
 
-        # 2) Extra visuals for lines (halo + endpoint handles)
-        if kind == Hit_Kind.line:
-            lin = self.params.lines[idx]
-            for end_name, p in (("a", lin.a), ("b", lin.b)):
-                self.canvas.create_oval(
-                    p.x - self.HANDLE_R,
-                    p.y - self.HANDLE_R,
-                    p.x + self.HANDLE_R,
-                    p.y + self.HANDLE_R,
-                    outline="white",
-                    fill=self.SEL_COLOUR.hex,
-                    tags=(layer_tag(Layer_Name.selection), "handle", f"handle:line:{idx}:{end_name}", tag),
-                )
+    def _status_hints_set(self):
+        # use a stable key so you update instead of stacking
+        self.status.hold("hints", self.tool_mgr.current.tool_hints, side=Side.right, priority=0)
 
-        self._start_marquee_anim()
+    def on_style_changed(self, style_name: str):
+        self.status.temp(f"Line style: {style_name}", ms=1500)  # centre info
 
-    def _draw_marquee_bbox(self, x1: int, y1: int, x2: int, y2: int) -> None:
-        self.canvas.create_rectangle(
-            x1,
-            y1,
-            x2,
-            y2,
-            outline=self.SEL_COLOUR.hex,
-            width=2,
-            dash=self.MARQUEE_DASH,
-            tags=(layer_tag(Layer_Name.selection), "marquee"),
-        )
+    def on_icon_selected(self, icon_name: str):
+        self.status.temp(f"Icon: {icon_name}", ms=1500)
 
-    def _start_marquee_anim(self) -> None:
-        if self._sel_anim_alive:
-            return
-        self._sel_anim_alive = True
-
-        def tick() -> None:
-            if not self._sel_anim_alive:
-                return
-
-            items = self.canvas.find_withtag("marquee")
-            if not items:
-                self._stop_marquee_anim()
-                return
-
-            for cid in items:
-                cur = self.canvas.itemcget(cid, "dashoffset")
-                try:
-                    cur_val = int(cur) if cur else 0
-                except ValueError:
-                    cur_val = 0
-                self.canvas.itemconfig(cid, dashoffset=cur_val + self.MARQUEE_STEP)
-
-            self._sel_anim_after_id = self.canvas.after(self.MARQUEE_INTERVAL_MS, tick)
-
-        self._sel_anim_after_id = self.canvas.after(self.MARQUEE_INTERVAL_MS, tick)
-
-    def _stop_marquee_anim(self):
-        self._sel_anim_alive = False
-        if self._sel_anim_after_id is not None:
-            try:
-                self.canvas.after_cancel(self._sel_anim_after_id)
-            except Exception:
-                pass
-            finally:
-                self._sel_anim_after_id = None
-
-    # --------- persistence ---------
+    # ========= export / persistence =========
     def export_image(self):
-        # default file name & type based on params
         initialfile = self.params.output_file.name
-
         path = filedialog.asksaveasfilename(
             parent=self.root,
             title="Export",
             defaultextension=self.params.output_file.suffix,
-            filetypes=[(t.upper(), f"*.{t.lower()}") for t in Formats],  # e.g. WEBP/PNG/SVG
+            filetypes=[(t.upper(), f"*.{t.lower()}") for t in Formats],
             initialdir=self.params.output_file.parent,
             initialfile=initialfile,
         )
@@ -472,12 +439,10 @@ class App:
             return
 
         out = Path(path)
-        ext = out.suffix.lower().lstrip(".")
-        if ext not in Formats:
+        if not Formats.check(out):
             messagebox.showerror("Invalid filetype", f"Choose one of: {', '.join(Formats)}")
             return
 
-        # update params & export
         self.params.output_file = out
         try:
             Exporter.output(self.params)
@@ -485,135 +450,13 @@ class App:
             messagebox.showerror("Export failed", str(e))
             return
 
-        # persist export settings back to the current project
         try:
             IO.save_params(self.params, self.project_path)
         except Exception:
             pass
-
         self.status.set(f"Exported: {out}")
 
-    # --------- helpers ---------
-    def _nudge(self, cw: bool):
-        k, i = self._selected()
-        if i is None:
-            return
-        if cw:
-            delta_deg = 15
-            step = 1
-        else:
-            delta_deg = -15
-            step = -1
-        if k == Hit_Kind.icon:
-            self.params.icons[i].rotation = round((self.params.icons[i].rotation + delta_deg) % 360)
-            self.layers.redraw(Layer_Name.icons)
-            self.mark_dirty()
-        elif k == Hit_Kind.label:
-            self.params.labels[i].rotation = round((self.params.labels[i].rotation + delta_deg) % 360)
-            self.layers.redraw(Layer_Name.labels)
-            self.mark_dirty()
-        elif k == Hit_Kind.line:
-            lin = self.params.lines[i]
-            order = [
-                LineStyle.SOLID,
-                LineStyle.SHORT,
-                LineStyle.DASH,
-                LineStyle.DASH_DOT,
-                LineStyle.DASH_DOT_DOT,
-                LineStyle.LONG,
-                LineStyle.DOT,
-            ]
-            try:
-                j = order.index(lin.style)
-            except ValueError:
-                j = 0
-            lin.style = order[(j + step) % len(order)]
-            self.layers.redraw(Layer_Name.lines)
-            self.mark_dirty()
-
-    def _selected(self) -> tuple[Hit_Kind, int | None]:
-        return self.selection_kind, self.selection_index
-
-    def _set_selected(self, kind: Hit_Kind, idx: int | None):
-        self.selection_kind, self.selection_index = kind, idx
-        self.draw_selection_overlay()
-
-    def _edit_selected(self):
-        k, i = self._selected()
-        if k is None or i is None:
-            return
-
-        if k == Hit_Kind.label:
-            obj = self.params.labels[i]
-            layer = Layer_Name.labels
-        elif k == Hit_Kind.icon:
-            obj = self.params.icons[i]
-            layer = Layer_Name.icons
-        elif k == Hit_Kind.line:
-            obj = self.params.lines[i]
-            layer = Layer_Name.lines
-        else:
-            return
-
-        if self.editors.edit(self.root, obj):
-            self.layers.redraw(layer)
-            self.mark_dirty()
-
-    def _nearest_multiple(self, n: int, m: int) -> int:
-        return n if m <= 0 else round(n / m) * m
-
-    def _apply_size_increments(self, g: int, tbar=None):
-        """Align W/H spinbox steps to grid size and optionally snap current canvas."""
-        step = max(1, g)
-        # when called at init we can receive tbar; later calls can find spins by name
-        if tbar:
-            tbar.spin_w.configure(increment=step, from_=step)
-            tbar.spin_h.configure(increment=step, from_=step)
-        # also snap current size to new grid
-        if g > 0:
-            new_w = max(step, self._nearest_multiple(self.params.width, g))
-            new_h = max(step, self._nearest_multiple(self.params.height, g))
-            if new_w != self.params.width:
-                self.params.width = new_w
-                self.var_width_px.set(new_w)
-            if new_h != self.params.height:
-                self.params.height = new_h
-                self.var_height_px.set(new_h)
-            self.canvas.config(width=self.params.width, height=self.params.height)
-
-    def _update_title(self):
-        name = self.project_path.name if self.project_path else "Untitled"
-        star = " *" if self.dirty else ""
-        self.root.title(f"Linework — {name}{star}")
-
-    def mark_dirty(self, _reason: str = ""):
-        self.dirty = True
-        self._update_title()
-
-    def mark_clean(self):
-        self.dirty = False
-        self._update_title()
-
-    def _maybe_save_changes(self) -> bool:
-        """Return True if it's OK to proceed (saved or discarded), False if user cancelled."""
-        if not self.dirty:
-            return True
-        ans = messagebox.askyesnocancel("Save changes?", "Save your changes before continuing?")
-        if ans is None:
-            return False  # Cancel
-        if ans is True:
-            return self.save_project()  # True if saved, False if user cancelled dialog
-        # No -> discard
-        return True
-
-    def _on_close(self):
-        self._stop_marquee_anim()
-        if self._maybe_save_changes():
-            self.root.destroy()
-
-    # --------- project ---------
     def save_project(self) -> bool:
-        """Save to current path; if it's an 'untitled', redirect to Save As. Returns success."""
         if not self.project_path or self.project_path.name.startswith("untitled"):
             return self.save_project_as()
         try:
@@ -622,7 +465,7 @@ class App:
             messagebox.showerror("Save failed", str(e))
             return False
         self.mark_clean()
-        self.status.set(f"Saved {self.project_path}")
+        self.on_file_saved(self.project_path)
         return True
 
     def save_project_as(self) -> bool:
@@ -637,57 +480,118 @@ class App:
         if not path:
             return False
         self.project_path = Path(path)
-        return self.save_project()
+        ok = self.save_project()
+        if ok:
+            self._update_title()
+        return ok
+
+    def new_project(self):
+        if not self._maybe_proceed():
+            return
+        self.params = Params()
+        self.scene = Scene(self.params)
+        self.painters = Painters(self.scene)
+        self.layers = Layer_Manager(self.canvas, self.painters)
+        self._set_selected(Hit_Kind.miss, None)
+        self.layers.redraw_all()
+        self.mark_clean()
+        self.status.set("New Project")
 
     def open_project(self):
-        if not self._maybe_save_changes():
+        if not self._maybe_proceed():
             return
         path = filedialog.askopenfilename(
             parent=self.root,
             title="Open Project",
-            filetypes=[("Linework Projects", "*.linework"), ("JSON", "*.json"), ("All Files", "*.*")],
-            initialdir=self.project_path.parent if self.project_path else None,
+            filetypes=[("Linework Projects", "*.linework"), ("JSON", "*.json"), ("All files", "*.*")],
         )
         if not path:
             return
+        self.project_path = Path(path)
         try:
-            self.params = IO.load_params(Path(path))
+            self.params = IO.load_params(self.project_path)
         except Exception as e:
             messagebox.showerror("Open failed", str(e))
             return
-
-        self._sync_ui_from_params(Path(path))
+        self.scene = Scene(self.params)
+        self.painters = Painters(self.scene)
+        self.layers = Layer_Manager(self.canvas, self.painters)
+        self._sync_vars_from_params()
+        self.layers.redraw_all()
         self._update_title()
-        self.status.set(f"Opened {self.project_path}")
+        self.mark_clean()
+        self.on_file_opened(self.project_path)
+        self.asset_lib = get_asset_library(self.project_path)
 
-    def new_project(self):
-        if not self._maybe_save_changes():
-            return
-        self.params = Params()
-        self._sync_ui_from_params()
-        self.status.set("New project")
+    # ========= helpers =========
 
-    def _sync_ui_from_params(self, path: Path = Path("untitled.linework")):
-        self.project_path = path
-        self.asset_lib = get_asset_library(path)
-        self.scene.params = self.params
-        # refresh UI vars
+    @staticmethod
+    def repair_snap_flags(params):
+        g = params.grid_size
+        for lb in params.labels:
+            if g > 0 and ((lb.p.x % g) or (lb.p.y % g)):
+                lb.snap = False
+        for ic in params.icons:
+            if g > 0 and ((ic.p.x % g) or (ic.p.y % g)):
+                ic.snap = False
+
+    def _sync_icon_from_combo(self, *_):
+        try:
+            src = Icon_Source.builtin(Icon_Name(self.var_icon.get()))
+        except Exception:
+            src = Icon_Source.builtin(Icon_Name.SIGNAL)
+        self.current_icon = src
+        self.var_icon_label.set(src.name.value if src.name else "Unknown")
+
+    def _sync_vars_from_params(self):
+        self.repair_snap_flags(self.params)
         self.var_grid.set(self.params.grid_size)
         self.var_width_px.set(self.params.width)
         self.var_height_px.set(self.params.height)
         self.var_brush_w.set(self.params.brush_width)
-        self.var_bg.set(self.params.bg_mode.name_str)
-        self.var_colour.set(self.params.brush_colour.name_str)
+        self.var_bg.set(self.params.bg_mode.name or "Unknown")
+        self.var_colour.set(self.params.brush_colour.name or "Unknown")
         self.var_line_style.set(self.params.line_style)
-        self.var_dash_offset.set(self.params.line_dash_offset)
-        self.canvas.config(width=self.params.width, height=self.params.height)
-        self._apply_size_increments(self.params.grid_size, self.tbar)
-        self.layers.redraw_all()
-        self.layers.redraw(Layer_Name.grid, force=True)
-        self.mark_clean()
+        display_bg = Colours.sys.dark_gray.hex if self.params.bg_mode.alpha == 0 else self.params.bg_mode.hex
+        self.canvas.config(width=self.params.width, height=self.params.height, bg=display_bg)
 
-    def drag_to_draw(self) -> bool:
-        return bool(self.var_drag_to_draw.get())
+    def _apply_size_increments(self, g: int):
+        step = max(1, g)
+        self.tbar.spin_w.configure(increment=step, from_=step)
+        self.tbar.spin_h.configure(increment=step, from_=step)
 
-    def cardinal(self) -> bool:
-        return bool(self.var_cardinal.get())
+    def _maybe_proceed(self) -> bool:
+        if not self.dirty:
+            return True
+        ans = messagebox.askyesnocancel("Save changes?", "Save your changes before continuing?")
+        if ans is None:
+            return False
+        if ans is True:
+            return self.save_project()
+        return True
+
+    def _on_drag_to_draw_change(self, *_):
+        self.tool_mgr.cancel()
+        try:
+            v = self.var_drag_to_draw.get()
+            on = bool(int(v)) if not isinstance(v, bool) else v
+        except Exception:
+            on = bool(self.var_drag_to_draw.get())
+        self.status.set_centre("Draw: drag to draw" if on else "Draw: click-click mode")
+
+    def _on_close(self):
+        if self._maybe_proceed():
+            self.root.destroy()
+
+    def _update_title(self):
+        name = self.project_path.name if self.project_path else "Untitled"
+        star = " *" if self.dirty else ""
+        self.root.title(f"Linework — {name}{star}")
+
+    def mark_dirty(self, _reason: str = ""):
+        self.dirty = True
+        self._update_title()
+
+    def mark_clean(self):
+        self.dirty = False
+        self._update_title()

@@ -1,0 +1,60 @@
+from __future__ import annotations
+
+import tkinter as tk
+from typing import TYPE_CHECKING
+
+from canvas.layers import Hit_Kind, Layer_Name
+from controllers.commands import Add_Label
+from controllers.tools_base import DragAction, ToolBase
+from models.geo import Label, Point
+from models.styling import TkCursor
+from ui.bars import Tool_Name
+from ui.input import get_mods
+
+if TYPE_CHECKING:
+    from controllers.app import App
+
+
+class Label_Tool(ToolBase):
+    name = Tool_Name.label
+    kind = Hit_Kind.label
+    cursor: TkCursor = TkCursor.XTERM
+    tool_hints: str = "Shift: Editor  |  Alt: Ignore Grid"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._drag: DragAction | None = None
+
+    def on_activate(self, app: App) -> None:
+        pass
+
+    def on_press(self, app: App, evt: tk.Event) -> None:
+        mods = get_mods(evt)
+        p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
+        if mods.shift:
+            lab = Label(p=p, text="", col=app.params.brush_colour, snap=not mods.alt)
+            if app.editors.edit(app.root, lab):
+                app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Name.labels)))
+                app.mark_dirty()
+            return
+
+        text = app.prompt_text("New label", "Text:")
+        if not text:
+            return
+        lab = Label(p=p, text=text, col=app.params.brush_colour, snap=not mods.alt)
+        app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Name.labels)))
+        app.mark_dirty()
+
+    def on_motion(self, app: App, evt: tk.Event) -> None:
+        if self._drag:
+            self._drag.update(app, evt)
+
+    def on_release(self, app: App, evt: tk.Event) -> None:
+        if self._drag:
+            self._drag.commit(app, evt)
+            self._drag = None
+
+    def on_cancel(self, app: App) -> None:
+        if self._drag:
+            self._drag.cancel(app)
+            self._drag = None

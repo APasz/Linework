@@ -149,8 +149,6 @@ class JoinStyle(StrEnum):
     BEVEL = "bevel"
 
 
-# Base patterns defined in *stroke-width units*
-# (i.e., multiply by actual width in px to get real pixel pattern)
 _BASE: dict[LineStyle | None, tuple[float, ...]] = {
     None: (),  # solid
     LineStyle.SOLID: (),
@@ -170,7 +168,6 @@ def _normalise_pairs(seq: Iterable[int]) -> tuple[int, ...]:
         return ()
     if len(arr) % 2 == 1:
         arr *= 2
-    # prevent pathological zero/negative lengths
     for i, v in enumerate(arr):
         if v <= 0:
             arr[i] = 1
@@ -187,7 +184,6 @@ def scaled_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
     if not base:
         return ()
     w = max(1, width_px)
-    # scale each segment by width; clamp to at least 1px so it remains visible
     scaled = [max(1, round(seg * w)) for seg in base]
     return _normalise_pairs(scaled)
 
@@ -265,6 +261,7 @@ Colour_Name = Literal[
     "light_gray",
     "dark_gray",
     "sky",
+    "ocean",
 ]
 
 
@@ -299,6 +296,7 @@ class Colours:
         light_gray: ClassVar[Colour] = Colour(red=200, green=200, blue=200)
         dark_gray: ClassVar[Colour] = Colour(red=60, green=60, blue=60)
         sky: ClassVar[Colour] = Colour(red=30, green=200, blue=255)
+        ocean: ClassVar[Colour] = Colour(red=20, green=126, blue=168)
 
     # ---------- internals ----------
     @classmethod
@@ -316,7 +314,6 @@ class Colours:
     @classmethod
     def _map(cls, *, include_sys: bool = False, min_alpha: int = 0) -> Mapping[str, Colour]:
         items = ((k, c) for k, c in cls._iter(include_sys=include_sys) if c.alpha >= min_alpha)
-        # return a read-only, name-sorted mapping
         return MappingProxyType(dict(items))
 
     # ---------- public helpers ----------

@@ -1,7 +1,7 @@
-# models/assets.py
 from __future__ import annotations
 
 import io
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -34,7 +34,6 @@ class Formats(StrEnum):
 
     @property
     def mime(self) -> str:
-        # SVG needs the +xml variant
         return "image/svg+xml" if self is Formats.svg else f"image/{self.value}"
 
 
@@ -43,22 +42,25 @@ def probe_wh(path: Path, fmt: str | None = None) -> tuple[int, int]:
     p = Path(path)
     ext = (fmt or p.suffix[1:]).lower()
     if ext == "svg":
-        # naive viewBox/width/height parser, or fall back to 1024x1024
         try:
             import xml.etree.ElementTree as ET
 
             root = ET.fromstring(p.read_text(encoding="utf-8"))
+            NUM = re.compile(r"^\s*(\d+(\.\d+)?)(px|pt|em|ex|in|cm|mm|pc|%)?\s*$")
+
             w = root.get("width")
             h = root.get("height")
-            if w and h and w.isdigit() and h.isdigit():
-                return int(w), int(h)
-            vb = root.get("viewBox")
-            if vb:
-                _, _, vw, vh = [float(v) for v in vb.strip().split()]
-                return int(vw), int(vh)
+
+            def _num(s):
+                m = NUM.match(s) if s else None
+                return float(m.group(1)) if m else None
+
+            wf, hf = _num(w), _num(h)
+            if wf and hf:
+                return round(wf), round(hf)
         except Exception:
             pass
-        return (1024, 1024)
+        return (4096, 4096)
     else:
         # raster
         try:
@@ -190,25 +192,20 @@ class Primitives:
         style: Style = STROKE
 
     @dataclass(frozen=True, slots=True)
-    class Path:  # SVG path data; when you want curves/arcs
+    class Path:
         d: str
         style: Style = STROKE
 
 
 @dataclass(frozen=True, slots=True)
 class IconDef:
-    # All icons are authored in this viewbox, scalable to any pixel size
-    # Keep origin centered for nicer rotation around (0,0).
     viewbox: tuple[float, float, float, float]  # (minx, miny, width, height)
     prims: Sequence[Primitive]
-    # optional: default anchor, metadata, etc.
 
 
 class Builtins:
-    # === Definitions (authored once, used everywhere) ====================
     @classmethod
     def _signal(cls) -> IconDef:
-        # 1000x1000, centre at (0,0)
         vb = (-500.0, -500.0, 1000.0, 1000.0)
         r = 280.0
         stem_w = 160.0
@@ -216,8 +213,8 @@ class Builtins:
         return IconDef(
             viewbox=vb,
             prims=[
-                Primitives.Circle(0.0, -120.0, r, FILL),  # head
-                Primitives.Rect(-stem_w / 2, r - 120.0, stem_w, stem_h, FILL),  # stem
+                Primitives.Circle(0.0, -120.0, r, FILL),
+                Primitives.Rect(-stem_w / 2, r - 120.0, stem_w, stem_h, FILL),
             ],
         )
 
@@ -267,17 +264,6 @@ class Builtins:
         return ICONS[name]
 
 
-# -----------------------------------------------------------------------------
-# Built‑in icon plan → single source of truth
-# -----------------------------------------------------------------------------
-
-# The plan is expressed around the origin. A renderer will translate/rotate.
-# Each step is (op, kwargs):
-#   ("circle", {cx, cy, r, fill, width(optional), stroke(optional)})
-#   ("rect",   {x, y, w, h, fill, width(optional), stroke(optional)})
-#   ("line",   {x1, y1, x2, y2, width, stroke})
-
-
 def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[str, dict[str, Any]]]:
     """
     Build a device-agnostic drawing plan for a builtin icon using the single
@@ -286,7 +272,6 @@ def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[s
     """
     idef = Builtins.icon_def(name)
     minx, miny, vbw, vbh = idef.viewbox
-    # uniform scale to fit a square of `size`
     s = size / max(vbw, vbh) if max(vbw, vbh) else 1.0
     cx = minx + vbw / 2.0
     cy = miny + vbh / 2.0
@@ -299,13 +284,11 @@ def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[s
 
     for prim in idef.prims:
         sty = prim.style
-        # width scales with icon size; clamp to at least 1
         width = max(1, round((sty.stroke_width or 1.0) * s))
         stroke = col_svg if sty.stroke else None
         fill = col_svg if sty.fill else None
         dash = None
         if sty.dash:
-            # scale dash pattern
             dash = [max(1, round(d * s)) for d in sty.dash]
 
         if isinstance(prim, Primitives.Circle):
@@ -321,7 +304,6 @@ def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[s
 
         elif isinstance(prim, Primitives.Rect):
             x0, y0 = T(prim.x, prim.y)
-            # Rect in idef is axis-aligned; just scale w/h
             w = round(prim.w * s)
             h = round(prim.h * s)
             entry: dict[str, Any] = {"x": x0, "y": y0, "w": w, "h": h}
@@ -343,7 +325,6 @@ def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[s
                 "width": width,
                 "stroke": stroke or col_svg,
             }
-            # cap/join mainly matter for thick strokes; include if present
             entry["cap"] = sty.line_cap.value
             if dash:
                 entry["dash"] = dash

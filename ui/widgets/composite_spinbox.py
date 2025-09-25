@@ -33,17 +33,14 @@ class Composite_Spinbox(ttk.Frame):
         self._wrap = wrap
         self._command = command
 
-        # var
         self.var = textvariable or tk.StringVar(value=str(self._min))
 
-        # layout: [Entry][buttons column]
         self.entry = ttk.Entry(self, textvariable=self.var, width=width, justify=justify.value)
         self.entry.grid(row=0, column=0, sticky="nsew")
         btncol = ttk.Frame(self)
         btncol.grid(row=0, column=1, sticky="ns", padx=(1, 0))
         self.columnconfigure(0, weight=1)
 
-        # buttons (tiny)
         style = ttk.Style()
         style.configure("SpinButton.TButton", padding=0, font=("TkDefaultFont", 6))
         self.btn_up = ttk.Button(
@@ -129,7 +126,6 @@ class Composite_Spinbox(ttk.Frame):
     def _parse(self):
         s = str(self.var.get()).strip()
         try:
-            # allow ints by default; switch to float if you need
             v = int(s)
         except ValueError:
             try:
@@ -139,7 +135,6 @@ class Composite_Spinbox(ttk.Frame):
         return v
 
     def _format(self, v):
-        # keep ints pretty; floats if increment isn’t integral
         if isinstance(self._inc, int) or (isinstance(self._inc, float) and self._inc.is_integer()):
             return str(round(v))
         return f"{v:.6g}"
@@ -160,17 +155,14 @@ class Composite_Spinbox(ttk.Frame):
         step = self._inc * direction
         v2 = v + step
         if self._wrap:
-            # wrap within [min, max] inclusive
             span = (self._max - self._min) + (0 if isinstance(self._inc, int) else 0)
             if span == 0:
                 v2 = self._min
             else:
-                # simple wrap for ints; for floats, clamp after stepping
                 if isinstance(self._inc, int):
                     rng = self._max - self._min + 1
                     v2 = ((round(v2) - self._min) % rng) + self._min
                 else:
-                    # float wrap is messy; just clamp
                     v2 = min(max(v2, self._min), self._max)
         else:
             v2 = min(max(v2, self._min), self._max)
@@ -186,7 +178,6 @@ class Composite_Spinbox(ttk.Frame):
         self._bump(-1)
 
     def state(self, statespec: str | None = None):
-        # normal / disabled / readonly
         if statespec is None:
             return self.entry.cget("state")
         if statespec == "readonly":

@@ -1,28 +1,28 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import tkinter as tk
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import Enum, StrEnum
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import TYPE_CHECKING, Any
 
-from PIL import Image, ImageDraw, ImageTk
+from PIL import Image, ImageTk
 
 from disk.export import _emit_pil_plan
 from models.assets import _builtin_icon_plan, _open_rgba
-from models.geo import Icon_Name, Icon_Source, Icon_Type
+from models.geo import Icon_Name, Icon_Source, Icon_Type, Point
 from models.styling import Colours
 
 if TYPE_CHECKING:
     from controllers.app import App
 
-THUMB = 40
-
 
 class Icon_Gallery(tk.Toplevel):
-    def __init__(self, master, app: App, recent: Iterable[Icon_Source], at: tuple[int, int] | None = None):
+    def __init__(self, master, app: App, recent: Iterable[Icon_Source], at: Point | None = None):
         super().__init__(master)
+        self._thumb_size = 40
         self.project_path = app.project_path
         self.app = app
         self.title("Choose icon")
@@ -52,7 +52,7 @@ class Icon_Gallery(tk.Toplevel):
         self.bind("<Escape>", lambda e: self._cancel())
         self.update_idletasks()
         if at:
-            self.geometry(f"+{at[0]}+{at[1]}")
+            self.geometry(f"+{at.x}+{at.y}")
         else:
             self.center()
 
@@ -90,13 +90,11 @@ class Icon_Gallery(tk.Toplevel):
         if key in self._thumb_cache:
             return self._thumb_cache[key]
 
-        plan = _builtin_icon_plan(name, THUMB - 8, Colours.white.hex)
+        plan = _builtin_icon_plan(name, self._thumb_size - 8, Colours.white.hex)
 
-        img = Image.new("RGBA", (THUMB, THUMB), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(img)
+        img = Image.new("RGBA", (self._thumb_size, self._thumb_size), (0, 0, 0, 0))
 
-        # render centered in the thumbnail, no rotation
-        _emit_pil_plan(draw, plan, THUMB // 2, THUMB // 2, 0)
+        _emit_pil_plan(img, plan, self._thumb_size // 2, self._thumb_size // 2, 0)
 
         ph = ImageTk.PhotoImage(img)
         self._thumb_cache[key] = ph
@@ -127,7 +125,7 @@ class Icon_Gallery(tk.Toplevel):
         key = ("pic", str(path))
         if key in self._thumb_cache:
             return self._thumb_cache[key]
-        im = _open_rgba(path, THUMB, THUMB)
+        im = _open_rgba(path, self._thumb_size, self._thumb_size)
         ph = ImageTk.PhotoImage(im)
         self._thumb_cache[key] = ph
         return ph
@@ -196,60 +194,119 @@ class _ScrollGrid(ttk.Frame):
         self._row = 0
 
 
-class EditDialog_Kind(StrEnum):
+class ED_Kind(StrEnum):
     str = "str"
     int = "int"
     float = "float"
-    list = "list"
-    tuple = "tuple"
-    set = "set"
-    dict = "dict"
+    bool = "bool"
     text = "text"
     choice = "choice"
     choice_dict = "choice_dict"
 
 
+@dataclass(frozen=True)
+class _FieldSpec:
+    name: str
+    label: str | None = None
+    kind: ED_Kind = ED_Kind.str
+    min: int | float | None = None
+    max: int | float | None = None
+    choices: Sequence[str] | Callable[[], Sequence[str]] | None = None
+    choices_dict: Mapping[str, Any] | Callable[[], Mapping[str, Any]] | None = None
+
+
+def _coerce_schema_item(item: Any) -> dict[str, Any]:
+    """
+    Normalizes either a legacy dict schema entry or a typed _FieldSpec
+    into the dict shape the dialog uses internally.
+    """
+    if isinstance(item, _FieldSpec):
+        d: dict[str, Any] = {
+            "name": item.name,
+            "label": item.label or item.name,
+            "kind": item.kind.value,
+        }
+        if item.min is not None:
+            d["min"] = item.min
+        if item.max is not None:
+            d["max"] = item.max
+        if item.kind is ED_Kind.choice and item.choices:
+            d["choices"] = item.choices() if callable(item.choices) else list(item.choices)
+        if item.kind is ED_Kind.choice_dict and item.choices_dict:
+            d["choices"] = item.choices_dict() if callable(item.choices_dict) else dict(item.choices_dict)
+        return d
+
+    # Legacy dict path
+    if not isinstance(item, dict):
+        raise TypeError(f"Schema entries must be dict or _FieldSpec, got {type(item)}")
+    d = dict(item)
+    # normalize kind to stable string
+    k = d.get("kind", "str")
+    if isinstance(k, ED_Kind):
+        d["kind"] = k.value
+    else:
+        d["kind"] = str(k).lower()
+    d.setdefault("label", d.get("label", d.get("name")))
+    return d
+
+
+def _resolve_choices_seq(val: Any) -> list[str]:
+    if val is None:
+        return []
+    if callable(val):
+        val = val()
+    if isinstance(val, (list, tuple)):
+        return [str(x) for x in val]
+    raise TypeError("choices must be Sequence[str] or a callable returning Sequence[str]")
+
+
+def _resolve_choices_map(val: Any) -> dict[str, Any]:
+    if val is None:
+        return {}
+    if callable(val):
+        val = val()
+    if isinstance(val, Mapping):
+        return dict(val)
+    raise TypeError("choices must be Mapping[str, Any] or a callable returning Mapping[str, Any]")
+
+
 class GenericEditDialog(simpledialog.Dialog):
     """
-    Schema-based modal editor.
-    schema: list of dicts with keys:
-        - name (str)
-        - label (str)
-        - kind  ("int"|"float"|"str"|"text"|"bool"|"choice"|"choice_dict")
-        - choices (list[str] for "choice", or dict[str, Any] for "choice_dict")
-        - min/max (optional for numeric kinds)
-    values: dict[str, Any] initial values
-    Result is a dict on success in self.result, else None.
+    Compatible with the old dict-based schema, but internally uses a
+    clean dispatch table instead of if/else forests. Also accepts typed _FieldSpec.
     """
 
-    def __init__(self, parent: tk.Misc, title: str, schema: list[dict[str, Any]], values: dict[str, Any]):
-        self.schema = list(schema)
+    def __init__(
+        self,
+        parent: tk.Misc,
+        title: str,
+        schema: Sequence[dict[str, Any] | _FieldSpec],
+        values: dict[str, Any] | None,
+    ):
+        self.schema: list[dict[str, Any]] = [_coerce_schema_item(s) for s in list(schema)]
         self.values = dict(values or {})
         self.widgets: dict[str, tk.Widget] = {}
-        # per-field metadata (var, mapping, etc.)
         self._meta: dict[str, dict[str, Any]] = {}
         super().__init__(parent, title)
 
     # ---- Dialog hooks ----
     def body(self, master: tk.Frame) -> tk.Widget:
-        # grid: label | widget
+        master.grid_columnconfigure(1, weight=1)
+
         for r, fld in enumerate(self.schema):
             label = fld.get("label", fld["name"])
             ttk.Label(master, text=label).grid(row=r, column=0, sticky="w", padx=6, pady=4)
-            w = self._make_field(master, fld, self.values.get(fld["name"]))
+            w = self._build_widget(master, fld, self.values.get(fld["name"]))
             w.grid(row=r, column=1, sticky="ew", padx=6, pady=4)
-            self.widgets[fld["name"]] = w
-        master.columnconfigure(1, weight=1)
-        # focus first widget if any
-        return next(iter(self.widgets.values())) if self.widgets else master
+        return next(iter(self.widgets.values()), master)
 
     def buttonbox(self):
         box = ttk.Frame(self)
-        ok = ttk.Button(box, text="OK", width=10, command=self.ok)
-        ca = ttk.Button(box, text="Cancel", width=10, command=self.cancel)
-        ok.pack(side="left", padx=5)
-        ca.pack(side="left", padx=5)
-        box.pack(pady=8)
+        ok = ttk.Button(box, text="OK", command=self.ok)
+        cancel = ttk.Button(box, text="Cancel", command=self.cancel)
+        ok.pack(side="left", padx=5, pady=5)
+        cancel.pack(side="left", padx=5, pady=5)
+        box.pack(fill="x")
         self.bind("<Return>", lambda e: self.ok())
         self.bind("<Escape>", lambda e: self.cancel())
 
@@ -259,8 +316,8 @@ class GenericEditDialog(simpledialog.Dialog):
             for fld in self.schema:
                 name = fld["name"]
                 kind = str(fld.get("kind", "str")).lower()
-                raw = self._get_widget_value(name, kind, fld)
-                # numeric clamps
+                raw = self._read_value(name, kind, fld)
+                # central numeric validation
                 if kind in ("int", "float"):
                     if "min" in fld and raw < fld["min"]:
                         raise ValueError(f"{fld.get('label', name)} must be ≥ {fld['min']}")
@@ -276,96 +333,111 @@ class GenericEditDialog(simpledialog.Dialog):
     def apply(self):
         self.result = getattr(self, "_result", None)
 
-    # ---- builders ----
-    def _make_field(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
+    # ---- builders (per kind) ----
+    def _build_widget(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
         kind = str(fld.get("kind", "str")).lower()
         name = fld["name"]
-        self._meta[name] = meta = {}
+        self._meta[name] = {}
 
-        if kind == "bool":
-            var = tk.BooleanVar(value=bool(init_val))
-            meta["var"] = var
-            w = ttk.Checkbutton(parent, variable=var)
-            return w
+        BUILDERS: dict[str, Callable[[tk.Widget, dict, Any], tk.Widget]] = {
+            "bool": self._build_bool,
+            "int": self._build_entry,
+            "float": self._build_entry,
+            "str": self._build_entry,
+            "text": self._build_text,
+            "choice": self._build_choice,
+            "choice_dict": self._build_choice_dict,
+        }
+        builder = BUILDERS.get(kind, self._build_entry)
+        w = builder(parent, fld, init_val)
+        self.widgets[name] = w
+        return w
 
-        if kind in ("int", "float", "str"):
-            init_str = self._stringify_init(init_val)
-            var = tk.StringVar(value=init_str)
-            meta["var"] = var
-            ent = ttk.Entry(parent, textvariable=var)
-            if kind in ("int", "float"):
-                ent.configure(width=8)
-            return ent
+    def _build_bool(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
+        var = tk.BooleanVar(value=bool(init_val))
+        self._meta[fld["name"]]["var"] = var
+        return ttk.Checkbutton(parent, variable=var)
 
-        if kind == "text":
-            txt = tk.Text(parent, width=32, height=4, wrap="word")
-            if init_val not in (None, ""):
-                txt.insert("1.0", self._stringify_init(init_val))
-            return txt
-
-        if kind == "choice":
-            choices = list(fld.get("choices") or [])
-            init_str = self._stringify_init(init_val)
-            var = tk.StringVar(value=init_str if init_str in choices else (init_str or (choices[0] if choices else "")))
-            meta["var"] = var
-            cb = ttk.Combobox(parent, values=choices, textvariable=var, state="readonly")
-            return cb
-
-        if kind == "choice_dict":
-            mapping: dict[str, Any] = dict(fld.get("choices") or {})
-            meta["map"] = mapping
-            keys = list(mapping.keys())
-            init_key = None
-            if isinstance(init_val, str) and init_val in mapping:
-                init_key = init_val
-            else:
-                for k, v in mapping.items():
-                    if v == init_val or (isinstance(v, Path) and str(v) == str(init_val)):
-                        init_key = k
-                        break
-            var = tk.StringVar(value=init_key or (keys[0] if keys else ""))
-            meta["var"] = var
-            cb = ttk.Combobox(parent, values=keys, textvariable=var, state="readonly")
-            return cb
-
-        # fallback to plain entry
+    def _build_entry(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
         var = tk.StringVar(value=self._stringify_init(init_val))
-        meta["var"] = var
+        self._meta[fld["name"]]["var"] = var
         return ttk.Entry(parent, textvariable=var)
 
-    # ---- reads ----
-    def _get_widget_value(self, name: str, kind: str, fld: dict) -> Any:
+    def _build_text(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
+        txt = tk.Text(parent, height=4, width=40)
+        if init_val:
+            txt.insert("1.0", str(init_val))
+        return txt
+
+    def _build_choice(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
+        keys = _resolve_choices_seq(fld.get("choices"))
+        init_key = str(init_val) if init_val is not None else (keys[0] if keys else "")
+        var = tk.StringVar(value=init_key)
+        self._meta[fld["name"]]["var"] = var
+        return ttk.Combobox(parent, values=keys, textvariable=var, state="readonly")
+
+    def _build_choice_dict(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
+        mapping = _resolve_choices_map(fld.get("choices"))
+        keys = list(mapping.keys())
+        init_key = keys[0] if keys else ""
+        for k, v in mapping.items():
+            if v == init_val or (isinstance(v, Path) and str(v) == str(init_val)):
+                init_key = k
+                break
+        var = tk.StringVar(value=init_key)
+        meta = self._meta[fld["name"]]
+        meta["var"] = var
+        meta["map"] = mapping
+        return ttk.Combobox(parent, values=keys, textvariable=var, state="readonly")
+
+    # ---- readers (per kind) ----
+    def _read_value(self, name: str, kind: str, fld: dict) -> Any:
+        READERS: dict[str, Callable[[str, dict], Any]] = {
+            "bool": self._read_bool,
+            "text": self._read_text,
+            "choice": self._read_choice,
+            "choice_dict": self._read_choice_dict,
+            "int": self._read_int,
+            "float": self._read_float,
+            "str": self._read_str,
+        }
+        reader = READERS.get(kind, self._read_str)
+        return reader(name, fld)
+
+    def _read_bool(self, name: str, fld: dict) -> bool:
+        return bool(self._meta[name]["var"].get())
+
+    def _read_text(self, name: str, fld: dict) -> str:
         w = self.widgets[name]
-        meta = self._meta.get(name, {})
+        return w.get("1.0", "end-1c")  # pyright: ignore
 
-        if kind == "bool":
-            return bool(meta["var"].get())
+    def _read_choice(self, name: str, fld: dict) -> str:
+        return str(self._meta[name]["var"].get()).strip()
 
-        if kind == "text":
-            return w.get("1.0", "end-1c")  # pyright: ignore[reportAttributeAccessIssue]
+    def _read_choice_dict(self, name: str, fld: dict) -> Any:
+        key = str(self._meta[name]["var"].get())
+        mapping: dict[str, Any] = self._meta[name].get("map", {})
+        if key not in mapping:
+            raise ValueError(f"{fld.get('label', name)}: unknown option '{key}'")
+        return mapping[key]
 
-        if kind == "choice":
-            return str(meta["var"].get()).strip()
+    def _read_str(self, name: str, fld: dict) -> str:
+        return str(self._meta[name]["var"].get()).strip()
 
-        if kind == "choice_dict":
-            key = str(meta["var"].get())
-            mapping: dict[str, Any] = meta.get("map", {})
-            # return mapped value if present; else return key
-            return mapping.get(key, key)
+    def _read_int(self, name: str, fld: dict) -> int:
+        s = self._read_str(name, fld)
+        try:
+            # lenient: allow "12.0"
+            return int(float(s))
+        except Exception:
+            raise ValueError(f"{fld.get('label', name)} must be an integer")
 
-        # entries
-        s = str(meta["var"].get()).strip() if "var" in meta else str(getattr(w, "get")())
-        if kind == "int":
-            try:
-                return int(float(s))
-            except Exception:
-                raise ValueError(f"{fld.get('label', name)} must be an integer")
-        if kind == "float":
-            try:
-                return float(s)
-            except Exception:
-                raise ValueError(f"{fld.get('label', name)} must be a number")
-        return s
+    def _read_float(self, name: str, fld: dict) -> float:
+        s = self._read_str(name, fld)
+        try:
+            return float(s)
+        except Exception:
+            raise ValueError(f"{fld.get('label', name)} must be a number")
 
     # ---- helpers ----
     @staticmethod
