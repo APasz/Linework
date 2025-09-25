@@ -337,8 +337,9 @@ class CanvasLW(tk.Canvas):
         minx, miny, vbw, vbh = idef.viewbox
         s = size / max(vbw, vbh)
 
-        bw, bh = icon.bbox_wh()
-        cx, cy = icon.anchor._centre(icon.p.x, icon.p.y, bw, bh)
+        vis_w = s * vbw
+        vis_h = s * vbh
+        cx, cy = icon.anchor.centre_for(icon.p.x, icon.p.y, round(vis_w), round(vis_h), int(icon.rotation or 0))
 
         ang = math.radians(rot)
         cs, sn = math.cos(ang), math.sin(ang)
@@ -431,7 +432,7 @@ class CanvasLW(tk.Canvas):
         tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
 
         bw, bh = pic.bbox_wh()
-        cx, cy = pic.anchor._centre(pic.p.x, pic.p.y, bw, bh)
+        cx, cy = pic.anchor.centre_for(pic.p.x, pic.p.y, bw, bh, pic.rotation)
 
         # LRU init
         cache = getattr(self, "_picture_cache", None)

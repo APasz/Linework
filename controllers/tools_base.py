@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name
+from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, layer_tag
 from canvas.selection import SelectionOverlay
 from controllers.commands import Command_Stack, Move_Icon, Move_Label
 from models.geo import CanvasLW, Point
@@ -16,6 +16,19 @@ from ui.input import get_mods
 
 if TYPE_CHECKING:
     from controllers.app import App
+
+CLAMP_DRAG_BBOX = True
+
+
+def _visible_viewport_bbox(canvas) -> tuple[int, int, int, int] | None:
+    try:
+        x1 = int(canvas.canvasx(0))
+        y1 = int(canvas.canvasy(0))
+        x2 = int(canvas.canvasx(canvas.winfo_width()))
+        y2 = int(canvas.canvasy(canvas.winfo_height()))
+        return (x1, y1, x2, y2)
+    except Exception:
+        return None
 
 
 @dataclass(slots=True)
@@ -123,20 +136,27 @@ class DragLabel(DragAction):
         app.layers.clear_preview()
         app.canvas.create_with_label(lb.with_point(p), override_base_tags=[Layer_Name.preview])
 
-        sel = app.selection
-        if not hasattr(self, "_base_sel"):
-            self._base_sel = {
-                "outline": app.canvas.coords(sel.ids.outline or 0) if sel.ids.outline else None,
-                "handle": app.canvas.coords(sel.ids.handle_a or 0) if sel.ids.handle_a else None,
-            }
-
-        base = getattr(self, "_base_sel", {})
-        if sel.ids.outline and base.get("outline"):
-            x1, y1, x2, y2 = base["outline"]
-            app.selection.set_outline_bbox(x1 + dx, y1 + dy, x2 + dx, y2 + dy)
-        if sel.ids.handle_a and base.get("handle"):
-            x1, y1, x2, y2 = base["handle"]
-            app.canvas.coords(sel.ids.handle_a, x1 + dx, y1 + dy, x2 + dx, y2 + dy)
+        try:
+            tag = layer_tag(Layer_Name.preview)
+            bb = app.canvas.bbox(tag)
+            if bb:
+                x1, y1, x2, y2 = bb
+                if CLAMP_DRAG_BBOX:
+                    vbb = _visible_viewport_bbox(app.canvas)
+                    if vbb:
+                        vx1, vy1, vx2, vy2 = vbb
+                        cx1 = max(x1, vx1)
+                        cy1 = max(y1, vy1)
+                        cx2 = min(x2, vx2)
+                        cy2 = min(y2, vy2)
+                        if cx1 < cx2 and cy1 < cy2:
+                            x1, y1, x2, y2 = cx1, cy1, cx2, cy2
+                app.selection.set_outline_bbox(x1, y1, x2, y2)
+        except Exception:
+            sel = app.selection
+            if sel.ids.outline:
+                ox1, oy1, ox2, oy2 = app.canvas.coords(sel.ids.outline)
+                app.selection.set_outline_bbox(ox1 + dx, oy1 + dy, ox2 + dx, oy2 + dy)
 
     def commit(self, app, evt: tk.Event) -> None:
         mods = get_mods(evt)
@@ -184,25 +204,29 @@ class DragIcon(DragAction):
             Point(x=evt.x - self.offset_dx, y=evt.y - self.offset_dy),
             ignore_grid=(mods.alt or not ico.snap),
         )
-        dx, dy = p.x - self.start.x, p.y - self.start.y
 
-        ico = app.params.icons[self.idx]
+        ic = app.params.icons[self.idx]
         app.layers.clear_preview()
-        app.canvas.create_with_iconlike(ico.with_point(p), override_base_tags=[Layer_Name.preview])
+        app.canvas.create_with_iconlike(ic.with_point(p), override_base_tags=[Layer_Name.preview])
 
-        sel = app.selection
-        if not hasattr(self, "_base_sel"):
-            self._base_sel = {
-                "outline": app.canvas.coords(sel.ids.outline or 0) if sel.ids.outline else None,
-                "handle": app.canvas.coords(sel.ids.handle_a or 0) if sel.ids.handle_a else None,
-            }
-        base = getattr(self, "_base_sel", {})
-        if sel.ids.outline and base.get("outline"):
-            x1, y1, x2, y2 = base["outline"]
-            app.selection.set_outline_bbox(x1 + dx, y1 + dy, x2 + dx, y2 + dy)
-        if sel.ids.handle_a and base.get("handle"):
-            x1, y1, x2, y2 = base["handle"]
-            app.canvas.coords(sel.ids.handle_a, x1 + dx, y1 + dy, x2 + dx, y2 + dy)
+        try:
+            tag = layer_tag(Layer_Name.preview)
+            bb = app.canvas.bbox(tag)
+            if bb:
+                x1, y1, x2, y2 = bb
+                if CLAMP_DRAG_BBOX:
+                    vbb = _visible_viewport_bbox(app.canvas)
+                    if vbb:
+                        vx1, vy1, vx2, vy2 = vbb
+                        cx1 = max(x1, vx1)
+                        cy1 = max(y1, vy1)
+                        cx2 = min(x2, vx2)
+                        cy2 = min(y2, vy2)
+                        if cx1 < cx2 and cy1 < cy2:
+                            x1, y1, x2, y2 = cx1, cy1, cx2, cy2
+                app.selection.set_outline_bbox(x1, y1, x2, y2)
+        except Exception:
+            pass
 
     def commit(self, app, evt: tk.Event) -> None:
         mods = get_mods(evt)

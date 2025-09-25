@@ -23,6 +23,7 @@ ANTS_STEP = 1
 _DASH_TOTAL = sum(MARQUEE_DASH)
 _TAG_OUTLINE = "ants:outline"
 _TAG_MARQUEE = "ants:marquee"
+IDLE_PAD = 4
 
 
 @dataclass(slots=True)
@@ -69,6 +70,11 @@ class SelectionOverlay:
             return
 
         x1, y1, x2, y2 = bbox
+        if kind in (Hit_Kind.icon, Hit_Kind.label):
+            x1 -= IDLE_PAD
+            y1 -= IDLE_PAD
+            x2 += IDLE_PAD
+            y2 += IDLE_PAD
         self.ids.outline = self._create_rect(x1, y1, x2, y2)
         self.canvas.itemconfigure(self.ids.outline, outline="", width=2)
         try:
