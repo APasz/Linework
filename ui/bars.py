@@ -361,7 +361,7 @@ class Bars:
                 self._render()
 
         # ---- temporary overlays (auto-clear) ----
-        def temp(self, text: str, ms: int = 7500, *, priority: int = 50, side: Side = Side.centre):
+        def temp(self, text: str, ms: int = 1500, *, priority: int = 50, side: Side = Side.centre):
             # cancel previous timer
             if self._temp_after:
                 try:

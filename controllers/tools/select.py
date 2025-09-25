@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 from canvas.layers import Hit_Kind, Layer_Name, test_hit
 from controllers.commands import Move_Line_End
-from controllers.tools_base import DragAction, DragIcon, DragLabel, DragMarquee, ToolBase
 from controllers.tools.draw import Draw_Tool
+from controllers.tools_base import DragAction, DragIcon, DragLabel, DragMarquee, ToolBase
 from models.geo import Point
 from models.styling import TkCursor
 from ui.bars import Tool_Name
@@ -27,7 +27,7 @@ class DragLineEndpoint(DragAction):
     def update(self, app, evt: tk.Event) -> None:
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
-        q = Draw_Tool._maybe_cardinal(app, self.start_other, p, shift=mods.shift)
+        q = Draw_Tool._maybe_cardinal(app, self.start_other, p, shift=mods.ctrl)
         a, b = (q, self.start_other) if self.which == "a" else (self.start_other, q)
 
         app.layers.clear_preview()
@@ -42,13 +42,13 @@ class DragLineEndpoint(DragAction):
         if app.selection.ids.outline and app.canvas.type(app.selection.ids.outline):
             x1, y1 = min(a.x, b.x), min(a.y, b.y)
             x2, y2 = max(a.x, b.x), max(a.y, b.y)
-            app.canvas.coords(app.selection.ids.outline, x1, y1, x2, y2)
+            app.selection.set_outline_bbox(x1, y1, x2, y2)
 
     def commit(self, app, evt: tk.Event) -> None:
         app.layers.clear_preview()
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
-        p = Draw_Tool._maybe_cardinal(app, self.start_other, p, shift=mods.shift)
+        p = Draw_Tool._maybe_cardinal(app, self.start_other, p, shift=mods.ctrl)
 
         app.cmd.push_and_do(
             Move_Line_End(

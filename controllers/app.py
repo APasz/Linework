@@ -308,8 +308,9 @@ class App:
 
     def on_canvas_size_change(self, *_):
         try:
-            w = max(self.params.grid_size, int(self.var_width_px.get()))
-            h = max(self.params.grid_size, int(self.var_height_px.get()))
+            g = self.params.grid_size
+            w = max(1, max(g, int(self.var_width_px.get())))
+            h = max(1, max(g, int(self.var_height_px.get())))
         except ValueError:
             return
         self.params.width, self.params.height = w, h
@@ -421,9 +422,6 @@ class App:
     def _status_hints_set(self):
         # use a stable key so you update instead of stacking
         self.status.hold("hints", self.tool_mgr.current.tool_hints, side=Side.right, priority=0)
-
-    def on_style_changed(self, style_name: str):
-        self.status.temp(f"Line style: {style_name}", ms=1500)  # centre info
 
     def on_icon_selected(self, icon_name: str):
         self.status.temp(f"Icon: {icon_name}", ms=1500)
@@ -555,7 +553,7 @@ class App:
         self.var_brush_w.set(self.params.brush_width)
         self.var_bg.set(self.params.bg_mode.name or "Unknown")
         self.var_colour.set(self.params.brush_colour.name or "Unknown")
-        self.var_line_style.set(self.params.line_style)
+        self.var_line_style.set(self.params.line_style.value)
         display_bg = Colours.sys.dark_gray.hex if self.params.bg_mode.alpha == 0 else self.params.bg_mode.hex
         self.canvas.config(width=self.params.width, height=self.params.height, bg=display_bg)
 

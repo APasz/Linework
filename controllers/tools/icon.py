@@ -70,8 +70,16 @@ class Icon_Tool(ToolBase):
         app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers.redraw(Layer_Name.icons)))
         app.mark_dirty()
 
-        rec = [s for s in app.params.recent_icons if s != src]
-        rec.insert(0, src)
+        def _src_key(s):
+            return (s.kind.value, getattr(s, "name", None), str(getattr(s, "src", "")))
+
+        rec = []
+        seen = set()
+        for s in [src, *app.params.recent_icons]:
+            k = _src_key(s)
+            if k not in seen:
+                seen.add(k)
+                rec.append(s)
         app.params.recent_icons = rec[:24]
 
         app.current_icon = src

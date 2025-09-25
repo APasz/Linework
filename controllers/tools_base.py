@@ -129,10 +129,11 @@ class DragLabel(DragAction):
                 "outline": app.canvas.coords(sel.ids.outline or 0) if sel.ids.outline else None,
                 "handle": app.canvas.coords(sel.ids.handle_a or 0) if sel.ids.handle_a else None,
             }
+
         base = getattr(self, "_base_sel", {})
         if sel.ids.outline and base.get("outline"):
             x1, y1, x2, y2 = base["outline"]
-            app.canvas.coords(sel.ids.outline, x1 + dx, y1 + dy, x2 + dx, y2 + dy)
+            app.selection.set_outline_bbox(x1 + dx, y1 + dy, x2 + dx, y2 + dy)
         if sel.ids.handle_a and base.get("handle"):
             x1, y1, x2, y2 = base["handle"]
             app.canvas.coords(sel.ids.handle_a, x1 + dx, y1 + dy, x2 + dx, y2 + dy)
@@ -198,7 +199,7 @@ class DragIcon(DragAction):
         base = getattr(self, "_base_sel", {})
         if sel.ids.outline and base.get("outline"):
             x1, y1, x2, y2 = base["outline"]
-            app.canvas.coords(sel.ids.outline, x1 + dx, y1 + dy, x2 + dx, y2 + dy)
+            app.selection.set_outline_bbox(x1 + dx, y1 + dy, x2 + dx, y2 + dy)
         if sel.ids.handle_a and base.get("handle"):
             x1, y1, x2, y2 = base["handle"]
             app.canvas.coords(sel.ids.handle_a, x1 + dx, y1 + dy, x2 + dx, y2 + dy)

@@ -1,5 +1,6 @@
 import math
 import tkinter as tk
+from collections import OrderedDict
 from collections.abc import Collection
 from enum import StrEnum
 from pathlib import Path
@@ -63,7 +64,7 @@ class Label(Model):
     col: Colour
     anchor: Anchor = Anchor.W
     size: int = 12
-    rotation: int = 37
+    rotation: int = 37  # Intentional
     snap: bool = True
 
     def with_point(self, p: Point) -> Self:
@@ -92,14 +93,6 @@ class Icon_Source(Model):
             if self.src is None or self.name is not None:
                 raise ValueError("picture Icon_Source requires src and forbids name")
         return self
-
-    def __post_init__(self):
-        if self.kind is Icon_Type.builtin:
-            if self.name is None or self.src is not None:
-                raise ValueError("builtin Icon_Source requires name and forbids src")
-        elif self.kind is Icon_Type.picture:
-            if self.src is None or self.name is not None:
-                raise ValueError("picture Icon_Source requires src and forbids name")
 
     @classmethod
     def builtin(cls, name: Icon_Name | str) -> "Icon_Source":
@@ -440,9 +433,10 @@ class CanvasLW(tk.Canvas):
         bw, bh = pic.bbox_wh()
         cx, cy = pic.anchor._centre(pic.p.x, pic.p.y, bw, bh)
 
+        # LRU init
         cache = getattr(self, "_picture_cache", None)
         if cache is None:
-            cache = self._picture_cache = {}
+            cache = self._picture_cache = OrderedDict()
         item_map = getattr(self, "_item_images", None)
         if item_map is None:
             item_map = self._item_images = {}
@@ -450,16 +444,25 @@ class CanvasLW(tk.Canvas):
         key = (str(Path(pic.src)), bw, bh, pic.rotation % 360)
 
         ph = cache.get(key)
-        if ph is None:
+        if ph is not None:
+            # Mark as recently used
+            cache.move_to_end(key)
+        else:
             im = _open_rgba(pic.src, bw, bh)
             rot = pic.rotation % 360
             if rot:
                 im = im.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
-            ph = ImageTk.PhotoImage(im)
+            # Tie the image to this canvas’ Tk master
+            ph = ImageTk.PhotoImage(im, master=self)
             cache[key] = ph
 
+            # Evict least-recently-used if above capacity
+            MAX_CACHE = 128  # tune to taste
+            while len(cache) > MAX_CACHE:
+                cache.popitem(last=False)  # LRU eviction
+
         iid = super().create_image(cx, cy, image=ph, tags=tag)
-        item_map[iid] = ph
+        item_map[iid] = ph  # keep a per-item ref so it doesn't get GC'd while displayed
         return ItemID(iid)
 
     def delete(self, *items):
