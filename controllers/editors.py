@@ -54,6 +54,26 @@ class Editors:
             Builtin_Icon: self._plan_builtin_icon,
             Picture_Icon: self._plan_picture_icon,
         }
+        # per-session sticky defaults (not persisted)
+        self._label_defaults: dict[str, Any] | None = None
+        self._icon_defaults: dict[str, Any] | None = None
+
+    # ---------- apply session defaults ----------
+    def apply_label_defaults(self, lab: Label) -> None:
+        d = self._label_defaults
+        if not d:
+            return
+        lab.size = int(d.get("size", lab.size))
+        lab.rotation = int(d.get("rotation", lab.rotation))
+        lab.anchor = Anchor.parse(d.get("anchor")) or lab.anchor
+
+    def apply_icon_defaults(self, ico) -> None:
+        d = self._icon_defaults
+        if not d:
+            return
+        ico.size = int(d.get("size", ico.size))
+        ico.rotation = int(d.get("rotation", ico.rotation))
+        ico.anchor = Anchor.parse(d.get("anchor")) or ico.anchor
 
     def _colour_choices(self) -> list[str]:
         return Colours.names(min_alpha=25)
@@ -116,6 +136,7 @@ class Editors:
             FieldSpec("rotation", "Rotation (deg)", EKind.INT),
             FieldSpec("anchor", "Anchor", EKind.CHOICE, choices=self._anchor_choices_tk),
             FieldSpec("colour", "Colour", EKind.CHOICE, choices=self._colour_choices),
+            FieldSpec("remember_defaults", "Remember size/rotation/anchor for this session", EKind.BOOL),
         ]
 
         def init(lab: Label) -> dict[str, Any]:
@@ -129,6 +150,7 @@ class Editors:
                 rotation=lab.rotation,
                 anchor=lab.anchor.tk,
                 colour=lab.col.name,
+                remember_defaults=False,
             )
 
         def apply(lab: Label, data: dict[str, Any]):
@@ -142,6 +164,12 @@ class Editors:
             lab.rotation = int(data.get("rotation", 0))
             lab.anchor = Anchor.parse(data["anchor"]) or lab.anchor
             lab.col = Colours.parse_colour(data["colour"]) if data.get("colour") else lab.col
+            if data.get("remember_defaults"):
+                self._label_defaults = {
+                    "size": int(data["size"]),
+                    "rotation": int(data.get("rotation", 0)),
+                    "anchor": data["anchor"],
+                }
 
         return EditPlan(title="Edit Label", fields=fields, init=init, apply=apply)
 
@@ -208,6 +236,7 @@ class Editors:
                 size=ico.size,
                 rotation=ico.rotation,
                 anchor=ico.anchor.tk,
+                remember_defaults=False,
             )
 
         def apply(ico: Builtin_Icon, data: dict[str, Any]):
@@ -222,6 +251,12 @@ class Editors:
             ico.anchor = Anchor.parse(data["anchor"]) or ico.anchor
             if data.get("colour"):
                 ico.col = Colours.parse_colour(data["colour"])
+            if data.get("remember_defaults"):
+                self._icon_defaults = {
+                    "size": int(data["size"]),
+                    "rotation": int(data.get("rotation", 0)),
+                    "anchor": data["anchor"],
+                }
 
         return EditPlan(title="Edit Icon", fields=fields, init=init, apply=apply)
 
@@ -242,6 +277,7 @@ class Editors:
                 size=pic.size,
                 rotation=pic.rotation,
                 anchor=pic.anchor.tk,
+                remember_defaults=False,
             )
 
         def apply(pic: Picture_Icon, data: dict[str, Any]):
@@ -255,6 +291,12 @@ class Editors:
             pic.size = int(data["size"])
             pic.rotation = int(data.get("rotation", 0))
             pic.anchor = Anchor.parse(data["anchor"]) or pic.anchor
+            if data.get("remember_defaults"):
+                self._icon_defaults = {
+                    "size": int(data["size"]),
+                    "rotation": int(data.get("rotation", 0)),
+                    "anchor": data["anchor"],
+                }
 
         return EditPlan(title="Edit Picture", fields=fields, init=init, apply=apply)
 
@@ -268,4 +310,5 @@ class Editors:
             FieldSpec("size", "Size", EKind.INT, min=1),
             FieldSpec("rotation", "Rotation (deg)", EKind.INT),
             FieldSpec("anchor", "Anchor", EKind.CHOICE, choices=self._anchor_choices_tk),
+            FieldSpec("remember_defaults", "Remember size/rotation/anchor for this session", EKind.BOOL),
         ]

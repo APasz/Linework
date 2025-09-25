@@ -62,6 +62,7 @@ class Icon_Tool(ToolBase):
             ico = Picture_Icon(p=p, col=app.params.brush_colour, src=src.src, size=192, snap=not mods.alt)
         else:
             return
+        app.editors.apply_icon_defaults(ico)
 
         if mods.shift:
             if not app.editors.edit(app.root, ico):

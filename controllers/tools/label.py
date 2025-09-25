@@ -33,6 +33,7 @@ class Label_Tool(ToolBase):
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
         if mods.shift:
             lab = Label(p=p, text="", col=app.params.brush_colour, snap=not mods.alt)
+            app.editors.apply_label_defaults(lab)
             if app.editors.edit(app.root, lab):
                 app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Name.labels)))
                 app.mark_dirty()
@@ -42,6 +43,7 @@ class Label_Tool(ToolBase):
         if not text:
             return
         lab = Label(p=p, text=text, col=app.params.brush_colour, snap=not mods.alt)
+        app.editors.apply_label_defaults(lab)
         app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Name.labels)))
         app.mark_dirty()
 
