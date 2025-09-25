@@ -87,6 +87,7 @@ class Select_Tool(ToolBase):
         mods = get_mods(evt)
         hit = test_hit(app.canvas, evt.x, evt.y)
 
+        # empty space -> marquee; Ctrl means additive
         if not hit:
             if not mods.ctrl:
                 app.select_clear()
@@ -94,66 +95,43 @@ class Select_Tool(ToolBase):
             app.selection.show_marquee(self._drag.a)
             return
 
-        if mods.ctrl and hit.tag_idx is not None:
-            if app.is_selected(hit.kind, hit.tag_idx):
-                app.select_remove(hit.kind, hit.tag_idx)
-            else:
-                app.select_add(hit.kind, hit.tag_idx, make_primary=True)
-            return
-
-        app.select_set([(hit.kind, hit.tag_idx if hit.tag_idx is not None else -1)])
-
+        # keep endpoint dragging working regardless of modifiers
         if hit.kind == Hit_Kind.line and hit.endpoint and (hit.tag_idx is not None):
             ln = app.params.lines[hit.tag_idx]
             other = ln.b if hit.endpoint == "a" else ln.a
             start = ln.a if hit.endpoint == "a" else ln.b
-            self._drag = DragLineEndpoint(
-                idx=hit.tag_idx if hit.tag_idx is not None else -1,
-                which=hit.endpoint,
-                start_other=other,
-                start=start,
+            self._drag = DragLineEndpoint(idx=hit.tag_idx, which=hit.endpoint, start_other=other, start=start)
+            return
+
+        # Ctrl-click toggles selection, no drag
+        if mods.ctrl and hit.tag_idx is not None:
+            if app.is_selected(hit.kind, hit.tag_idx):
+                app.select_remove(hit.kind, hit.tag_idx)
+            else:
+                app.select_add(hit.kind, hit.tag_idx, make_primary=False)
+            return
+
+        # clicking inside existing multi-selection drags the group
+        if hit.tag_idx is not None and app.is_selected(hit.kind, hit.tag_idx) and len(app.multi_sel) > 1:
+            labels = [(i, app.params.labels[i].p) for k, i in app.multi_sel if k == Hit_Kind.label]
+            icons = [(i, app.params.icons[i].p) for k, i in app.multi_sel if k == Hit_Kind.icon]
+            lines = [(i, app.params.lines[i].a, app.params.lines[i].b) for k, i in app.multi_sel if k == Hit_Kind.line]
+            self._drag = DragGroup(
+                items=list(app.multi_sel), start_mouse=Point(x=evt.x, y=evt.y), labels=labels, icons=icons, lines=lines
             )
             return
 
-        if len(app.multi_sel) > 1:
-            labels = []
-            icons = []
-            lines = []
-            for k, i in app.multi_sel:
-                if k == Hit_Kind.label and i is not None:
-                    labels.append((i, app.params.labels[i].p))
-                elif k == Hit_Kind.icon and i is not None:
-                    icons.append((i, app.params.icons[i].p))
-                elif k == Hit_Kind.line and i is not None:
-                    ln = app.params.lines[i]
-                    lines.append((i, ln.a, ln.b))
-            self._drag = DragGroup(
-                items=list(app.multi_sel),
-                start_mouse=Point(x=int(evt.x), y=int(evt.y)),
-                labels=labels,
-                icons=icons,
-                lines=lines,
-            )
-            return
+        # fallback: single select, then single-item drag
+        app.select_set([(hit.kind, hit.tag_idx if hit.tag_idx is not None else -1)])
 
         if hit.kind == Hit_Kind.label and hit.tag_idx is not None:
             lb = app.params.labels[hit.tag_idx]
-            self._drag = DragLabel(
-                idx=hit.tag_idx,
-                start=lb.p,
-                offset_dx=int(evt.x) - lb.p.x,
-                offset_dy=int(evt.y) - lb.p.y,
-            )
+            self._drag = DragLabel(idx=hit.tag_idx, start=lb.p, offset_dx=evt.x - lb.p.x, offset_dy=evt.y - lb.p.y)
             return
 
         if hit.kind == Hit_Kind.icon and hit.tag_idx is not None:
             ic = app.params.icons[hit.tag_idx]
-            self._drag = DragIcon(
-                idx=hit.tag_idx,
-                start=ic.p,
-                offset_dx=int(evt.x) - ic.p.x,
-                offset_dy=int(evt.y) - ic.p.y,
-            )
+            self._drag = DragIcon(idx=hit.tag_idx, start=ic.p, offset_dx=evt.x - ic.p.x, offset_dy=evt.y - ic.p.y)
             return
 
         self._drag = None

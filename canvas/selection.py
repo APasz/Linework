@@ -90,22 +90,34 @@ class SelectionOverlay:
 
     def clear(self, keep_marquee: bool = False):
         try:
-            for name in ("outline", "hilite", "handle_a", "handle_b", "outline_bevel"):
+            for name in ("outline", "hilite", "handle_a", "handle_b"):
                 iid = getattr(self.ids, name)
                 if iid and self.canvas.type(iid):
                     self.canvas.delete(iid)
                     setattr(self.ids, name, None)
 
+            try:
+                self.canvas.delete(_TAG_OUTLINE)
+            except Exception:
+                pass
+            self.ids.outline_bevel = None
+            self._edge_meta[_TAG_OUTLINE] = []
+
             if not keep_marquee:
-                if self.ids.marquee_bevel and self.canvas.type(self.ids.marquee_bevel):
-                    self.canvas.delete(self.ids.marquee_bevel)
+                try:
+                    self.canvas.delete(_TAG_MARQUEE)
+                except Exception:
+                    pass
                 self.ids.marquee_bevel = None
+                self._edge_meta[_TAG_MARQUEE] = []
+
             for itag in list(self._outline_tags):
                 try:
                     self.canvas.delete(itag)
                 except Exception:
                     pass
                 self._outline_tags.discard(itag)
+
             self.kind, self.idx = Hit_Kind.miss, None
             self._maybe_stop_ants()
         except Exception as xcp:
