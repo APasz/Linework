@@ -87,7 +87,6 @@ class Select_Tool(ToolBase):
         mods = get_mods(evt)
         hit = test_hit(app.canvas, evt.x, evt.y)
 
-        # empty space -> marquee; Ctrl means additive
         if not hit:
             if not mods.ctrl:
                 app.select_clear()
@@ -95,7 +94,6 @@ class Select_Tool(ToolBase):
             app.selection.show_marquee(self._drag.a)
             return
 
-        # keep endpoint dragging working regardless of modifiers
         if hit.kind == Hit_Kind.line and hit.endpoint and (hit.tag_idx is not None):
             ln = app.params.lines[hit.tag_idx]
             other = ln.b if hit.endpoint == "a" else ln.a
@@ -103,7 +101,6 @@ class Select_Tool(ToolBase):
             self._drag = DragLineEndpoint(idx=hit.tag_idx, which=hit.endpoint, start_other=other, start=start)
             return
 
-        # Ctrl-click toggles selection, no drag
         if mods.ctrl and hit.tag_idx is not None:
             if app.is_selected(hit.kind, hit.tag_idx):
                 app.select_remove(hit.kind, hit.tag_idx)
@@ -111,7 +108,6 @@ class Select_Tool(ToolBase):
                 app.select_add(hit.kind, hit.tag_idx, make_primary=False)
             return
 
-        # clicking inside existing multi-selection drags the group
         if hit.tag_idx is not None and app.is_selected(hit.kind, hit.tag_idx) and len(app.multi_sel) > 1:
             labels = [(i, app.params.labels[i].p) for k, i in app.multi_sel if k == Hit_Kind.label]
             icons = [(i, app.params.icons[i].p) for k, i in app.multi_sel if k == Hit_Kind.icon]
@@ -121,7 +117,6 @@ class Select_Tool(ToolBase):
             )
             return
 
-        # fallback: single select, then single-item drag
         app.select_set([(hit.kind, hit.tag_idx if hit.tag_idx is not None else -1)])
 
         if hit.kind == Hit_Kind.label and hit.tag_idx is not None:

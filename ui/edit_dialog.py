@@ -447,3 +447,35 @@ class GenericEditDialog(simpledialog.Dialog):
         if isinstance(v, Path):
             return v.name
         return "" if v is None else str(v)
+
+    def _close_popdowns(self):
+        # Close any open ttk combobox popdowns to avoid X BadWindow on X11
+        for w in self.widgets.values():
+            if isinstance(w, ttk.Combobox):
+                try:
+                    w.event_generate("<Escape>")  # closes the popdown if open
+                except Exception:
+                    pass
+        try:
+            self.update_idletasks()
+        except Exception:
+            pass
+
+    def _hide_combobox_popdowns(self):
+        # Close any open ttk.Combobox popdown without triggering dialog bindings
+        for w in self.widgets.values():
+            if isinstance(w, ttk.Combobox):
+                try:
+                    pop = w.tk.call("ttk::combobox::PopdownWindow", str(w))
+                    if pop:
+                        w.tk.call("place", "forget", pop)
+                except tk.TclError:
+                    pass
+        try:
+            self.update_idletasks()
+        except tk.TclError:
+            pass
+
+    def destroy(self):
+        self._hide_combobox_popdowns()
+        super().destroy()
