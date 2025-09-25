@@ -44,6 +44,8 @@ class App:
         self.params: Params = IO.load_params(self.project_path) if self.project_path.exists() else Params()
         self.asset_lib = get_asset_library(self.project_path)
         self.dirty = False
+        self.autosave_every = 10
+        self._actions_since_autosave = 0
 
         # ---------- theme ----------
         if sv_ttk:
@@ -527,6 +529,21 @@ class App:
         self.select_set(items)
 
     # ========= export / persistence =========
+    @property
+    def _autosave_path(self) -> Path:
+        return self.project_path / ".autosave"
+
+    def _maybe_autosave(self):
+        if getattr(self, "autosave_every", 0) <= 0:
+            return
+        self._actions_since_autosave += 1
+        if self._actions_since_autosave % self.autosave_every == 0:
+            try:
+                IO.save_params(self.params, self._autosave_path)
+                self.status.temp(f"Autosaved: {self._autosave_path.name}")
+            except Exception:
+                pass
+
     def export_image(self):
         initialfile = self.params.output_file.name
         path = filedialog.asksaveasfilename(
@@ -568,6 +585,8 @@ class App:
             return False
         self.mark_clean()
         self.on_file_saved(self.project_path)
+        self._actions_since_autosave = 0
+        self._autosave_path.unlink(missing_ok=True)
         return True
 
     def save_project_as(self) -> bool:
@@ -693,6 +712,7 @@ class App:
     def mark_dirty(self, _reason: str = ""):
         self.dirty = True
         self._update_title()
+        self._maybe_autosave()
 
     def mark_clean(self):
         self.dirty = False
