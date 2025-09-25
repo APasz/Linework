@@ -49,10 +49,6 @@ class Tool(Protocol):
     def on_cancel(self, app: App) -> None: ...
 
 
-def _offgrid(p, g: int) -> bool:
-    return g > 0 and ((p.x % g) != 0 or (p.y % g) != 0)
-
-
 class ToolBase:
     """Common helpers for all tools. Keep it boring, keep it reliable."""
 
@@ -119,7 +115,7 @@ class DragLabel(DragAction):
         lab = app.params.labels[self.idx]
         p = app.snap(
             Point(x=evt.x - self.offset_dx, y=evt.y - self.offset_dy),
-            ignore_grid=(mods.alt or not lab.snap or _offgrid(self.start, app.params.grid_size)),
+            ignore_grid=(mods.alt or not lab.snap),
         )
         dx, dy = p.x - self.start.x, p.y - self.start.y
 
@@ -146,8 +142,14 @@ class DragLabel(DragAction):
         lab = app.params.labels[self.idx]
         p = app.snap(
             Point(x=evt.x - self.offset_dx, y=evt.y - self.offset_dy),
-            ignore_grid=(mods.alt or not lab.snap or _offgrid(self.start, app.params.grid_size)),
+            ignore_grid=(mods.alt or not lab.snap),
         )
+        g = app.params.grid_size
+        off_grid = g > 0 and ((p.x % g) != 0 or (p.y % g) != 0)
+        if mods.alt or off_grid:
+            lab.snap = False
+        elif g > 0:
+            lab.snap = True
         app.layers.clear_preview()
         app.cmd.push_and_do(
             Move_Label(
@@ -178,7 +180,7 @@ class DragIcon(DragAction):
         ico = app.params.icons[self.idx]
         p = app.snap(
             Point(x=evt.x - self.offset_dx, y=evt.y - self.offset_dy),
-            ignore_grid=(mods.alt or not ico.snap or _offgrid(self.start, app.params.grid_size)),
+            ignore_grid=(mods.alt or not ico.snap),
         )
         dx, dy = p.x - self.start.x, p.y - self.start.y
 
@@ -205,8 +207,14 @@ class DragIcon(DragAction):
         ico = app.params.icons[self.idx]
         p = app.snap(
             Point(x=evt.x - self.offset_dx, y=evt.y - self.offset_dy),
-            ignore_grid=(mods.alt or not ico.snap or _offgrid(self.start, app.params.grid_size)),
+            ignore_grid=(mods.alt or not ico.snap),
         )
+        g = app.params.grid_size
+        off_grid = g > 0 and ((p.x % g) != 0 or (p.y % g) != 0)
+        if mods.alt or off_grid:
+            ico.snap = False
+        elif g > 0:
+            ico.snap = True
         app.layers.clear_preview()
         app.cmd.push_and_do(
             Move_Icon(

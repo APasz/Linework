@@ -374,6 +374,7 @@ class App:
     def on_undo(self, _evt=None):
         self.tool_mgr.cancel()
         self.cmd.undo()
+        self.repair_snap_flags(self.params)
         self.layers.redraw_all()
         self.selection.update_bbox()
         self.mark_dirty()
@@ -382,6 +383,7 @@ class App:
     def on_redo(self, _evt=None):
         self.tool_mgr.cancel()
         self.cmd.redo()
+        self.repair_snap_flags(self.params)
         self.layers.redraw_all()
         self.selection.update_bbox()
         self.mark_dirty()
