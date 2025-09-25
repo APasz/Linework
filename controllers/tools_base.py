@@ -161,6 +161,7 @@ class DragLabel(DragAction):
             )
         )
         app.selection.update_bbox()
+        app._set_selected(Hit_Kind.label, self.idx)
         app.mark_dirty()
 
     def cancel(self, app) -> None:
@@ -226,6 +227,7 @@ class DragIcon(DragAction):
             )
         )
         app.selection.update_bbox()
+        app._set_selected(Hit_Kind.icon, self.idx)
         app.mark_dirty()
 
     def cancel(self, app) -> None:

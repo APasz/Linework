@@ -123,9 +123,10 @@ class Status_Handles(ttk.Frame):
         self.columnconfigure(1, weight=1)
         self.columnconfigure(2, weight=1)
 
-        self.lbl_left.grid(row=0, column=0, sticky="ew", padx=6)
-        self.lbl_centre.grid(row=0, column=1, sticky="ew", padx=6)
-        self.lbl_right.grid(row=0, column=2, sticky="ew", padx=6)
+        self.lbl_left.grid(row=0, column=0, sticky="w", padx=6)
+        self.lbl_right.grid(row=0, column=2, sticky="e", padx=6)
+        self.lbl_centre.place(relx=0.5, rely=0.5, anchor="center")
+        self.lbl_centre.lower()
 
 
 class Bars:
@@ -317,7 +318,7 @@ class Bars:
 
     class Status:
         def __init__(self, root: tk.Misc):
-            self.var_left = tk.StringVar(value="")
+            self.var_left = tk.StringVar(value="Ready")
             self.var_centre = tk.StringVar(value="")
             self.var_right = tk.StringVar(value="")
             self._root = root

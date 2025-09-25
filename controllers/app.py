@@ -336,7 +336,6 @@ class App:
         except ValueError:
             col = Colours.black
         self.params.brush_colour = col
-        self.status.temp(f"Brush: {Colours.name_for(col) or col.hexa}")
 
     def on_double_click(self, evt):
         self.tool_mgr.cancel()
@@ -362,6 +361,7 @@ class App:
             self.layers.redraw(layer, True)
             self.selection.update_bbox()
             self.mark_dirty()
+            self._set_selected(hit.kind, hit.tag_idx)
             self.status.temp("Updated", 1200)
 
     # ========= undo/redo/clear =========
@@ -379,6 +379,7 @@ class App:
         self.selection.update_bbox()
         self.mark_dirty()
         self.status.temp("Undo")
+        self._set_selected(self.selection_kind, self.selection_index)
 
     def on_redo(self, _evt=None):
         self.tool_mgr.cancel()
@@ -388,6 +389,7 @@ class App:
         self.selection.update_bbox()
         self.mark_dirty()
         self.status.temp("Redo")
+        self._set_selected(self.selection_kind, self.selection_index)
 
     def on_clear(self, _evt=None):
         self.tool_mgr.cancel()

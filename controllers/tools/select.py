@@ -61,6 +61,7 @@ class DragLineEndpoint(DragAction):
             )
         )
         app.selection.update_bbox()
+        app._set_selected(Hit_Kind.line, self.idx)
         app.mark_dirty()
 
     def cancel(self, app) -> None:
