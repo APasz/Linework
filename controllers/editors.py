@@ -46,7 +46,7 @@ class EditPlan(Generic[M]):
 
 
 class Editors:
-    def __init__(self, app: App) -> None:
+    def __init__(self, app: App):
         self.app = app
         self._registry: dict[type, Callable[[Any], EditPlan[Any]]] = {
             Label: self._plan_label,
@@ -131,7 +131,7 @@ class Editors:
                 colour=lab.col.name,
             )
 
-        def apply(lab: Label, data: dict[str, Any]) -> None:
+        def apply(lab: Label, data: dict[str, Any]):
             p = Point(x=int(data["x"]), y=int(data["y"]))
             if data.get("snap_to_grid"):
                 p = self.app.snap(p)
@@ -174,7 +174,7 @@ class Editors:
                 dash_offset=lin.dash_offset,
             )
 
-        def apply(lin: Line, data: dict[str, Any]) -> None:
+        def apply(lin: Line, data: dict[str, Any]):
             a = Point(x=int(data["x1"]), y=int(data["y1"]))
             b = Point(x=int(data["x2"]), y=int(data["y2"]))
             if data.get("snap_to_grid"):
@@ -210,7 +210,7 @@ class Editors:
                 anchor=ico.anchor.tk,
             )
 
-        def apply(ico: Builtin_Icon, data: dict[str, Any]) -> None:
+        def apply(ico: Builtin_Icon, data: dict[str, Any]):
             p = Point(x=int(data["x"]), y=int(data["y"]))
             if data.get("snap_to_grid"):
                 p = self.app.snap(p)
@@ -244,7 +244,7 @@ class Editors:
                 anchor=pic.anchor.tk,
             )
 
-        def apply(pic: Picture_Icon, data: dict[str, Any]) -> None:
+        def apply(pic: Picture_Icon, data: dict[str, Any]):
             p = Point(x=int(data["x"]), y=int(data["y"]))
             if data.get("snap_to_grid"):
                 p = self.app.snap(p)

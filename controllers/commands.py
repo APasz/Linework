@@ -43,6 +43,24 @@ class Command_Stack:
 
 # ---- Concrete commands ----
 @dataclass
+class Multi:
+    items: list[Command]
+    on_after: Callable[[], None] | None = None
+
+    def do(self):
+        for c in self.items:
+            c.do()
+        if self.on_after:
+            self.on_after()
+
+    def undo(self):
+        for c in reversed(self.items):
+            c.undo()
+        if self.on_after:
+            self.on_after()
+
+
+@dataclass
 class Add_Line:
     params: Params
     line: Line

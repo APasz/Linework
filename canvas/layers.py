@@ -30,7 +30,13 @@ def test_hit(canvas, x: int, y: int) -> Hit | None:
         tags = canvas.gettags(iid)
         for t in tags:
             if t.startswith("handle:"):
-                _, which, idx = t.split(":")
+                parts = t.split(":")
+                if len(parts) == 3:
+                    _, which, idx = parts
+                elif len(parts) == 4 and parts[1] == "line":
+                    _, _, idx, which = parts
+                else:
+                    continue
                 return Hit(kind=Hit_Kind.line, tag_idx=int(idx), endpoint=which)
 
     for iid in reversed(ids):

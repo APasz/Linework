@@ -21,14 +21,14 @@ class Label_Tool(ToolBase):
     cursor: TkCursor = TkCursor.XTERM
     tool_hints: str = "Shift: Editor  |  Alt: Ignore Grid"
 
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
         self._drag: DragAction | None = None
 
-    def on_activate(self, app: App) -> None:
+    def on_activate(self, app: App):
         pass
 
-    def on_press(self, app: App, evt: tk.Event) -> None:
+    def on_press(self, app: App, evt: tk.Event):
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
         if mods.shift:
@@ -45,16 +45,16 @@ class Label_Tool(ToolBase):
         app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Name.labels)))
         app.mark_dirty()
 
-    def on_motion(self, app: App, evt: tk.Event) -> None:
+    def on_motion(self, app: App, evt: tk.Event):
         if self._drag:
             self._drag.update(app, evt)
 
-    def on_release(self, app: App, evt: tk.Event) -> None:
+    def on_release(self, app: App, evt: tk.Event):
         if self._drag:
             self._drag.commit(app, evt)
             self._drag = None
 
-    def on_cancel(self, app: App) -> None:
+    def on_cancel(self, app: App):
         if self._drag:
             self._drag.cancel(app)
             self._drag = None

@@ -393,7 +393,7 @@ def _rgba(svg_hex: str) -> tuple[int, int, int, int]:
 # PIL dashed stroker for Lines
 
 
-def _stroke_dashed_line(draw: ImageDraw.ImageDraw, line: Line) -> None:
+def _stroke_dashed_line(draw: ImageDraw.ImageDraw, line: Line):
     ux, uy, L = line.unit()
     if L <= 0 or int(line.width) <= 0:
         return
@@ -617,7 +617,7 @@ class Exporter:
 # Raster sub-painters (PIL)
 
 
-def _draw_grid(draw: ImageDraw.ImageDraw, params: Params) -> None:
+def _draw_grid(draw: ImageDraw.ImageDraw, params: Params):
     if not (params.grid_visible and params.grid_size > 0):
         return
     for x in range(0, params.width + 1, params.grid_size):
@@ -626,7 +626,7 @@ def _draw_grid(draw: ImageDraw.ImageDraw, params: Params) -> None:
         draw.line([(0, y), (params.width, y)], fill=params.grid_colour.rgba, width=1)
 
 
-def _draw_lines(draw: ImageDraw.ImageDraw, params: Params) -> None:
+def _draw_lines(draw: ImageDraw.ImageDraw, params: Params):
     for lin in params.lines:
         _stroke_dashed_line(draw, lin)
 
@@ -658,7 +658,7 @@ def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.
     return cache, _font
 
 
-def _draw_labels(img: Image.Image, params: Params) -> None:
+def _draw_labels(img: Image.Image, params: Params):
     _, _font = _font_cache_factory()
     for lab in params.labels:
         if not lab.text:

@@ -21,14 +21,14 @@ class Draw_Tool(ToolBase):
     cursor: TkCursor = TkCursor.CROSSHAIR
     tool_hints: str = "Ctrl: Invert Cardinal  |  Shift: Editor  |  Alt: Ignore Grid"
 
-    def on_activate(self, app: App) -> None:
+    def on_activate(self, app: App):
         pass
 
-    def on_deactivate(self, app: App) -> None:
+    def on_deactivate(self, app: App):
         self.clear_preview(app)
         self._start = None
 
-    def on_press(self, app: App, evt: tk.Event) -> None:
+    def on_press(self, app: App, evt: tk.Event):
         mods = get_mods(evt)
         p0 = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=get_mods(evt).alt)
 
@@ -59,7 +59,7 @@ class Draw_Tool(ToolBase):
 
         self.begin(p0)
 
-    def on_motion(self, app: App, evt: tk.Event) -> None:
+    def on_motion(self, app: App, evt: tk.Event):
         if not self._start:
             return
         mods = get_mods(evt)
@@ -77,7 +77,7 @@ class Draw_Tool(ToolBase):
             dash_offset=app.params.line_dash_offset,
         )
 
-    def on_release(self, app: App, evt: tk.Event) -> None:
+    def on_release(self, app: App, evt: tk.Event):
         if not bool(app.var_drag_to_draw.get()):
             return
 
@@ -104,7 +104,7 @@ class Draw_Tool(ToolBase):
 
         self._start = None
 
-    def on_cancel(self, app: App) -> None:
+    def on_cancel(self, app: App):
         self.clear_preview(app)
         self._start = None
 

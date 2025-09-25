@@ -31,7 +31,7 @@ class Icon_Tool(ToolBase):
     cursor: TkCursor = TkCursor.CROSSHAIR
     tool_hints: str = "Ctrl: Picker  |  Shift: Editor  |  Alt: Ignore Grid"
 
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
         self._drag: DragAction | None = None
 
@@ -88,16 +88,16 @@ class Icon_Tool(ToolBase):
         if src.kind == Icon_Type.builtin and src.name:
             app.var_icon.set(src.name.value)
 
-    def on_motion(self, app: App, evt: tk.Event) -> None:
+    def on_motion(self, app: App, evt: tk.Event):
         if self._drag:
             self._drag.update(app, evt)
 
-    def on_release(self, app: App, evt: tk.Event) -> None:
+    def on_release(self, app: App, evt: tk.Event):
         if self._drag:
             self._drag.commit(app, evt)
             self._drag = None
 
-    def on_cancel(self, app: App) -> None:
+    def on_cancel(self, app: App):
         if self._drag:
             self._drag.cancel(app)
             self._drag = None

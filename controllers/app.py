@@ -17,6 +17,7 @@ from controllers.commands import (
     Delete_Icon,
     Delete_Label,
     Delete_Line,
+    Multi,
 )
 from controllers.editors import Editors
 from controllers.tools.draw import Draw_Tool
@@ -122,6 +123,7 @@ class App:
         self.selection = SelectionOverlay(self)
         self.selection_kind: Hit_Kind = Hit_Kind.miss
         self.selection_index: int | None = None
+        self.multi_sel: list[tuple[Hit_Kind, int]] = []
 
         # ---------- tools ----------
         self.tools: dict[Tool_Name, Tool] = {
@@ -145,9 +147,10 @@ class App:
         )
         self.canvas.bind("<ButtonRelease-1>", lambda e: (self.tool_mgr.on_release(e), "break")[-1])
         self.canvas.bind("<Double-Button-1>", lambda e: (self.on_double_click(e), "break")[-1])
+        self.canvas.bind("<Leave>", lambda e: self.status.clear_centre())
         self.root.bind("<Key>", lambda e: self.tool_mgr.on_key(e))
         self.root.bind("<Escape>", lambda e: self.tool_mgr.cancel())
-        self.canvas.bind("<Leave>", lambda e: self.status.clear_centre())
+        self.root.bind("<Control-a>", self._on_select_all)
 
         # global keys
         self.root.bind("<Delete>", self.on_delete)
@@ -207,10 +210,88 @@ class App:
     def _selected(self) -> tuple[Hit_Kind, int | None]:
         return self.selection_kind, self.selection_index
 
+    def is_selected(self, kind: Hit_Kind, idx: int) -> bool:
+        return (kind, idx) in self.multi_sel
+
+    def select_clear(self):
+        self.multi_sel.clear()
+        self._set_selected(Hit_Kind.miss, None)
+        self.selection.clear()
+
+    def select_set(self, items: list[tuple[Hit_Kind, int]]):
+        items = [(k, i) for k, i in items if (k and k != Hit_Kind.miss and i is not None)]
+        self.multi_sel = []
+        # make the first item primary if any
+        if items:
+            k0, i0 = items[0]
+            self._set_selected(k0, i0)
+            for k, i in items:
+                if (k, i) not in self.multi_sel:
+                    self.multi_sel.append((k, i))
+        else:
+            self._set_selected(Hit_Kind.miss, None)
+        primary = (
+            (self.selection_kind, self.selection_index)
+            if self.selection_index is not None and self.selection_kind != Hit_Kind.miss
+            else None
+        )
+        self.selection.show_many(self.multi_sel, primary=primary)
+        self._status_selected_hint()
+
+    def select_merge(self, items: list[tuple[Hit_Kind, int]]):
+        changed = False
+        for k, i in items:
+            if (k, i) not in self.multi_sel:
+                self.multi_sel.append((k, i))
+                changed = True
+        if changed:
+            if self.selection_kind == Hit_Kind.miss and self.multi_sel:
+                self.selection_kind, self.selection_index = self.multi_sel[0]
+            primary = (
+                (self.selection_kind, self.selection_index)
+                if self.selection_index is not None and self.selection_kind != Hit_Kind.miss
+                else None
+            )
+            self.selection.show_many(self.multi_sel, primary=primary)
+            self._status_selected_hint()
+
+    def select_add(self, kind: Hit_Kind, idx: int, make_primary: bool = False):
+        if (kind, idx) not in self.multi_sel:
+            self.multi_sel.append((kind, idx))
+        if make_primary:
+            self._set_selected(kind, idx)
+        primary = (
+            (self.selection_kind, self.selection_index)
+            if self.selection_index is not None and self.selection_kind != Hit_Kind.miss
+            else None
+        )
+        self.selection.show_many(self.multi_sel, primary=primary)
+        self._status_selected_hint()
+
+    def select_remove(self, kind: Hit_Kind, idx: int):
+        try:
+            self.multi_sel.remove((kind, idx))
+        except ValueError:
+            pass
+        if self.selection_kind == kind and self.selection_index == idx:
+            # promote first remaining as primary
+            if self.multi_sel:
+                self.selection_kind, self.selection_index = self.multi_sel[0]
+            else:
+                self.selection_kind, self.selection_index = Hit_Kind.miss, None
+        primary = (
+            (self.selection_kind, self.selection_index)
+            if self.selection_index is not None and self.selection_kind != Hit_Kind.miss
+            else None
+        )
+        self.selection.show_many(self.multi_sel, primary=primary)
+        self._status_selected_hint()
+
     def _set_selected(self, kind: Hit_Kind, idx: int | None):
         self.selection_kind, self.selection_index = kind, idx
         if kind and kind != Hit_Kind.miss and idx is not None:
-            self.selection.show(kind, idx)
+            self.multi_sel = [(kind, idx)]
+            self.selection.show_many(self.multi_sel, primary=(kind, idx))
             if kind == Hit_Kind.line and idx is not None:
                 lin = self.params.lines[idx]
                 _, _, L = lin.unit()
@@ -238,6 +319,9 @@ class App:
                     side=Side.centre,
                 )
             else:
+                self.multi_sel.clear()
+                self.selection.show_many([])
+                self.selection.clear_marquee()
                 self.status.release("sel")
         else:
             self.selection.clear()
@@ -246,21 +330,21 @@ class App:
     def on_delete(self, _evt=None):
         self.tool_mgr.cancel()
         kind, idx = self._selected()
-        if idx is None or not kind or str(kind.value) == "":
+        if not self.multi_sel:
             self.status.temp("Nothing selected to delete", 1500)
             return
 
-        if kind == Hit_Kind.line:
-            self.cmd.push_and_do(Delete_Line(self.params, idx, on_after=lambda: self.layers_redraw(Layer_Name.lines)))
-        elif kind == Hit_Kind.label:
-            self.cmd.push_and_do(Delete_Label(self.params, idx, on_after=lambda: self.layers_redraw(Layer_Name.labels)))
-        elif kind == Hit_Kind.icon:
-            self.cmd.push_and_do(Delete_Icon(self.params, idx, on_after=lambda: self.layers_redraw(Layer_Name.icons)))
-
-        if kind.name:
-            self.status.temp(f"Deleted {kind.name}")
-
-        self._set_selected(Hit_Kind.miss, None)
+        subs = []
+        for k, i in sorted(self.multi_sel, key=lambda t: (t[0].value, -t[1])):
+            if k == Hit_Kind.line:
+                subs.append(Delete_Line(self.params, i, on_after=lambda: self.layers_redraw(Layer_Name.lines)))
+            elif k == Hit_Kind.label:
+                subs.append(Delete_Label(self.params, i, on_after=lambda: self.layers_redraw(Layer_Name.labels)))
+            elif k == Hit_Kind.icon:
+                subs.append(Delete_Icon(self.params, i, on_after=lambda: self.layers_redraw(Layer_Name.icons)))
+        self.cmd.push_and_do(Multi(subs))
+        self.status.temp(f"Deleted {len(subs)} item(s)")
+        self.select_clear()
         self.mark_dirty()
 
     def on_style_change(self, *_):
@@ -422,9 +506,25 @@ class App:
     def _status_hints_set(self):
         # use a stable key so you update instead of stacking
         self.status.hold("hints", self.tool_mgr.current.tool_hints, side=Side.right, priority=0)
+        self._status_selected_hint()
+
+    def _status_selected_hint(self):
+        n = len(self.multi_sel)
+        if n <= 1:
+            self.status.release("sel_count")
+        else:
+            self.status.hold("sel_count", f"{n} selected", side=Side.centre, priority=5)
 
     def on_icon_selected(self, icon_name: str):
         self.status.temp(f"Icon: {icon_name}", ms=1500)
+
+    # ---- keys ----
+    def _on_select_all(self, _evt=None):
+        items: list[tuple[Hit_Kind, int]] = []
+        items += [(Hit_Kind.line, i) for i in range(len(self.params.lines))]
+        items += [(Hit_Kind.label, i) for i in range(len(self.params.labels))]
+        items += [(Hit_Kind.icon, i) for i in range(len(self.params.icons))]
+        self.select_set(items)
 
     # ========= export / persistence =========
     def export_image(self):

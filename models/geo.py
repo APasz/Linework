@@ -285,7 +285,7 @@ class CanvasLW(tk.Canvas):
         idx: int | None = None,
         extra_tags: Collection[str] = (),
         override_base_tags: Collection[Layer_Name] | None = None,
-    ) -> None: ...
+    ): ...
 
     @overload
     def create_with_iconlike(
@@ -295,7 +295,7 @@ class CanvasLW(tk.Canvas):
         idx: int | None = None,
         extra_tags: Collection[str] = (),
         override_base_tags: Collection[Layer_Name] | None = None,
-    ) -> None: ...
+    ): ...
 
     def create_with_iconlike(
         self,
@@ -476,13 +476,13 @@ class CanvasLW(tk.Canvas):
             item_map.pop(iid, None)
 
     # ---------- updates ----------
-    def coords_p(self, item: ItemID, *points: Point) -> None:
+    def coords_p(self, item: ItemID, *points: Point):
         super().coords(item, *_flat_points(*points))
 
-    def move_by(self, item: ItemID, dx: int, dy: int) -> None:
+    def move_by(self, item: ItemID, dx: int, dy: int):
         super().move(item, dx, dy)
 
-    def move_centre_to(self, item: ItemID, target: Point) -> None:
+    def move_centre_to(self, item: ItemID, target: Point):
         bbox = super().bbox(item)
         if not bbox:
             return
@@ -497,8 +497,8 @@ class CanvasLW(tk.Canvas):
             return None
         return Point(x=round((bbox[0] + bbox[2]) / 2), y=round((bbox[1] + bbox[3]) / 2))
 
-    def tag_raise_l(self, layer: Layer_Name) -> None:
+    def tag_raise_l(self, layer: Layer_Name):
         return super().tag_raise(layer_tag(layer))
 
-    def tag_lower_l(self, layer: Layer_Name) -> None:
+    def tag_lower_l(self, layer: Layer_Name):
         return super().tag_lower(layer_tag(layer))
