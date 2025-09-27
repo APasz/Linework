@@ -404,7 +404,7 @@ class App:
         self.var_height_px.set(h)
         self.params.width, self.params.height = w, h
         self.canvas.config(width=w, height=h)
-        self.layers.redraw_all()
+        self.layers.redraw(Layer_Type.grid, True)
         self.status.temp(f"Canvas {w}×{h}")
         self.mark_dirty()
 

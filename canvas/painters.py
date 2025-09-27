@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from canvas.layers import Layer_Type
+from canvas.layers import Layer_Type, Tag
 from models.geo import CanvasLW, Label, Line, Point
 from models.params import Params
 from models.styling import CapStyle
@@ -40,14 +40,16 @@ class Painters:
         w, h = params.width, params.height
         line = Line(a=Point(x=0, y=0), b=Point(x=0, y=0), col=params.grid_colour, width=1, capstyle=CapStyle.BUTT)
 
-        for x in range(0, w + 1, g):
+        for x in range(g, w + 1, g):
             self.canvas.create_with_line(
                 line.with_xy(x, 0, x, h),
+                override_tag=Tag.layer(Layer_Type.grid),
                 tag_type=Layer_Type.grid,
             )
-        for y in range(0, h + 1, g):
+        for y in range(g, h + 1, g):
             self.canvas.create_with_line(
                 line.with_xy(0, y, w, y),
+                override_tag=Tag.layer(Layer_Type.grid),
                 tag_type=Layer_Type.grid,
             )
 
