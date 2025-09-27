@@ -11,7 +11,7 @@ from controllers.tools_base import DragAction, DragGroup, DragIcon, DragLabel, D
 from models.geo import Point
 from models.styling import TkCursor
 from ui.bars import Tool_Name
-from ui.input import get_mods
+from ui.input import MotionEvent, get_mods
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -24,7 +24,7 @@ class DragLineEndpoint(DragAction):
     start_other: Point
     start: Point
 
-    def update(self, app: App, evt: tk.Event):
+    def update(self, app: App, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
         q = Draw_Tool._maybe_cardinal(app, self.start_other, p, invert=mods.ctrl)
@@ -44,7 +44,7 @@ class DragLineEndpoint(DragAction):
             x1, y1, x2, y2 = bb
             app.selection.set_outline_bbox(x1, y1, x2, y2)
 
-    def commit(self, app: App, evt: tk.Event):
+    def commit(self, app: App, evt: MotionEvent | tk.Event):
         app.layers.clear_preview()
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
@@ -79,7 +79,7 @@ class Select_Tool(ToolBase):
         super().__init__()
         self._drag: DragAction | None = None
 
-    def on_press(self, app: App, evt: tk.Event):
+    def on_press(self, app: App, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         hit = test_hit(app.canvas, evt.x, evt.y)
 
@@ -127,11 +127,11 @@ class Select_Tool(ToolBase):
 
         self._drag = None
 
-    def on_motion(self, app: App, evt: tk.Event):
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event):
         if self._drag:
             self._drag.update(app, evt)
 
-    def on_release(self, app: App, evt: tk.Event):
+    def on_release(self, app: App, evt: MotionEvent | tk.Event):
         if self._drag:
             self._drag.commit(app, evt)
             self._drag = None

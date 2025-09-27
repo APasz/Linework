@@ -9,7 +9,7 @@ from controllers.tools_base import ToolBase
 from models.geo import Line, Point
 from models.styling import CapStyle, TkCursor
 from ui.bars import Tool_Name
-from ui.input import get_mods
+from ui.input import MotionEvent, get_mods
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -38,7 +38,7 @@ class Draw_Tool(ToolBase):
         super().on_deactivate(app)
         self._start = None
 
-    def on_press(self, app: App, evt: tk.Event):
+    def on_press(self, app: App, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         p0 = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=get_mods(evt).alt)
 
@@ -69,7 +69,7 @@ class Draw_Tool(ToolBase):
 
         self._start = p0
 
-    def on_motion(self, app: App, evt: tk.Event):
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event):
         if not self._start:
             return
         mods = get_mods(evt)
@@ -87,7 +87,7 @@ class Draw_Tool(ToolBase):
             dash_offset=app.params.line_dash_offset,
         )
 
-    def on_release(self, app: App, evt: tk.Event):
+    def on_release(self, app: App, evt: MotionEvent | tk.Event):
         if not bool(app.var_drag_to_draw.get()):
             return
 

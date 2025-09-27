@@ -11,7 +11,7 @@ from models.geo import Builtin_Icon, Icon_Source, Icon_Type, Picture_Icon, Point
 from models.styling import TkCursor
 from ui.bars import Tool_Name
 from ui.edit_dialog import Icon_Gallery
-from ui.input import get_mods
+from ui.input import MotionEvent, get_mods
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -35,7 +35,9 @@ class Icon_Tool(ToolBase):
         super().__init__()
         self._drag: DragAction | None = None
 
-    def on_press(self, app: App, evt: tk.Event):
+    def on_press(self, app: App, evt: MotionEvent | tk.Event):
+        if not isinstance(evt, tk.Event):
+            return
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
 
@@ -86,11 +88,11 @@ class Icon_Tool(ToolBase):
         if src.kind == Icon_Type.builtin and src.name:
             app.var_icon.set(src.name.value)
 
-    def on_motion(self, app: App, evt: tk.Event):
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event):
         if self._drag:
             self._drag.update(app, evt)
 
-    def on_release(self, app: App, evt: tk.Event):
+    def on_release(self, app: App, evt: MotionEvent | tk.Event):
         if self._drag:
             self._drag.commit(app, evt)
             self._drag = None

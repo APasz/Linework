@@ -92,8 +92,9 @@ class Asset_Library:
     def import_files(self, paths: list[Path]) -> list[Path]:
         out = []
         for p in paths:
+            if not Formats.check(p):
+                continue
             dest = self.icons_dir / p.name
-            # avoid clobbering
             i = 1
             while dest.exists():
                 dest = self.icons_dir / f"{p.stem}_{i}{p.suffix}"
@@ -103,7 +104,6 @@ class Asset_Library:
         return out
 
 
-# singleton-ish accessor
 _ICON_LIB: Asset_Library | None = None
 
 

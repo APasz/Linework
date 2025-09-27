@@ -174,6 +174,7 @@ def _normalise_pairs(seq: Iterable[int]) -> tuple[int, ...]:
     return tuple(arr)
 
 
+@lru_cache(maxsize=64)
 def scaled_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
     """
     Return a pixel pattern (ints) scaled by stroke width.

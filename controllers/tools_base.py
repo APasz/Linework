@@ -12,7 +12,7 @@ from models.geo import CanvasLW, Point
 from models.params import Params
 from models.styling import TkCursor
 from ui.bars import Bars, Tool_Name
-from ui.input import get_mods
+from ui.input import MotionEvent, get_mods
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -55,11 +55,13 @@ class Tool(Protocol):
     def on_activate(self, app: App): ...
     def on_deactivate(self, app: App): ...
 
-    def on_press(self, app: App, evt: tk.Event): ...
-    def on_motion(self, app: App, evt: tk.Event): ...
-    def on_release(self, app: App, evt: tk.Event): ...
-    def on_key(self, app: App, evt: tk.Event): ...
+    def on_press(self, app: App, evt: MotionEvent | tk.Event): ...
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event): ...
+    def on_release(self, app: App, evt: MotionEvent | tk.Event): ...
+    def on_key(self, app: App, evt: MotionEvent | tk.Event): ...
     def on_cancel(self, app: App): ...
+
+    # Minimal event shapes used by tools
 
 
 class ToolBase:
@@ -90,16 +92,16 @@ class ToolBase:
         self._preview_ids.clear()
         app.layers.clear_preview()
 
-    def on_press(self, app: App, evt: tk.Event):
+    def on_press(self, app: App, evt: MotionEvent | tk.Event):
         pass
 
-    def on_motion(self, app: App, evt: tk.Event):
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event):
         pass
 
-    def on_release(self, app: App, evt: tk.Event):
+    def on_release(self, app: App, evt: MotionEvent | tk.Event):
         pass
 
-    def on_key(self, app: App, evt: tk.Event):
+    def on_key(self, app: App, evt: MotionEvent | tk.Event):
         pass
 
     def on_cancel(self, app: App):
@@ -109,19 +111,19 @@ class ToolBase:
 class DragAction(Protocol):
     """Tiny state objects for Select_Tool drags: update/commit/cancel."""
 
-    def update(self, app: App, evt: tk.Event): ...
-    def commit(self, app: App, evt: tk.Event): ...
+    def update(self, app: App, evt: MotionEvent | tk.Event): ...
+    def commit(self, app: App, evt: MotionEvent | tk.Event): ...
     def cancel(self, app: App): ...
 
 
-@dataclass
+@dataclass(slots=True)
 class DragLabel(DragAction):
     idx: int
     start: Point
     offset_dx: int
     offset_dy: int
 
-    def update(self, app, evt: tk.Event):
+    def update(self, app, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         lab = app.params.labels[self.idx]
         p = app.snap(
@@ -155,7 +157,7 @@ class DragLabel(DragAction):
                 ox1, oy1, ox2, oy2 = app.canvas.coords(sel.ids.outline)
                 app.selection.set_outline_bbox(ox1 + dx, oy1 + dy, ox2 + dx, oy2 + dy)
 
-    def commit(self, app, evt: tk.Event):
+    def commit(self, app, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         lab = app.params.labels[self.idx]
         p = app.snap(
@@ -187,14 +189,14 @@ class DragLabel(DragAction):
         app.selection.update_bbox()
 
 
-@dataclass
+@dataclass(slots=True)
 class DragIcon(DragAction):
     idx: int
     start: Point
     offset_dx: int
     offset_dy: int
 
-    def update(self, app, evt: tk.Event):
+    def update(self, app, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         ico = app.params.icons[self.idx]
         p = app.snap(
@@ -224,7 +226,7 @@ class DragIcon(DragAction):
         except Exception:
             pass
 
-    def commit(self, app, evt: tk.Event):
+    def commit(self, app, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         ico = app.params.icons[self.idx]
         p = app.snap(
@@ -256,16 +258,16 @@ class DragIcon(DragAction):
         app.selection.update_bbox()
 
 
-@dataclass
+@dataclass(slots=True)
 class DragMarquee(DragAction):
     a: Point
     add: bool = False
 
-    def update(self, app, evt: tk.Event):
+    def update(self, app, evt: MotionEvent | tk.Event):
         b = app.snap(Point(x=evt.x, y=evt.y))
         app.selection.update_marquee(self.a, b)
 
-    def commit(self, app, evt: tk.Event):
+    def commit(self, app, evt: MotionEvent | tk.Event):
         b = app.snap(Point(x=evt.x, y=evt.y))
         x1, y1 = min(self.a.x, b.x), min(self.a.y, b.y)
         x2, y2 = max(self.a.x, b.x), max(self.a.y, b.y)
@@ -293,7 +295,7 @@ class DragMarquee(DragAction):
         app.selection.clear_marquee()
 
 
-@dataclass
+@dataclass(slots=True)
 class DragGroup(DragAction):
     """Drag many items together by delta."""
 
@@ -304,13 +306,13 @@ class DragGroup(DragAction):
     icons: list[tuple[int, Point]]  # (idx, orig p)
     lines: list[tuple[int, Point, Point]]  # (idx, orig a, orig b)
 
-    def _delta(self, app, evt: tk.Event) -> tuple[int, int, bool]:
+    def _delta(self, app, evt: MotionEvent | tk.Event) -> tuple[int, int, bool]:
         mods = get_mods(evt)
         cur = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
         a = app.snap(self.start_mouse, ignore_grid=mods.alt)
         return (cur.x - a.x, cur.y - a.y, mods.alt)
 
-    def update(self, app, evt: tk.Event):
+    def update(self, app, evt: MotionEvent | tk.Event):
         dx, dy, alt = self._delta(app, evt)
         app.layers.clear_preview()
 
@@ -335,7 +337,7 @@ class DragGroup(DragAction):
             x1, y1, x2, y2 = bb
             app.selection.set_outline_bbox(x1, y1, x2, y2)
 
-    def commit(self, app, evt: tk.Event):
+    def commit(self, app, evt: MotionEvent | tk.Event):
         dx, dy, alt = self._delta(app, evt)
         app.layers.clear_preview()
         subs = []
@@ -398,6 +400,8 @@ class Tool_Manager:
         self.app = app
         self.tools = tools
         self.current: Tool = next(iter(tools.values()))
+        self._motion_pending: bool = False
+        self._last_motion: MotionEvent | None = None
 
     def activate(self, name: Tool_Name):
         if hasattr(self.current, "on_deactivate"):
@@ -414,19 +418,31 @@ class Tool_Manager:
         self.app.canvas.config(cursor=cur.value if isinstance(cur, TkCursor) else "")
         self.app.canvas.tag_raise_l(Layer_Type.selection)
 
-    def on_press(self, evt: tk.Event):
+    def on_press(self, evt: MotionEvent | MotionEvent | tk.Event):
         setattr(evt, "mods", get_mods(evt))
         self.current.on_press(self.app, evt)
 
-    def on_motion(self, evt: tk.Event):
-        setattr(evt, "mods", get_mods(evt))
-        self.current.on_motion(self.app, evt)
+    def on_motion(self, evt: MotionEvent | MotionEvent | tk.Event):
+        self._last_motion = MotionEvent(evt.x, evt.y, getattr(evt, "state", 0))
+        if self._motion_pending:
+            return
+        self._motion_pending = True
 
-    def on_release(self, evt: tk.Event):
+        def _dispatch():
+            self._motion_pending = False
+            if self._last_motion is None:
+                return
+            last_evt = self._last_motion
+            setattr(last_evt, "mods", get_mods(last_evt))
+            self.current.on_motion(self.app, last_evt)
+
+        self.app.canvas.after_idle(_dispatch)
+
+    def on_release(self, evt: MotionEvent | MotionEvent | tk.Event):
         setattr(evt, "mods", get_mods(evt))
         self.current.on_release(self.app, evt)
 
-    def on_key(self, evt: tk.Event):
+    def on_key(self, evt: MotionEvent | MotionEvent | tk.Event):
         setattr(evt, "mods", get_mods(evt))
         self.current.on_key(self.app, evt)
 

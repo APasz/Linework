@@ -118,7 +118,7 @@ class App:
 
         # ---------- scene / paint / layers ----------
         self.scene = Scene(self.params)
-        self.painters = Painters(self.scene)
+        self.painters = Painters(self, self.scene, self.canvas)
         self.layers = Layer_Manager(self.canvas, self.painters)
 
         # ---------- selection ----------
@@ -135,7 +135,6 @@ class App:
             Tool_Name.label: Label_Tool(),
         }
         self.tool_mgr = Tool_Manager(self, self.tools)
-
         # event routing (single source of truth)
         self.canvas.bind("<ButtonPress-1>", lambda e: (self.tool_mgr.on_press(e), "break")[-1])
         self.canvas.bind("<B1-Motion>", lambda e: (self.tool_mgr.on_motion(e), "break")[-1])
@@ -395,10 +394,14 @@ class App:
     def on_canvas_size_change(self, *_):
         try:
             g = self.params.grid_size
-            w = max(1, max(g, int(self.var_width_px.get())))
-            h = max(1, max(g, int(self.var_height_px.get())))
+            w = int(self.var_width_px.get())
+            h = int(self.var_height_px.get())
         except ValueError:
             return
+        w = self._snap_dim_to_grid(max(1, w), g)
+        h = self._snap_dim_to_grid(max(1, h), g)
+        self.var_width_px.set(w)
+        self.var_height_px.set(h)
         self.params.width, self.params.height = w, h
         self.canvas.config(width=w, height=h)
         self.layers.redraw_all()
@@ -534,7 +537,9 @@ class App:
         return Path(f"{self.project_path.name}.autosave")
 
     def _maybe_autosave(self):
-        if getattr(self, "autosave_every", 0) <= 0:
+        if self.project_path.name.startswith("untitled"):
+            return
+        if self.autosave_every <= 0:
             return
         self._actions_since_autosave += 1
         if self._actions_since_autosave % self.autosave_every == 0:
@@ -611,7 +616,7 @@ class App:
             return
         self.params = Params()
         self.scene = Scene(self.params)
-        self.painters = Painters(self.scene)
+        self.painters = Painters(self, self.scene, self.canvas)
         self.layers = Layer_Manager(self.canvas, self.painters)
         self._set_selected(None, None)
         self.layers.redraw_all()
@@ -635,7 +640,7 @@ class App:
             messagebox.showerror("Open failed", str(e))
             return
         self.scene = Scene(self.params)
-        self.painters = Painters(self.scene)
+        self.painters = Painters(self, self.scene, self.canvas)
         self.layers = Layer_Manager(self.canvas, self.painters)
         self._sync_vars_from_params()
         self.layers.redraw_all()
@@ -645,6 +650,11 @@ class App:
         self.asset_lib = get_asset_library(self.project_path)
 
     # ========= helpers =========
+
+    def _snap_dim_to_grid(self, var: int, grid: int) -> int:
+        if grid <= 0:
+            return max(1, var)
+        return max(grid, round(var / grid) * grid)
 
     @staticmethod
     def repair_snap_flags(params):
@@ -680,6 +690,15 @@ class App:
         step = max(1, g)
         self.tbar.spin_w.configure(increment=step, from_=step)
         self.tbar.spin_h.configure(increment=step, from_=step)
+
+        w = self._snap_dim_to_grid(self.params.width, g)
+        h = self._snap_dim_to_grid(self.params.height, g)
+        if (w, h) != (self.params.width, self.params.height):
+            self.params.width, self.params.height = w, h
+            self.var_width_px.set(w)
+            self.var_height_px.set(h)
+            self.canvas.config(width=w, height=h)
+            self.layers.redraw(Layer_Type.grid, True)
 
     def _maybe_proceed(self) -> bool:
         if not self.dirty:

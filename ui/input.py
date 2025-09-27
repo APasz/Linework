@@ -15,8 +15,25 @@ class Modifiers:
     alt: bool
 
 
-def get_mods(evt: tk.Event) -> Modifiers:
-    state = evt.state if isinstance(evt.state, int) else 0
+@dataclass(slots=True)
+class MotionEvent:
+    x: int
+    y: int
+    state: int
+    mods: Modifiers | None = None
+
+
+def get_mods(evt: tk.Event | MotionEvent | int | None) -> Modifiers:
+    if isinstance(evt, tk.Event):
+        state = int(evt.state)
+    elif isinstance(evt, MotionEvent):
+        state = int(evt.state)
+    elif isinstance(evt, int):
+        state = evt
+    elif evt is None:
+        state = 0
+    else:
+        raise TypeError(f"Unsupported event type: {type(evt)}")
     return Modifiers(
         shift=bool(state & SHIFT_MASK),
         ctrl=bool(state & CONTROL_MASK),

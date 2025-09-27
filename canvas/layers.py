@@ -128,7 +128,8 @@ HIT_KINDS = {hk.value: hk for hk in Hit_Kind}
 def tag_parse(string: str) -> Tag | None:
     # layer:<name>
     if string.startswith(f"{TagNS.layer.value}:"):
-        lt = PLAIN_LAYERS.get(TagNS.layer.value)
+        name = string.split(":", 1)[1]
+        lt = PLAIN_LAYERS.get(name)
         return Tag.layer(lt) if lt else None
     # plain layer name for back-compat
     if string in PLAIN_LAYERS:
@@ -167,12 +168,11 @@ class Hit:
 
 def test_hit(canvas, x, y):
     """Pick the nearest valid hit in a small window around (x, y).
-    Ties prefer the topmost item by z-order."""
+    Ties prefer the topmost item by z-order among overlaps."""
     over = list(canvas.find_overlapping(x - 3, y - 3, x + 3, y + 3))
     best: Hit | None = None
-    best_key: tuple[int, int] | None = None  # (dist2, -z)
-    stack = {iid: i for i, iid in enumerate(canvas.find_all())}
-    for z, iid in enumerate(over):
+    best_key: tuple[int, int] | None = None  # (dist2, -z_in_over)
+    for z, iid in enumerate(over):  # z increases with stacking
         toks = tag_parse_multi(canvas.gettags(iid))
         hit = next((t for t in toks if t.ns is TagNS.hit and t.idx is not None), None)
         if not hit or not isinstance(hit.kind, Hit_Kind):
@@ -182,10 +182,9 @@ def test_hit(canvas, x, y):
         if not bbox:
             continue
         x1, y1, x2, y2 = bbox
-        # point-to-rect distance squared
         dx = 0 if x1 <= x <= x2 else min((x - x1) ** 2, (x - x2) ** 2)
         dy = 0 if y1 <= y <= y2 else min((y - y1) ** 2, (y - y2) ** 2)
-        key = (dx + dy, -stack.get(iid, 0))  # nearest, then true topmost
+        key = (dx + dy, -z)  # nearest, then true topmost
         if best_key is None or key < best_key:
             best_key = key
             best = Hit(kind=hit.kind, tag_idx=hit.idx, point=which)
@@ -253,11 +252,11 @@ class Layer_Manager:
     # --- internals ---
     def _paint(self, layer: Layer_Type):
         if layer == Layer_Type.lines:
-            self.painters.paint_lines(self.canvas)
+            self.painters.paint_lines()
         elif layer == Layer_Type.labels:
-            self.painters.paint_labels(self.canvas)
+            self.painters.paint_labels()
         elif layer == Layer_Type.icons:
-            self.painters.paint_icons(self.canvas)
+            self.painters.paint_icons()
         elif layer == Layer_Type.grid:
-            self.painters.paint_grid(self.canvas)
+            self.painters.paint_grid()
         self._enforce_z()

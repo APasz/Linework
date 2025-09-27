@@ -9,7 +9,7 @@ from controllers.tools_base import DragAction, ToolBase
 from models.geo import Label, Point
 from models.styling import TkCursor
 from ui.bars import Tool_Name
-from ui.input import get_mods
+from ui.input import MotionEvent, get_mods
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -25,7 +25,7 @@ class Label_Tool(ToolBase):
         super().__init__()
         self._drag: DragAction | None = None
 
-    def on_press(self, app: App, evt: tk.Event):
+    def on_press(self, app: App, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
         if mods.shift:
@@ -44,11 +44,11 @@ class Label_Tool(ToolBase):
         app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Type.labels)))
         app.mark_dirty()
 
-    def on_motion(self, app: App, evt: tk.Event):
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event):
         if self._drag:
             self._drag.update(app, evt)
 
-    def on_release(self, app: App, evt: tk.Event):
+    def on_release(self, app: App, evt: MotionEvent | tk.Event):
         if self._drag:
             self._drag.commit(app, evt)
             self._drag = None
