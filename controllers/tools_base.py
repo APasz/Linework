@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, layer_tag
+from canvas.layers import Hit_Kind, Layer_Manager, Layer_Type, TagNS, tag_parse_multi
 from canvas.selection import SelectionOverlay
 from controllers.commands import Command_Stack, Move_Icon, Move_Label, Move_Line_End, Multi
 from models.geo import CanvasLW, Point
@@ -42,14 +42,14 @@ class ToolContext:
     commands: Command_Stack
     selection: SelectionOverlay
     snap: Callable[[Point], Point]
-    redraw: Callable[[Layer_Name | None], None]
+    redraw: Callable[[Layer_Type | None], None]
 
 
 @runtime_checkable
 class Tool(Protocol):
     name: Tool_Name
     cursor: TkCursor
-    kind: Hit_Kind
+    kind: Hit_Kind | None
     tool_hints: str
 
     def on_activate(self, app: App): ...
@@ -65,8 +65,10 @@ class Tool(Protocol):
 class ToolBase:
     """Common helpers for all tools. Keep it boring, keep it reliable."""
 
+    name: Tool_Name
     cursor: TkCursor = TkCursor.CIRCLE
-    kind: Hit_Kind = Hit_Kind.miss
+    kind: Hit_Kind | None = None
+    tool_hints: str
 
     def __init__(self):
         self._preview_ids: list[int] = []
@@ -78,33 +80,29 @@ class ToolBase:
     def on_deactivate(self, app: App):
         self.clear_preview(app)
 
-    def begin(self, p: Point):
-        self._start = p
-
     def moved_enough(self, a: Point, b: Point, tol: int = 1) -> bool:
         dx, dy = a.x - b.x, a.y - b.y
         return (dx * dx + dy * dy) >= (tol * tol)
 
-    def preview_line(self, app: App, a: Point, b: Point, **opts) -> int:
-        if self._preview_ids:
-            app.canvas.coords(self._preview_ids[0], a.x, a.y, b.x, b.y)
-        else:
-            lid = app.canvas.create_with_points(
-                a,
-                b,
-                override_base_tags=[Layer_Name.preview],
-                **opts,
-            )
-            self._preview_ids.append(lid)
-        return self._preview_ids[0]
-
     def clear_preview(self, app: App):
         for iid in self._preview_ids:
-            app.canvas.delete(iid)
+            app.canvas.delete_lw(iid)
         self._preview_ids.clear()
         app.layers.clear_preview()
 
+    def on_press(self, app: App, evt: tk.Event):
+        pass
+
+    def on_motion(self, app: App, evt: tk.Event):
+        pass
+
+    def on_release(self, app: App, evt: tk.Event):
+        pass
+
     def on_key(self, app: App, evt: tk.Event):
+        pass
+
+    def on_cancel(self, app: App):
         pass
 
 
@@ -134,11 +132,10 @@ class DragLabel(DragAction):
 
         lb = app.params.labels[self.idx]
         app.layers.clear_preview()
-        app.canvas.create_with_label(lb.with_point(p), override_base_tags=[Layer_Name.preview])
+        app.canvas.create_with_label(lb.with_point(p), tag_type=Layer_Type.preview)
 
         try:
-            tag = layer_tag(Layer_Name.preview)
-            bb = app.canvas.bbox(tag)
+            bb = app.canvas.bbox(Layer_Type.preview.value)
             if bb:
                 x1, y1, x2, y2 = bb
                 if CLAMP_DRAG_BBOX:
@@ -178,7 +175,7 @@ class DragLabel(DragAction):
                 self.idx,
                 old_point=self.start,
                 new_point=p,
-                on_after=lambda: app.layers.redraw(Layer_Name.labels),
+                on_after=lambda: app.layers.redraw(Layer_Type.labels),
             )
         )
         app.selection.update_bbox()
@@ -207,11 +204,10 @@ class DragIcon(DragAction):
 
         ic = app.params.icons[self.idx]
         app.layers.clear_preview()
-        app.canvas.create_with_iconlike(ic.with_point(p), override_base_tags=[Layer_Name.preview])
+        app.canvas.create_with_iconlike(ic.with_point(p), tag_type=Layer_Type.preview)
 
         try:
-            tag = layer_tag(Layer_Name.preview)
-            bb = app.canvas.bbox(tag)
+            bb = app.canvas.bbox(Layer_Type.preview.value)
             if bb:
                 x1, y1, x2, y2 = bb
                 if CLAMP_DRAG_BBOX:
@@ -248,7 +244,7 @@ class DragIcon(DragAction):
                 self.idx,
                 old_point=self.start,
                 new_point=p,
-                on_after=lambda: app.layers.redraw(Layer_Name.icons),
+                on_after=lambda: app.layers.redraw(Layer_Type.icons),
             )
         )
         app.selection.update_bbox()
@@ -277,20 +273,14 @@ class DragMarquee(DragAction):
         hits: list[tuple[Hit_Kind, int]] = []
         seen: set[tuple[str, int]] = set()
         for iid in app.canvas.find_overlapping(x1, y1, x2, y2):
-            for t in app.canvas.gettags(iid):
-                if t[:4] not in ("line", "labe", "icon"):  # quick-and-dirty fast path
-                    continue
-                if ":" in t:
-                    k, sidx = t.split(":", 1)
-                    try:
-                        kind = Hit_Kind(k)
-                        idx = int(sidx)
-                        key = (kind.value, idx)
-                        if key not in seen:
-                            seen.add(key)
-                            hits.append((kind, idx))
-                    except Exception:
-                        continue
+            toks = tag_parse_multi(app.canvas.gettags(iid))
+            ht = next((t for t in toks if t.ns is TagNS.hit and t.idx is not None), None)
+            if not ht or not isinstance(ht.kind, Hit_Kind) or ht.idx is None:
+                continue
+            key = (ht.kind.value, ht.idx)
+            if key not in seen:
+                seen.add(key)
+                hits.append((ht.kind, ht.idx))
         app.selection.clear_marquee()
         if not hits:
             return
@@ -324,26 +314,23 @@ class DragGroup(DragAction):
         dx, dy, alt = self._delta(app, evt)
         app.layers.clear_preview()
 
-        # draw previews for everything in the preview layer
         for idx, p0 in self.labels:
             lb = app.params.labels[idx]
             p = Point(x=p0.x + dx, y=p0.y + dy)
             p = app.snap(p, ignore_grid=(alt or not lb.snap))
-            app.canvas.create_with_label(lb.with_point(p), override_base_tags=[Layer_Name.preview])
+            app.canvas.create_with_label(lb.with_point(p), tag_type=Layer_Type.preview)
         for idx, p0 in self.icons:
             ic = app.params.icons[idx]
             p = Point(x=p0.x + dx, y=p0.y + dy)
             p = app.snap(p, ignore_grid=(alt or not ic.snap))
-            app.canvas.create_with_iconlike(ic.with_point(p), override_base_tags=[Layer_Name.preview])
+            app.canvas.create_with_iconlike(ic.with_point(p), tag_type=Layer_Type.preview)
         for idx, a0, b0 in self.lines:
             ln = app.params.lines[idx]
             a = app.snap(Point(x=a0.x + dx, y=a0.y + dy), ignore_grid=alt)
             b = app.snap(Point(x=b0.x + dx, y=b0.y + dy), ignore_grid=alt)
-            app.canvas.create_with_line(ln.with_points(a, b), override_base_tags=[Layer_Name.preview])
+            app.canvas.create_with_line(ln.with_points(a, b), tag_type=Layer_Type.preview)
 
-        # recompute a union bbox for nice marquee ants around the group
-        tag = layer_tag(Layer_Name.preview)
-        bb = app.canvas.bbox(tag)
+        bb = app.canvas.bbox(Layer_Type.preview.value)
         if bb:
             x1, y1, x2, y2 = bb
             app.selection.set_outline_bbox(x1, y1, x2, y2)
@@ -358,7 +345,7 @@ class DragGroup(DragAction):
             p = app.snap(Point(x=p0.x + dx, y=p0.y + dy), ignore_grid=(alt or not lb.snap))
             subs.append(
                 Move_Label(
-                    app.params, idx, old_point=p0, new_point=p, on_after=lambda: app.layers.redraw(Layer_Name.labels)
+                    app.params, idx, old_point=p0, new_point=p, on_after=lambda: app.layers.redraw(Layer_Type.labels)
                 )
             )
         for idx, p0 in self.icons:
@@ -366,7 +353,7 @@ class DragGroup(DragAction):
             p = app.snap(Point(x=p0.x + dx, y=p0.y + dy), ignore_grid=(alt or not ic.snap))
             subs.append(
                 Move_Icon(
-                    app.params, idx, old_point=p0, new_point=p, on_after=lambda: app.layers.redraw(Layer_Name.icons)
+                    app.params, idx, old_point=p0, new_point=p, on_after=lambda: app.layers.redraw(Layer_Type.icons)
                 )
             )
         for idx, a0, b0 in self.lines:
@@ -381,7 +368,7 @@ class DragGroup(DragAction):
                     "a",
                     old_point=ln.a,
                     new_point=a,
-                    on_after=lambda: app.layers.redraw(Layer_Name.lines),
+                    on_after=lambda: app.layers.redraw(Layer_Type.lines),
                 )
             )
             subs.append(
@@ -391,7 +378,7 @@ class DragGroup(DragAction):
                     "b",
                     old_point=ln.b,
                     new_point=b,
-                    on_after=lambda: app.layers.redraw(Layer_Name.lines),
+                    on_after=lambda: app.layers.redraw(Layer_Type.lines),
                 )
             )
 
@@ -404,7 +391,7 @@ class DragGroup(DragAction):
         app.selection.update_bbox()
 
 
-class ToolManager:
+class Tool_Manager:
     """Owns the current tool, routes events, handles activation/deactivation."""
 
     def __init__(self, app: App, tools: dict[Tool_Name, Tool]):
@@ -425,22 +412,23 @@ class ToolManager:
             self.current.on_activate(self.app)
         cur = getattr(self.current, "cursor", None)
         self.app.canvas.config(cursor=cur.value if isinstance(cur, TkCursor) else "")
-        self.app.canvas.tag_raise_l(Layer_Name.selection)
+        self.app.canvas.tag_raise_l(Layer_Type.selection)
 
-    # routed events
     def on_press(self, evt: tk.Event):
+        setattr(evt, "mods", get_mods(evt))
         self.current.on_press(self.app, evt)
 
     def on_motion(self, evt: tk.Event):
+        setattr(evt, "mods", get_mods(evt))
         self.current.on_motion(self.app, evt)
 
     def on_release(self, evt: tk.Event):
+        setattr(evt, "mods", get_mods(evt))
         self.current.on_release(self.app, evt)
 
     def on_key(self, evt: tk.Event):
-        if hasattr(self.current, "on_key"):
-            self.current.on_key(self.app, evt)
+        setattr(evt, "mods", get_mods(evt))
+        self.current.on_key(self.app, evt)
 
     def cancel(self):
-        if hasattr(self.current, "on_cancel"):
-            self.current.on_cancel(self.app)
+        self.current.on_cancel(self.app)

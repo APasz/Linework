@@ -8,7 +8,7 @@ from tkinter import ttk
 
 from models.geo import CanvasLW
 from models.styling import Colour, Colours, LineStyle
-from ui.widgets.composite_spinbox import Composite_Spinbox
+from ui.composite_spinbox import Composite_Spinbox
 
 
 class Tool_Name(StrEnum):

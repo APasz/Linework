@@ -4,7 +4,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from canvas.layers import Hit_Kind, Layer_Name, layer_tag, test_hit
+from canvas.layers import Hit_Kind, Layer_Type, test_hit
 from controllers.commands import Move_Line_End
 from controllers.tools.draw import Draw_Tool
 from controllers.tools_base import DragAction, DragGroup, DragIcon, DragLabel, DragMarquee, ToolBase
@@ -20,27 +20,26 @@ if TYPE_CHECKING:
 @dataclass
 class DragLineEndpoint(DragAction):
     idx: int
-    which: str  # "a" or "b"
+    which: str
     start_other: Point
     start: Point
 
     def update(self, app: App, evt: tk.Event):
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
-        q = Draw_Tool._maybe_cardinal(app, self.start_other, p, shift=mods.ctrl)
+        q = Draw_Tool._maybe_cardinal(app, self.start_other, p, invert=mods.ctrl)
         a, b = (q, self.start_other) if self.which == "a" else (self.start_other, q)
 
         app.layers.clear_preview()
         lin = app.params.lines[self.idx]
         app.canvas.create_with_line(
             lin.with_points(a, b),
-            override_base_tags=[Layer_Name.preview],
+            tag_type=Layer_Type.preview,
         )
 
         app.selection.update_line_handles(self.idx, a, b)
 
-        tag = layer_tag(Layer_Name.preview)
-        bb = app.canvas.bbox(tag)
+        bb = app.canvas.bbox(Layer_Type.preview.value)
         if bb:
             x1, y1, x2, y2 = bb
             app.selection.set_outline_bbox(x1, y1, x2, y2)
@@ -49,7 +48,7 @@ class DragLineEndpoint(DragAction):
         app.layers.clear_preview()
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
-        p = Draw_Tool._maybe_cardinal(app, self.start_other, p, shift=mods.ctrl)
+        p = Draw_Tool._maybe_cardinal(app, self.start_other, p, invert=mods.ctrl)
 
         app.cmd.push_and_do(
             Move_Line_End(
@@ -58,7 +57,7 @@ class DragLineEndpoint(DragAction):
                 "a" if self.which == "a" else "b",
                 old_point=self.start,
                 new_point=p,
-                on_after=lambda: app.layers.redraw(Layer_Name.lines),
+                on_after=lambda: app.layers.redraw(Layer_Type.lines),
             )
         )
         app.selection.update_bbox()
@@ -72,16 +71,13 @@ class DragLineEndpoint(DragAction):
 
 class Select_Tool(ToolBase):
     name: Tool_Name = Tool_Name.select
-    kind: Hit_Kind = Hit_Kind.miss
+    kind: Hit_Kind | None = None
     cursor: TkCursor = TkCursor.ARROW
     tool_hints: str = "Ctrl: Toggle / Add-Marquee  |  Alt: Ignore Grid"
 
     def __init__(self):
         super().__init__()
         self._drag: DragAction | None = None
-
-    def on_activate(self, app: App):
-        pass
 
     def on_press(self, app: App, evt: tk.Event):
         mods = get_mods(evt)
@@ -94,11 +90,11 @@ class Select_Tool(ToolBase):
             app.selection.show_marquee(self._drag.a)
             return
 
-        if hit.kind == Hit_Kind.line and hit.endpoint and (hit.tag_idx is not None):
+        if hit.kind == Hit_Kind.line and hit.point and (hit.tag_idx is not None):
             ln = app.params.lines[hit.tag_idx]
-            other = ln.b if hit.endpoint == "a" else ln.a
-            start = ln.a if hit.endpoint == "a" else ln.b
-            self._drag = DragLineEndpoint(idx=hit.tag_idx, which=hit.endpoint, start_other=other, start=start)
+            other = ln.b if hit.point == "a" else ln.a
+            start = ln.a if hit.point == "a" else ln.b
+            self._drag = DragLineEndpoint(idx=hit.tag_idx, which=hit.point, start_other=other, start=start)
             return
 
         if mods.ctrl and hit.tag_idx is not None:

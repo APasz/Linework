@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from math import hypot
 from typing import TYPE_CHECKING
 
-from canvas.layers import Hit_Kind, Layer_Name
+from canvas.layers import Hit_Kind, Layer_Type, Tag, TagNS
 from models.geo import CanvasLW, Point
 from models.params import Params
-from models.styling import Colours
+from models.styling import CapStyle, Colours, JoinStyle
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -21,8 +21,8 @@ MARQUEE_DASH = (14, 12)
 ANTS_MS = 40
 ANTS_STEP = 1
 _DASH_TOTAL = sum(MARQUEE_DASH)
-_TAG_OUTLINE = "ants:outline"
-_TAG_MARQUEE = "ants:marquee"
+_TAG_OUTLINE = Tag(TagNS.ants, Layer_Type.outline)
+_TAG_MARQUEE = Tag(TagNS.ants, Layer_Type.marquee)
 IDLE_PAD = 4
 
 
@@ -42,12 +42,12 @@ class SelectionOverlay:
         self.app = app
         self.canvas: CanvasLW = app.canvas
         self.ids = _SelIds()
-        self.kind: Hit_Kind = Hit_Kind.miss
+        self.kind: Hit_Kind | None = None
         self.idx: int | None = None
         self._ants_after_id: str | None = None
         self._ants_phase: int = 0
-        self._edge_meta: dict[str, list[tuple[int, int]]] = {_TAG_OUTLINE: [], _TAG_MARQUEE: []}
-        self._outline_tags: set[str] = set()
+        self._edge_meta: dict[Tag, list[tuple[int, int]]] = {_TAG_OUTLINE: [], _TAG_MARQUEE: []}
+        self._outline_tags: set[Tag] = set()
 
     # ---------- public API used by App / Select_Tool ----------
 
@@ -55,13 +55,13 @@ class SelectionOverlay:
         self.show_many([(kind, idx)], primary=(kind, idx))
 
     def show_many(self, items: list[tuple[Hit_Kind, int]], primary: tuple[Hit_Kind, int] | None = None):
-        self.kind, self.idx = primary if primary else (Hit_Kind.miss, None)
+        self.kind, self.idx = primary if primary else (None, None)
         self.clear(keep_marquee=True)
 
         if not items:
             return
         for kind, idx in items:
-            if idx is None or kind == Hit_Kind.miss:
+            if idx is None or not kind:
                 continue
             tag = self._tag(kind, idx)
             bbox = self._bbox_for_tag(tag) or self._bbox_from_model(kind, idx)
@@ -73,7 +73,7 @@ class SelectionOverlay:
                 y1 -= IDLE_PAD
                 x2 += IDLE_PAD
                 y2 += IDLE_PAD
-            itag = f"{_TAG_OUTLINE}:{kind.value}:{idx}"
+            itag = Tag(_TAG_OUTLINE.ns, _TAG_OUTLINE.kind, idx)
             self._outline_tags.add(itag)
             self._make_bevel_segments(x1, y1, x2, y2, itag)
 
@@ -86,18 +86,18 @@ class SelectionOverlay:
                 self.ids.handle_a = self._create_handle(a.x, a.y, which="a", idx=idx)
                 self.ids.handle_b = self._create_handle(b.x, b.y, which="b", idx=idx)
 
-        self.canvas.tag_raise_l(Layer_Name.selection)
+        self.canvas.tag_raise_l(Layer_Type.selection)
 
     def clear(self, keep_marquee: bool = False):
         try:
             for name in ("outline", "hilite", "handle_a", "handle_b"):
                 iid = getattr(self.ids, name)
-                if iid and self.canvas.type(iid):
-                    self.canvas.delete(iid)
+                if iid is not None and self.canvas.type(iid):
+                    self.canvas.delete_lw(iid)
                     setattr(self.ids, name, None)
 
             try:
-                self.canvas.delete(_TAG_OUTLINE)
+                self.canvas.delete_lw(_TAG_OUTLINE)
             except Exception:
                 pass
             self.ids.outline_bevel = None
@@ -105,7 +105,7 @@ class SelectionOverlay:
 
             if not keep_marquee:
                 try:
-                    self.canvas.delete(_TAG_MARQUEE)
+                    self.canvas.delete_lw(_TAG_MARQUEE)
                 except Exception:
                     pass
                 self.ids.marquee_bevel = None
@@ -113,17 +113,17 @@ class SelectionOverlay:
 
             for itag in list(self._outline_tags):
                 try:
-                    self.canvas.delete(itag)
+                    self.canvas.delete_lw(itag)
                 except Exception:
                     pass
                 self._outline_tags.discard(itag)
 
-            self.kind, self.idx = Hit_Kind.miss, None
+            self.kind, self.idx = None, None
             self._maybe_stop_ants()
         except Exception as xcp:
             print(f"SelectionOverlay.clear;\n{xcp}")
 
-    def update_bbox(self) -> None:
+    def update_bbox(self):
         items = getattr(self.app, "multi_sel", [])
         primary = (self.kind, self.idx) if (self.kind and self.idx is not None) else None
         self.show_many(list(items), primary=primary)
@@ -145,12 +145,12 @@ class SelectionOverlay:
 
     def show_marquee(self, a: Point):
         try:
-            if self.ids.marquee and self.canvas.type(self.ids.marquee):
-                self.canvas.delete(self.ids.marquee)
+            if self.ids.marquee is not None and self.canvas.type(self.ids.marquee):
+                self.canvas.delete_lw(self.ids.marquee)
             self.ids.marquee = self._create_rect(a.x, a.y, a.x, a.y)
             self.canvas.itemconfigure(self.ids.marquee, outline="", width=2)
             if self.ids.marquee_bevel and self.canvas.type(self.ids.marquee_bevel):
-                self.canvas.delete(self.ids.marquee_bevel)
+                self.canvas.delete_lw(self.ids.marquee_bevel)
             self.ids.marquee_bevel = self._make_bevel_segments(a.x, a.y, a.x, a.y, _TAG_MARQUEE)
             self._ensure_ants()
         except Exception as xcp:
@@ -163,18 +163,18 @@ class SelectionOverlay:
             self.canvas.coords(self.ids.marquee or 0, a.x, a.y, b.x, b.y)
             self.ids.marquee_bevel = self._make_bevel_segments(a.x, a.y, b.x, b.y, _TAG_MARQUEE)
             self._ensure_ants()
-            self.canvas.tag_raise_l(Layer_Name.selection)
+            self.canvas.tag_raise_l(Layer_Type.selection)
         except Exception as xcp:
             print(f"SelectionOverlay.update_marquee;\n{xcp}")
 
     def clear_marquee(self):
         try:
-            if self.ids.marquee and self.canvas.type(self.ids.marquee):
-                self.canvas.delete(self.ids.marquee)
+            if self.ids.marquee is not None and self.canvas.type(self.ids.marquee):
+                self.canvas.delete_lw(self.ids.marquee)
             self.ids.marquee = None
 
             try:
-                self.canvas.delete(_TAG_MARQUEE)
+                self.canvas.delete_lw(_TAG_MARQUEE)
             except Exception:
                 pass
             self.ids.marquee_bevel = None
@@ -187,7 +187,7 @@ class SelectionOverlay:
     # ---------- internals ----------
 
     def _tag(self, kind: Hit_Kind, idx: int) -> str:
-        return f"{kind.value}:{idx}"
+        return Tag.hit(kind, idx).to_strings()[0]
 
     def _bbox_for_tag(self, tag: str) -> tuple[float, float, float, float] | None:
         try:
@@ -247,7 +247,7 @@ class SelectionOverlay:
             y1,
             x2,
             y2,
-            tags=(*tags, str(Layer_Name.selection), "selection"),
+            tags=(*tags, Layer_Type.selection.value),
             **opts,
         )
 
@@ -258,22 +258,19 @@ class SelectionOverlay:
             y1,
             x2,
             y2,
-            tags=(*tags, str(Layer_Name.selection), "selection"),
+            tags=(*tags, Layer_Type.selection.value),
             fill="",
             **opts,
         )
 
     def _create_handle(self, cx: float, cy: float, which: str | None = None, idx: int | None = None) -> int:
         r = HANDLE_R
-        tags = [str(Layer_Name.selection), "selection", "handle"]
-        if which is not None and idx is not None:
-            tags.append(f"handle:{which}:{idx}")
         return self.canvas.create_oval(
             cx - r,
             cy - r,
             cx + r,
             cy + r,
-            tags=tuple(tags),
+            tags=Tag(TagNS.handle, Hit_Kind.line, idx, which).to_strings(),
             outline=HANDLE_OUTLINE.hex,
             fill=HANDLE_FILL.hex,
             width=1,
@@ -290,7 +287,7 @@ class SelectionOverlay:
             return
         self._ants_phase = 0
         self._ants_after_id = self.app.root.after(ANTS_MS, self._tick_ants)
-        self.canvas.tag_raise_l(Layer_Name.selection)
+        self.canvas.tag_raise_l(Layer_Type.selection)
 
     def _maybe_stop_ants(self):
         for tag, meta in self._edge_meta.items():
@@ -375,16 +372,15 @@ class SelectionOverlay:
             ty,
         ]
 
-    def _make_bevel_segments(self, x1: float, y1: float, x2: float, y2: float, tag: str) -> int:
+    def _make_bevel_segments(self, x1: float, y1: float, x2: float, y2: float, tag: Tag) -> int:
         """Create one dashed line per edge with continuous phase across corners."""
         pts = self._bevel_path(x1, y1, x2, y2)  # closed path, start repeated at end
         pairs = list(zip(pts[0::2], pts[1::2]))  # flatten x,y to a list
         segs = list(zip(pairs, pairs[1:]))
 
-        try:
-            self.canvas.delete(tag)
-        except Exception:
-            pass
+        for iid, _ in self._edge_meta.get(tag, []):
+            if iid and self.canvas.type(iid):
+                self.canvas.delete_lw(iid)
         self._edge_meta[tag] = []
 
         phase = 0
@@ -393,16 +389,16 @@ class SelectionOverlay:
             dx, dy = xB - xA, yB - yA
             seg_len = int(hypot(dx, dy))
 
-            iid = self.canvas.create_line(
+            iid = self._create_line(
                 xA,
                 yA,
                 xB,
                 yB,
-                tags=(str(Layer_Name.selection), "selection", tag),
+                tags=tag.to_strings(),
                 fill=OUTLINE_COLOUR.hex,
                 width=2,
-                capstyle="projecting",
-                joinstyle="miter",
+                capstyle=CapStyle.ROUND.value,
+                joinstyle=JoinStyle.ROUND.value,
                 dash=MARQUEE_DASH,
                 dashoffset=phase,
             )
@@ -418,4 +414,4 @@ class SelectionOverlay:
         if self.ids.outline and self.canvas.type(self.ids.outline):
             self.canvas.coords(self.ids.outline, x1, y1, x2, y2)
         self.ids.outline_bevel = self._make_bevel_segments(x1, y1, x2, y2, _TAG_OUTLINE)
-        self.canvas.tag_raise_l(Layer_Name.selection)
+        self.canvas.tag_raise_l(Layer_Type.selection)

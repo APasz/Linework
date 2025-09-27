@@ -9,7 +9,7 @@ try:
 except Exception:
     sv_ttk = None
 
-from canvas.layers import Hit_Kind, Layer_Manager, Layer_Name, test_hit
+from canvas.layers import Hit_Kind, Layer_Manager, Layer_Type, test_hit
 from canvas.painters import Painters, Scene
 from canvas.selection import SelectionOverlay
 from controllers.commands import (
@@ -24,7 +24,7 @@ from controllers.tools.draw import Draw_Tool
 from controllers.tools.icon import Icon_Tool
 from controllers.tools.label import Label_Tool
 from controllers.tools.select import Select_Tool
-from controllers.tools_base import Tool, ToolManager
+from controllers.tools_base import Tool, Tool_Manager
 from disk.export import Exporter
 from disk.storage import IO
 from models.assets import Formats, Icon_Name, get_asset_library
@@ -123,7 +123,7 @@ class App:
 
         # ---------- selection ----------
         self.selection = SelectionOverlay(self)
-        self.selection_kind: Hit_Kind = Hit_Kind.miss
+        self.selection_kind: Hit_Kind | None = None
         self.selection_index: int | None = None
         self.multi_sel: list[tuple[Hit_Kind, int]] = []
 
@@ -134,7 +134,7 @@ class App:
             Tool_Name.icon: Icon_Tool(),
             Tool_Name.label: Label_Tool(),
         }
-        self.tool_mgr = ToolManager(self, self.tools)
+        self.tool_mgr = Tool_Manager(self, self.tools)
 
         # event routing (single source of truth)
         self.canvas.bind("<ButtonPress-1>", lambda e: (self.tool_mgr.on_press(e), "break")[-1])
@@ -189,7 +189,7 @@ class App:
 
         return sd.askstring(title, prompt, parent=self.root)
 
-    def layers_redraw(self, *names: Layer_Name):
+    def layers_redraw(self, *names: Layer_Type):
         if names:
             for n in names:
                 self.layers.redraw(n)
@@ -209,7 +209,7 @@ class App:
         return Point(x=sx, y=sy)
 
     # ========= selection =========
-    def _selected(self) -> tuple[Hit_Kind, int | None]:
+    def _selected(self) -> tuple[Hit_Kind | None, int | None]:
         return self.selection_kind, self.selection_index
 
     def is_selected(self, kind: Hit_Kind, idx: int) -> bool:
@@ -217,11 +217,11 @@ class App:
 
     def select_clear(self):
         self.multi_sel.clear()
-        self._set_selected(Hit_Kind.miss, None)
+        self._set_selected(None, None)
         self.selection.clear()
 
     def select_set(self, items: list[tuple[Hit_Kind, int]]):
-        items = [(k, i) for k, i in items if (k and k != Hit_Kind.miss and i is not None)]
+        items = [(k, i) for k, i in items if (k and k and i is not None)]
         self.multi_sel = []
         # make the first item primary if any
         if items:
@@ -231,10 +231,10 @@ class App:
                 if (k, i) not in self.multi_sel:
                     self.multi_sel.append((k, i))
         else:
-            self._set_selected(Hit_Kind.miss, None)
+            self._set_selected(None, None)
         primary = (
             (self.selection_kind, self.selection_index)
-            if self.selection_index is not None and self.selection_kind != Hit_Kind.miss
+            if self.selection_index is not None and self.selection_kind
             else None
         )
         self.selection.show_many(self.multi_sel, primary=primary)
@@ -247,11 +247,11 @@ class App:
                 self.multi_sel.append((k, i))
                 changed = True
         if changed:
-            if self.selection_kind == Hit_Kind.miss and self.multi_sel:
+            if self.selection_kind and self.multi_sel:
                 self.selection_kind, self.selection_index = self.multi_sel[0]
             primary = (
                 (self.selection_kind, self.selection_index)
-                if self.selection_index is not None and self.selection_kind != Hit_Kind.miss
+                if self.selection_index is not None and self.selection_kind
                 else None
             )
             self.selection.show_many(self.multi_sel, primary=primary)
@@ -264,7 +264,7 @@ class App:
             self._set_selected(kind, idx)
         primary = (
             (self.selection_kind, self.selection_index)
-            if self.selection_index is not None and self.selection_kind != Hit_Kind.miss
+            if self.selection_index is not None and self.selection_kind
             else None
         )
         self.selection.show_many(self.multi_sel, primary=primary)
@@ -280,18 +280,18 @@ class App:
             if self.multi_sel:
                 self.selection_kind, self.selection_index = self.multi_sel[0]
             else:
-                self.selection_kind, self.selection_index = Hit_Kind.miss, None
+                self.selection_kind, self.selection_index = None, None
         primary = (
             (self.selection_kind, self.selection_index)
-            if self.selection_index is not None and self.selection_kind != Hit_Kind.miss
+            if self.selection_index is not None and self.selection_kind
             else None
         )
         self.selection.show_many(self.multi_sel, primary=primary)
         self._status_selected_hint()
 
-    def _set_selected(self, kind: Hit_Kind, idx: int | None):
+    def _set_selected(self, kind: Hit_Kind | None, idx: int | None):
         self.selection_kind, self.selection_index = kind, idx
-        if kind and kind != Hit_Kind.miss and idx is not None:
+        if kind and kind and idx is not None:
             self.multi_sel = [(kind, idx)]
             self.selection.show_many(self.multi_sel, primary=(kind, idx))
             if kind == Hit_Kind.line and idx is not None:
@@ -339,11 +339,11 @@ class App:
         subs = []
         for k, i in sorted(self.multi_sel, key=lambda t: (t[0].value, -t[1])):
             if k == Hit_Kind.line:
-                subs.append(Delete_Line(self.params, i, on_after=lambda: self.layers_redraw(Layer_Name.lines)))
+                subs.append(Delete_Line(self.params, i, on_after=lambda: self.layers_redraw(Layer_Type.lines)))
             elif k == Hit_Kind.label:
-                subs.append(Delete_Label(self.params, i, on_after=lambda: self.layers_redraw(Layer_Name.labels)))
+                subs.append(Delete_Label(self.params, i, on_after=lambda: self.layers_redraw(Layer_Type.labels)))
             elif k == Hit_Kind.icon:
-                subs.append(Delete_Icon(self.params, i, on_after=lambda: self.layers_redraw(Layer_Name.icons)))
+                subs.append(Delete_Icon(self.params, i, on_after=lambda: self.layers_redraw(Layer_Type.icons)))
         self.cmd.push_and_do(Multi(subs))
         self.status.temp(f"Deleted {len(subs)} item(s)")
         self.select_clear()
@@ -369,9 +369,9 @@ class App:
     def toggle_grid(self, *_):
         self.params.grid_visible = not self.params.grid_visible
         if self.params.grid_visible:
-            self.layers.redraw(Layer_Name.grid, True)
+            self.layers.redraw(Layer_Type.grid, True)
         else:
-            self.layers.clear(Layer_Name.grid, force=True)
+            self.layers.clear(Layer_Type.grid, force=True)
         self.status.temp("Grid ON" if self.params.grid_visible else "Grid OFF")
         self.mark_dirty()
 
@@ -382,7 +382,7 @@ class App:
             return
         self.params.grid_visible = self.params.grid_size > 0
         self._apply_size_increments(self.params.grid_size)
-        self.layers.redraw(Layer_Name.grid, True)
+        self.layers.redraw(Layer_Type.grid, True)
 
     def on_brush_change(self, *_):
         try:
@@ -414,7 +414,7 @@ class App:
         self.params.bg_mode = col
         display_bg = Colours.sys.dark_gray if col.alpha == 0 else col
         self.canvas.config(bg=display_bg.hex)
-        self.layers.redraw(Layer_Name.grid, force=True)
+        self.layers.redraw(Layer_Type.grid, force=True)
 
     def apply_colour(self, *_):
         raw = (self.var_colour.get().strip() if self.var_colour else "") or "black"
@@ -428,18 +428,18 @@ class App:
         self.tool_mgr.cancel()
 
         hit = test_hit(self.canvas, int(evt.x), int(evt.y))
-        if not hit or hit.tag_idx is None or hit.kind == Hit_Kind.miss:
+        if not hit or hit.tag_idx is None or not hit.kind:
             return
 
         if hit.kind == Hit_Kind.line:
             obj = self.params.lines[hit.tag_idx]
-            layer = Layer_Name.lines
+            layer = Layer_Type.lines
         elif hit.kind == Hit_Kind.label:
             obj = self.params.labels[hit.tag_idx]
-            layer = Layer_Name.labels
+            layer = Layer_Type.labels
         elif hit.kind == Hit_Kind.icon:
             obj = self.params.icons[hit.tag_idx]
-            layer = Layer_Name.icons
+            layer = Layer_Type.icons
         else:
             return
 
@@ -484,7 +484,7 @@ class App:
         self.params.labels.clear()
         self.params.icons.clear()
         self.layers.redraw_all()
-        self._set_selected(Hit_Kind.miss, None)
+        self._set_selected(None, None)
         self.mark_dirty()
         self.status.temp("Cleared")
 
@@ -613,7 +613,7 @@ class App:
         self.scene = Scene(self.params)
         self.painters = Painters(self.scene)
         self.layers = Layer_Manager(self.canvas, self.painters)
-        self._set_selected(Hit_Kind.miss, None)
+        self._set_selected(None, None)
         self.layers.redraw_all()
         self.mark_clean()
         self.status.set("New Project")

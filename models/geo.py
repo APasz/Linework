@@ -9,9 +9,11 @@ from typing import Annotated, Literal, Self, overload
 from PIL import Image, ImageTk
 from pydantic import Field, model_validator
 
-from canvas.layers import Hit_Kind, Layer_Name, layer_tag, tag_list
+from canvas.layers import Hit_Kind, Layer_Type, Tag
 from models.assets import Builtins, Formats, Icon_Name, Primitives, Style, _open_rgba, probe_wh
 from models.styling import Anchor, CapStyle, Colour, JoinStyle, LineStyle, Model, scaled_pattern
+
+MAX_CACHE = 128
 
 
 class Point(Model):
@@ -182,21 +184,27 @@ def _flat_points(*points: Point) -> tuple[int, ...]:
 
 
 def tag_sort(
-    overrides: Collection[Layer_Name] | None,
-    extra: Collection[str] | None,
-    kind: Hit_Kind,
-    layer: Layer_Name,
-    idx: int | None,
+    tag_type: Layer_Type,
+    base_kind: Layer_Type | Hit_Kind | None = None,
+    idx: int | None = None,
+    override: Tag | None = None,
+    extra: Collection[Tag] | None = None,
 ) -> list[str]:
-    if overrides:
-        tags = [layer_tag(lay) for lay in overrides]
-    elif idx is not None:
-        tags = tag_list(kind, idx, layer)
+    tags: set[Tag] = {Tag.layer(tag_type)}
+    if override:
+        tags.add(override)
     else:
-        tags = [layer_tag(layer)]
+        tags.add(Tag(tag_type.tagns(), base_kind, idx))
     if extra:
-        tags.extend(extra)
-    return tags
+        tags.update(extra)
+
+    strings: list[str] = []
+    for tag in tags:
+        strings.extend(tag.to_strings())
+    return strings
+
+
+Deletable = int | ItemID | str
 
 
 class CanvasLW(tk.Canvas):
@@ -214,10 +222,10 @@ class CanvasLW(tk.Canvas):
         style: LineStyle | None = None,
         idx: int | None = None,
         dash_offset: int = 0,
-        extra_tags: Collection[str] | None = None,
-        override_base_tags: Collection[Layer_Name] | None = None,
+        extra_tags: Collection[Tag] | None = None,
+        override_tag: Tag | None = None,
+        tag_type: Layer_Type = Layer_Type.lines,
     ) -> ItemID:
-        extra_tags = extra_tags or tuple()
         dash = scaled_pattern(style, width)
 
         iid = super().create_line(
@@ -230,7 +238,7 @@ class CanvasLW(tk.Canvas):
             capstyle=capstyle.value,
             dash=dash or [],
             dashoffset=(dash_offset if dash else 0),
-            tags=tag_sort(override_base_tags, extra_tags, Hit_Kind.line, Layer_Name.lines, idx),
+            tags=tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags),
         )
         return ItemID(iid)
 
@@ -239,8 +247,9 @@ class CanvasLW(tk.Canvas):
         line: Line,
         *,
         idx: int | None = None,
-        extra_tags: Collection[str] = (),
-        override_base_tags: Collection[Layer_Name] | None = None,
+        extra_tags: Collection[Tag] | None = None,
+        override_tag: Tag | None = None,
+        tag_type: Layer_Type = Layer_Type.lines,
     ) -> ItemID:
         dash = line.scaled_pattern()
         iid = super().create_line(
@@ -253,7 +262,7 @@ class CanvasLW(tk.Canvas):
             capstyle=line.capstyle.value,
             dash=dash or [],
             dashoffset=(line.dash_offset if dash else 0),
-            tags=tag_sort(override_base_tags, extra_tags, Hit_Kind.line, Layer_Name.lines, idx),
+            tags=tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags),
         )
         return ItemID(iid)
 
@@ -262,8 +271,9 @@ class CanvasLW(tk.Canvas):
         label: Label,
         *,
         idx: int | None = None,
-        extra_tags: Collection[str] = (),
-        override_base_tags: Collection[Layer_Name] | None = None,
+        extra_tags: Collection[Tag] | None = None,
+        override_tag: Tag | None = None,
+        tag_type: Layer_Type = Layer_Type.labels,
     ) -> ItemID:
         iid = super().create_text(
             label.p.x,
@@ -273,7 +283,7 @@ class CanvasLW(tk.Canvas):
             anchor=label.anchor.tk,
             font=("TkDefaultFont", label.size),
             angle=label.rotation,
-            tags=tag_sort(override_base_tags, extra_tags, Hit_Kind.label, Layer_Name.labels, idx),
+            tags=tag_sort(tag_type, base_kind=Hit_Kind.label, idx=idx, override=override_tag, extra=extra_tags),
         )
         return ItemID(iid)
 
@@ -283,8 +293,9 @@ class CanvasLW(tk.Canvas):
         icon: Builtin_Icon,
         *,
         idx: int | None = None,
-        extra_tags: Collection[str] = (),
-        override_base_tags: Collection[Layer_Name] | None = None,
+        extra_tags: Collection[Tag] | None = None,
+        override_tag: Tag | None = None,
+        tag_type: Layer_Type = Layer_Type.icons,
     ): ...
 
     @overload
@@ -293,31 +304,35 @@ class CanvasLW(tk.Canvas):
         icon: Picture_Icon,
         *,
         idx: int | None = None,
-        extra_tags: Collection[str] = (),
-        override_base_tags: Collection[Layer_Name] | None = None,
-    ): ...
+        extra_tags: Collection[Tag] | None = None,
+        override_tag: Tag | None = None,
+        tag_type: Layer_Type = Layer_Type.icons,
+    ) -> ItemID: ...
 
     def create_with_iconlike(
         self,
         icon: Iconlike,
         *,
         idx: int | None = None,
-        extra_tags: Collection[str] = (),
-        override_base_tags: Collection[Layer_Name] | None = None,
-    ):
+        extra_tags: Collection[Tag] | None = None,
+        override_tag: Tag | None = None,
+        tag_type: Layer_Type = Layer_Type.icons,
+    ) -> ItemID | None:
         if isinstance(icon, Picture_Icon):
             return self.create_with_picture(
                 icon,
                 idx=idx,
                 extra_tags=extra_tags,
-                override_base_tags=override_base_tags,
+                override_tag=override_tag,
+                tag_type=tag_type,
             )
         else:
             return self.create_with_icon(
                 icon,
                 idx=idx,
                 extra_tags=extra_tags,
-                override_base_tags=override_base_tags,
+                override_tag=override_tag,
+                tag_type=tag_type,
             )
 
     def create_with_icon(
@@ -325,10 +340,11 @@ class CanvasLW(tk.Canvas):
         icon: Builtin_Icon,
         *,
         idx: int | None = None,
-        extra_tags: Collection[str] = (),
-        override_base_tags: Collection[Layer_Name] | None = None,
+        extra_tags: Collection[Tag] | None = None,
+        override_tag: Tag | None = None,
+        tag_type: Layer_Type = Layer_Type.icons,
     ):
-        tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
+        tag = tag_sort(tag_type, base_kind=Hit_Kind.icon, idx=idx, override=override_tag, extra=extra_tags)
         col = icon.col.hex
         size = float(icon.size)
         rot = float(icon.rotation or 0.0)
@@ -426,10 +442,11 @@ class CanvasLW(tk.Canvas):
         pic: "Picture_Icon",
         *,
         idx: int | None = None,
-        extra_tags: Collection[str] = (),
-        override_base_tags: Collection[Layer_Name] | None = None,
+        extra_tags: Collection[Tag] | None = None,
+        override_tag: Tag | None = None,
+        tag_type: Layer_Type = Layer_Type.icons,
     ) -> ItemID:
-        tag = tag_sort(override_base_tags, extra_tags, Hit_Kind.icon, Layer_Name.icons, idx)
+        tag = tag_sort(tag_type, base_kind=Hit_Kind.icon, idx=idx, override=override_tag, extra=extra_tags)
 
         bw, bh = pic.bbox_wh()
         cx, cy = pic.anchor.centre_for(pic.p.x, pic.p.y, bw, bh, pic.rotation)
@@ -458,7 +475,6 @@ class CanvasLW(tk.Canvas):
             cache[key] = ph
 
             # Evict least-recently-used if above capacity
-            MAX_CACHE = 128  # tune to taste
             while len(cache) > MAX_CACHE:
                 cache.popitem(last=False)  # LRU eviction
 
@@ -466,11 +482,36 @@ class CanvasLW(tk.Canvas):
         item_map[iid] = ph  # keep a per-item ref so it doesn't get GC'd while displayed
         return ItemID(iid)
 
-    def delete(self, *items):
-        ids = set()
-        for it in items or ():
-            ids.update(self.find_withtag(it) if isinstance(it, str) else (it,))
-        super().delete(*items)
+    @overload
+    def delete_lw(self, *items: int | ItemID): ...
+    @overload
+    def delete_lw(self, *items: Layer_Type): ...
+    @overload
+    def delete_lw(self, *items: str): ...
+    @overload
+    def delete_lw(self, *items: Tag): ...
+
+    def delete_lw(self, *items):  # runtime
+        args: list[Deletable] = []
+        ids: set[int] = set()
+        for it in items:
+            if isinstance(it, (int, ItemID)):
+                i = int(it)
+                args.append(i)
+                ids.add(i)
+            elif isinstance(it, Layer_Type):
+                args.append(it.value)
+            elif isinstance(it, Tag):
+                # delete all strings this tag emits
+                args.extend(it.to_strings())
+                # also delete plain layer tag if applicable
+                if isinstance(it.kind, Layer_Type):
+                    args.append(it.kind.value)
+            elif isinstance(it, str):
+                args.append(it)
+            # else: ignore unrecognised
+
+        super().delete(*args)
         item_map = getattr(self, "_item_images", {})
         for iid in ids:
             item_map.pop(iid, None)
@@ -497,8 +538,8 @@ class CanvasLW(tk.Canvas):
             return None
         return Point(x=round((bbox[0] + bbox[2]) / 2), y=round((bbox[1] + bbox[3]) / 2))
 
-    def tag_raise_l(self, layer: Layer_Name):
-        return super().tag_raise(layer_tag(layer))
+    def tag_raise_l(self, layer: Layer_Type):
+        return super().tag_raise(layer.value)
 
-    def tag_lower_l(self, layer: Layer_Name):
-        return super().tag_lower(layer_tag(layer))
+    def tag_lower_l(self, layer: Layer_Type):
+        return super().tag_lower(layer.value)

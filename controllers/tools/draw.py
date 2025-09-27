@@ -3,7 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from typing import TYPE_CHECKING
 
-from canvas.layers import Hit_Kind, Layer_Name
+from canvas.layers import Hit_Kind, Layer_Type
 from controllers.commands import Add_Line
 from controllers.tools_base import ToolBase
 from models.geo import Line, Point
@@ -16,16 +16,26 @@ if TYPE_CHECKING:
 
 
 class Draw_Tool(ToolBase):
-    name = Tool_Name.draw
-    kind: Hit_Kind = Hit_Kind.line
+    name: Tool_Name = Tool_Name.draw
+    kind: Hit_Kind | None = Hit_Kind.line
     cursor: TkCursor = TkCursor.CROSSHAIR
     tool_hints: str = "Ctrl: Invert Cardinal  |  Shift: Editor  |  Alt: Ignore Grid"
 
-    def on_activate(self, app: App):
-        pass
+    def preview_line(self, app: App, a: Point, b: Point, **opts) -> int:
+        if self._preview_ids:
+            app.canvas.coords(self._preview_ids[0], a.x, a.y, b.x, b.y)
+        else:
+            lid = app.canvas.create_with_points(
+                a,
+                b,
+                **opts,
+                tag_type=Layer_Type.preview,
+            )
+            self._preview_ids.append(lid)
+        return self._preview_ids[0]
 
     def on_deactivate(self, app: App):
-        self.clear_preview(app)
+        super().on_deactivate(app)
         self._start = None
 
     def on_press(self, app: App, evt: tk.Event):
@@ -35,7 +45,7 @@ class Draw_Tool(ToolBase):
         # Click-click mode
         if not bool(app.var_drag_to_draw.get()):
             if self._start is None:
-                self.begin(p0)
+                self._start = p0
             else:
                 p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
                 b = self._maybe_cardinal(app, self._start, p, mods.ctrl)
@@ -51,13 +61,13 @@ class Draw_Tool(ToolBase):
                 )
                 if not mods.shift or app.editors.edit(app.root, line):
                     app.cmd.push_and_do(
-                        Add_Line(app.params, line, on_after=lambda: app.layers.redraw(Layer_Name.lines))
+                        Add_Line(app.params, line, on_after=lambda: app.layers.redraw(Layer_Type.lines))
                     )
                     app.mark_dirty()
                 self._start = None
             return
 
-        self.begin(p0)
+        self._start = p0
 
     def on_motion(self, app: App, evt: tk.Event):
         if not self._start:
@@ -99,7 +109,7 @@ class Draw_Tool(ToolBase):
                 dash_offset=app.params.line_dash_offset,
             )
             if not mods.shift or app.editors.edit(app.root, line):
-                app.cmd.push_and_do(Add_Line(app.params, line, on_after=lambda: app.layers.redraw(Layer_Name.lines)))
+                app.cmd.push_and_do(Add_Line(app.params, line, on_after=lambda: app.layers.redraw(Layer_Type.lines)))
                 app.mark_dirty()
 
         self._start = None
@@ -110,14 +120,9 @@ class Draw_Tool(ToolBase):
 
     # ---- helpers ----
 
-    def _clamp_no_grid(self, app: App, p: Point) -> Point:
-        x = 0 if p.x < 0 else min(p.x, app.params.width)
-        y = 0 if p.y < 0 else min(p.y, app.params.height)
-        return Point(x=x, y=y)
-
     @staticmethod
-    def _maybe_cardinal(app: App, a: Point, b: Point, shift: bool) -> Point:
-        use_cardinal = bool(app.var_cardinal.get()) ^ bool(shift)
+    def _maybe_cardinal(app: App, a: Point, b: Point, invert: bool) -> Point:
+        use_cardinal = bool(app.var_cardinal.get()) ^ bool(invert)
         if not use_cardinal:
             return b
         dx, dy = (b.x - a.x), (b.y - a.y)

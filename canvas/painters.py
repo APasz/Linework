@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from canvas.layers import Layer_Name
+from canvas.layers import Layer_Type
 from models.geo import CanvasLW, Label, Line, Point
 from models.params import Params
 from models.styling import CapStyle
@@ -37,12 +37,12 @@ class Painters:
         for x in range(0, w + 1, g):
             canvas.create_with_line(
                 line.with_xy(x, 0, x, h),
-                override_base_tags=[Layer_Name.grid],
+                tag_type=Layer_Type.grid,
             )
         for y in range(0, h + 1, g):
             canvas.create_with_line(
                 line.with_xy(0, y, w, y),
-                override_base_tags=[Layer_Name.grid],
+                tag_type=Layer_Type.grid,
             )
 
     # ------- lines -------

@@ -3,7 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from typing import TYPE_CHECKING
 
-from canvas.layers import Hit_Kind, Layer_Name
+from canvas.layers import Hit_Kind, Layer_Type
 from controllers.commands import Add_Icon
 from controllers.tools_base import DragAction, ToolBase
 from models.assets import Icon_Name
@@ -26,8 +26,8 @@ def _describe_icon(src: Icon_Source) -> str:
 
 
 class Icon_Tool(ToolBase):
-    name = Tool_Name.icon
-    kind = Hit_Kind.icon
+    name: Tool_Name = Tool_Name.icon
+    kind: Hit_Kind | None = Hit_Kind.icon
     cursor: TkCursor = TkCursor.CROSSHAIR
     tool_hints: str = "Ctrl: Picker  |  Shift: Editor  |  Alt: Ignore Grid"
 
@@ -35,10 +35,7 @@ class Icon_Tool(ToolBase):
         super().__init__()
         self._drag: DragAction | None = None
 
-    def on_activate(self, app: App):
-        pass
-
-    def on_press(self, app, evt):
+    def on_press(self, app: App, evt: tk.Event):
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
 
@@ -68,7 +65,7 @@ class Icon_Tool(ToolBase):
             if not app.editors.edit(app.root, ico):
                 return
 
-        app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers.redraw(Layer_Name.icons)))
+        app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers.redraw(Layer_Type.icons)))
         app.mark_dirty()
 
         def _src_key(s):

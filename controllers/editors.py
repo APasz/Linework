@@ -59,7 +59,7 @@ class Editors:
         self._icon_defaults: dict[str, Any] | None = None
 
     # ---------- apply session defaults ----------
-    def apply_label_defaults(self, lab: Label) -> None:
+    def apply_label_defaults(self, lab: Label):
         d = self._label_defaults
         if not d:
             return
@@ -67,7 +67,7 @@ class Editors:
         lab.rotation = int(d.get("rotation", lab.rotation))
         lab.anchor = Anchor.parse(d.get("anchor")) or lab.anchor
 
-    def apply_icon_defaults(self, ico) -> None:
+    def apply_icon_defaults(self, ico):
         d = self._icon_defaults
         if not d:
             return

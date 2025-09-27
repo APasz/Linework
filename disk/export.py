@@ -136,7 +136,7 @@ def _svg_cap(cap: CapStyle) -> str:
 
 
 def _escape(string: str) -> str:
-    return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 def _svg_line_fast(line: Line) -> str:
@@ -205,6 +205,37 @@ def _svg_line_strict(lin) -> list[str]:
 
 
 def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]):
+    def _dash_attrs(kw: dict[str, Any]) -> str:
+        width = int(kw.get("width", 1) or 1)
+        style = kw.get("style", None)
+        arr: str | None = None
+
+        if style is not None:
+            try:
+                from models.styling import LineStyle  # lazy import to keep drop-in
+
+                if isinstance(style, str):
+                    try:
+                        style = LineStyle(style)
+                    except Exception:
+                        style = None
+            except Exception:
+                style = None
+            if style is not None:
+                arr = svg_dasharray(style, width)
+
+        if not arr:
+            dash = kw.get("dash")
+            if dash:
+                arr = ",".join(str(int(d)) for d in dash if int(d) > 0)
+
+        if not arr:
+            return ""
+
+        off = kw.get("dash_offset", kw.get("offset", 0))
+        off_attr = f' stroke-dashoffset="{int(off)}"' if off else ""
+        return f' stroke-dasharray="{arr}"{off_attr}'
+
     for op, kw in plan:
         if op == "circle":
             cx, cy, r = kw["cx"], kw["cy"], kw["r"]
@@ -217,6 +248,7 @@ def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]):
                 parts.append(
                     f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{stroke}" stroke-width="{width or 1}"/>'
                 )
+
         elif op == "rect":
             x, y, w, h = kw["x"], kw["y"], kw["w"], kw["h"]
             fill = kw.get("fill")
@@ -228,25 +260,28 @@ def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]):
                 parts.append(
                     f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="none" stroke="{stroke}" stroke-width="{width or 1}"/>'
                 )
+
         elif op == "line":
             x1, y1, x2, y2 = kw["x1"], kw["y1"], kw["x2"], kw["y2"]
             stroke = kw.get("stroke")
             width = kw.get("width", 1)
-            cap = kw.get("cap")  # NEW
-            dash = kw.get("dash")  # NEW
-            attrs = [
-                f'x1="{x1}"',
-                f'y1="{y1}"',
-                f'x2="{x2}"',
-                f'y2="{y2}"',
-                f'stroke="{stroke}"',
-                f'stroke-width="{width}"',
-            ]
-            if cap:
-                attrs.append(f'stroke-linecap="{cap}"')
-            if dash:
-                attrs.append('stroke-dasharray="' + ",".join(str(int(d)) for d in dash) + '"')
-            parts.append("<line " + " ".join(attrs) + "/>")
+            cap = kw.get("cap")
+            if stroke:
+                attrs = [
+                    f'x1="{x1}"',
+                    f'y1="{y1}"',
+                    f'x2="{x2}"',
+                    f'y2="{y2}"',
+                    f'stroke="{stroke}"',
+                    f'stroke-width="{width}"',
+                ]
+                if cap:
+                    attrs.append(f'stroke-linecap="{cap}"')
+                dash = _dash_attrs(kw)
+                if dash:
+                    attrs.append(dash.strip())
+                parts.append("<line " + " ".join(attrs) + "/>")
+
         elif op == "polyline":
             pts = " ".join(f"{x},{y}" for x, y in kw["points"])
             closed = kw.get("closed", False)
@@ -254,27 +289,30 @@ def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]):
             stroke = kw.get("stroke")
             width = kw.get("width", 1)
             join = kw.get("join")
-            dash = kw.get("dash")
             cap = kw.get("cap")
-            if closed:
-                tag = f'<polygon points="{pts}"'
-            else:
-                tag = f'<polyline points="{pts}"'
-            attrs = []
-            if fill and closed:
+
+            tag = "polygon" if closed else "polyline"
+            attrs = [f'points="{pts}"']
+
+            if fill:
                 attrs.append(f'fill="{fill}"')
             else:
                 attrs.append('fill="none"')
+
             if stroke:
                 attrs.append(f'stroke="{stroke}"')
                 attrs.append(f'stroke-width="{width}"')
+
             if join:
                 attrs.append(f'stroke-linejoin="{join}"')
             if cap and not closed:
                 attrs.append(f'stroke-linecap="{cap}"')
+
+            dash = _dash_attrs(kw)
             if dash:
-                attrs.append('stroke-dasharray="' + ",".join(str(int(d)) for d in dash) + '"')
-            parts.append(tag + " " + " ".join(attrs) + "/>")
+                attrs.append(dash.strip())
+
+            parts.append(f"<{tag} " + " ".join(attrs) + "/>")
 
 
 # PIL render of plan
@@ -663,8 +701,10 @@ def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.
     return cache, _font
 
 
+_FONT_CACHE, _font = _font_cache_factory()
+
+
 def _draw_labels(img: Image.Image, params: Params):
-    _, _font = _font_cache_factory()
     for lab in params.labels:
         if not lab.text:
             continue

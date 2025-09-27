@@ -9,6 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from shutil import copy2
 from typing import Any, Literal
+import xml.etree.ElementTree as ET
 
 import cairosvg
 from PIL import Image
@@ -37,19 +38,20 @@ class Formats(StrEnum):
         return "image/svg+xml" if self is Formats.svg else f"image/{self.value}"
 
 
+NUM = re.compile(r"^\s*(\d+(\.\d+)?)(px|pt|em|ex|in|cm|mm|pc|%)?\s*$")
+
+
 @lru_cache(maxsize=512)
 def probe_wh(path: Path, fmt: str | None = None) -> tuple[int, int]:
     p = Path(path)
     ext = (fmt or p.suffix[1:]).lower()
     if ext == "svg":
         try:
-            import xml.etree.ElementTree as ET
-
             root = ET.fromstring(p.read_text(encoding="utf-8"))
-            NUM = re.compile(r"^\s*(\d+(\.\d+)?)(px|pt|em|ex|in|cm|mm|pc|%)?\s*$")
 
             w = root.get("width")
             h = root.get("height")
+            vb = root.get("viewBox")
 
             def _num(s):
                 m = NUM.match(s) if s else None
@@ -58,14 +60,15 @@ def probe_wh(path: Path, fmt: str | None = None) -> tuple[int, int]:
             wf, hf = _num(w), _num(h)
             if wf and hf:
                 return round(wf), round(hf)
+            if vb:
+                _, _, vbw, vbh = (float(x) for x in vb.replace(",", " ").split())
+                return max(1, round(vbw)), max(1, round(vbh))
         except Exception:
             pass
-        return (4096, 4096)
+        return (0, 0)
     else:
         # raster
         try:
-            from PIL import Image
-
             with Image.open(p) as im:
                 return im.width, im.height
         except Exception:

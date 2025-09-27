@@ -8,8 +8,9 @@ def main():
     App(root)
     try:
         root.mainloop()
-    except tk.TclError:
-        pass
+    except tk.TclError as xcp:
+        if "application has been destroyed" not in str(xcp):
+            raise
 
 
 if __name__ == "__main__":

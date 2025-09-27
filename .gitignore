@@ -7,5 +7,7 @@ __p*
 config.json
 output.*
 *.linework
+*.linework.autosave
+*.bak
 *.zip
 assets/*

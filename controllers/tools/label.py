@@ -3,7 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from typing import TYPE_CHECKING
 
-from canvas.layers import Hit_Kind, Layer_Name
+from canvas.layers import Hit_Kind, Layer_Type
 from controllers.commands import Add_Label
 from controllers.tools_base import DragAction, ToolBase
 from models.geo import Label, Point
@@ -16,17 +16,14 @@ if TYPE_CHECKING:
 
 
 class Label_Tool(ToolBase):
-    name = Tool_Name.label
-    kind = Hit_Kind.label
+    name: Tool_Name = Tool_Name.label
+    kind: Hit_Kind | None = Hit_Kind.label
     cursor: TkCursor = TkCursor.XTERM
     tool_hints: str = "Shift: Editor  |  Alt: Ignore Grid"
 
     def __init__(self):
         super().__init__()
         self._drag: DragAction | None = None
-
-    def on_activate(self, app: App):
-        pass
 
     def on_press(self, app: App, evt: tk.Event):
         mods = get_mods(evt)
@@ -35,7 +32,7 @@ class Label_Tool(ToolBase):
             lab = Label(p=p, text="", col=app.params.brush_colour, snap=not mods.alt)
             app.editors.apply_label_defaults(lab)
             if app.editors.edit(app.root, lab):
-                app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Name.labels)))
+                app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Type.labels)))
                 app.mark_dirty()
             return
 
@@ -44,7 +41,7 @@ class Label_Tool(ToolBase):
             return
         lab = Label(p=p, text=text, col=app.params.brush_colour, snap=not mods.alt)
         app.editors.apply_label_defaults(lab)
-        app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Name.labels)))
+        app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Type.labels)))
         app.mark_dirty()
 
     def on_motion(self, app: App, evt: tk.Event):
