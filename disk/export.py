@@ -511,8 +511,8 @@ class Exporter:
         W, H = params.width, params.height
         parts: list[str] = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']
 
-        if params.bg_mode.alpha != 0:
-            fill, op = _col_and_opacity(params.bg_mode)
+        if params.bg_colour.alpha != 0:
+            fill, op = _col_and_opacity(params.bg_colour)
             parts.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="{fill}"{op}/>')
 
         if params.grid_visible and params.grid_size > 0:
@@ -566,7 +566,7 @@ class Exporter:
     # Raster draw (PIL)
     @staticmethod
     def _draw(params: Params) -> Image.Image:
-        img = Image.new("RGBA", (params.width, params.height), params.bg_mode.rgba)
+        img = Image.new("RGBA", (params.width, params.height), params.bg_colour.rgba)
         draw = ImageDraw.Draw(img)
 
         _draw_grid(draw, params)
@@ -611,7 +611,7 @@ class Exporter:
                 raise RuntimeError("Failed to rasterise to PNG for RGB export")
             frame = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
 
-        bg = Image.new("RGB", frame.size, params.bg_mode.rgb if params.bg_mode.alpha else (255, 255, 255))
+        bg = Image.new("RGB", frame.size, params.bg_colour.rgb if params.bg_colour.alpha else (255, 255, 255))
         bg.paste(frame, mask=frame.split()[-1])
         bg.save(params.output_file, format=fmt.upper())
         return params.output_file

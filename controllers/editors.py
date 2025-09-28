@@ -149,7 +149,7 @@ class Editors:
                 size=lab.size,
                 rotation=lab.rotation,
                 anchor=lab.anchor.tk,
-                colour=lab.col.name,
+                colour=lab.col.hexa,
                 remember_defaults=False,
             )
 
@@ -198,7 +198,7 @@ class Editors:
                 width=lin.width,
                 capstyle=lin.capstyle,
                 style=lin.style,
-                colour=lin.col.name,
+                colour=lin.col.hexa,
                 dash_offset=lin.dash_offset,
             )
 
@@ -228,7 +228,7 @@ class Editors:
         def init(ico: Builtin_Icon) -> dict[str, Any]:
             return dict(
                 name=ico.name.value,
-                colour=ico.col.name,
+                colour=ico.col.hexa,
                 x=ico.p.x,
                 y=ico.p.y,
                 snap_to_grid=False,

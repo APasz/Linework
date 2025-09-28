@@ -7,7 +7,7 @@ from functools import lru_cache
 from types import MappingProxyType
 from typing import ClassVar, Final, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class Model(BaseModel):
@@ -233,16 +233,6 @@ class Colour(Model):
     @property
     def hexa(self) -> str:
         return f"#{self.red:02X}{self.green:02X}{self.blue:02X}{self.alpha:02X}"
-
-    @computed_field
-    @property
-    def name(self) -> str | None:
-        return PALETTE_BY_RGBA.get(self.rgba)
-
-    @computed_field
-    @property
-    def name_str(self) -> str:
-        return PALETTE_BY_RGBA.get(self.rgba, f"Unknown: {self.rgba}")
 
     def with_alpha(self, a: int) -> "Colour":
         return Colour(red=self.red, green=self.green, blue=self.blue, alpha=a)

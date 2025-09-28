@@ -11,13 +11,15 @@ SCHEMA_VERSION = 1
 class Params(Model):
     width: int = 1200
     height: int = 600
-    bg_mode: Colour = Colours.white
-    brush_width: int = 10
+    grid_colour: Colour = Colours.gray
     brush_colour: Colour = Colours.black
+    bg_colour: Colour = Colours.white
+    icon_colour: Colour = Colours.black
+    label_colour: Colour = Colours.black
+    brush_width: int = 10
     line_style: LineStyle = LineStyle.SOLID
     line_dash_offset: int = 0
     grid_size: int = 40
-    grid_colour: Colour = Colours.gray
     grid_visible: bool = True
     output_file: Path = Path("output.webp")
     lines: list[Line] = Field(default_factory=list)

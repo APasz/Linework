@@ -59,21 +59,23 @@ class App:
         self.var_width_px = tk.IntVar(value=self.params.width)
         self.var_height_px = tk.IntVar(value=self.params.height)
         self.var_brush_w = tk.IntVar(value=self.params.brush_width)
-        self.var_bg = tk.StringVar(value=self.params.bg_mode.name)
-        self.var_colour = tk.StringVar(value=self.params.brush_colour.name)
-        self.var_label_colour = tk.StringVar(value=self.var_colour.get())
-        self.var_icon_colour = tk.StringVar(value=self.var_colour.get())
-        self.var_colour.trace_add("write", self.apply_colour)
-        self.var_bg.trace_add("write", self.apply_bg)
+        self.var_line_style = tk.StringVar(value=self.params.line_style.value)
+
+        self.var_brush_colour = tk.StringVar(value=self.params.brush_colour.hexa)
+        self.var_bg_colour = tk.StringVar(value=self.params.bg_colour.hexa)
+        self.var_label_colour = tk.StringVar(value=self.params.label_colour.hexa)
+        self.var_icon_colour = tk.StringVar(value=self.params.icon_colour.hexa)
+
+        self.var_brush_colour.trace_add("write", self.apply_brush_colour)
+        self.var_bg_colour.trace_add("write", self.apply_bg_colour)
         self.var_label_colour.trace_add("write", self.apply_label_colour)
         self.var_icon_colour.trace_add("write", self.apply_icon_colour)
-        self.current_icon_colour = Colours.parse_colour(self.var_icon_colour.get())
 
-        self.var_line_style = tk.StringVar(value=self.params.line_style.value)
         self.var_drag_to_draw = tk.BooleanVar(value=True)
         self.var_cardinal = tk.BooleanVar(value=True)
         self.var_icon = tk.StringVar(value=Icon_Name.SIGNAL.value)
         self.var_icon_label = tk.StringVar(value=self.var_icon.get())
+
         self.current_icon = Icon_Source.builtin(Icon_Name.SIGNAL)
 
         # ---------- header / toolbar / status ----------
@@ -103,8 +105,8 @@ class App:
             on_grid_change=self.on_grid_change,
             on_brush_change=self.on_brush_change,
             on_canvas_size_change=self.on_canvas_size_change,
-            on_palette_select_brush=lambda name: self.var_colour.set(name),
-            on_palette_select_bg=lambda name: self.var_bg.set(name),
+            on_palette_select_brush=lambda name: self.var_brush_colour.set(name),
+            on_palette_select_bg=lambda name: self.var_bg_colour.set(name),
             on_palette_select_label=lambda name: self.var_label_colour.set(name),
             on_palette_select_icon=lambda name: self.var_icon_colour.set(name),
         )
@@ -113,7 +115,7 @@ class App:
         self.status_bar = Bars.create_status(self.root, self.status)
 
         # ---------- canvas ----------
-        display_bg = Colours.sys.dark_gray.hex if self.params.bg_mode.alpha == 0 else self.params.bg_mode.hex
+        display_bg = Colours.sys.dark_gray.hex if self.params.bg_colour.alpha == 0 else self.params.bg_colour.hex
         self.canvas = CanvasLW(self.root, width=self.params.width, height=self.params.height, bg=display_bg)
         self.canvas.pack(fill="both", expand=False)
 
@@ -169,8 +171,8 @@ class App:
         self._on_mode_change()
 
         # palette sync
-        self.var_colour.trace_add("write", self.apply_colour)
-        self.var_bg.trace_add("write", self.apply_bg)
+        self.var_brush_colour.trace_add("write", self.apply_brush_colour)
+        self.var_bg_colour.trace_add("write", self.apply_bg_colour)
 
         # window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -179,7 +181,10 @@ class App:
         self._apply_size_increments(self.params.grid_size)
         self.layers.redraw_all()
         self._update_title()
-        self.apply_colour()
+        self.apply_brush_colour()
+        self.apply_bg_colour()
+        self.apply_label_colour()
+        self.apply_icon_colour()
 
         self.var_icon.trace_add("write", self._sync_icon_from_combo)
         self.var_drag_to_draw.trace_add("write", self._on_drag_to_draw_change)
@@ -413,55 +418,58 @@ class App:
         self.status.temp(f"Canvas {w}×{h}")
         self.mark_dirty()
 
-    def apply_bg(self, *_):
-        raw = (self.var_bg.get().strip() if self.var_bg else "") or "white"
-        try:
-            col = Colours.parse_colour(raw)
-        except ValueError:
-            col = Colours.white
-        self.params.bg_mode = col
-        display_bg = Colours.sys.dark_gray if col.alpha == 0 else col
-        self.canvas.config(bg=display_bg.hex)
-        # sync BG palette highlight
-        try:
-            self.tbar.palette_bg.set_selected(col.name or "custom")
-        except Exception:
-            pass
-        self.layers.redraw(Layer_Type.grid, force=True)
-
-    def apply_colour(self, *_):
-        raw = (self.var_colour.get().strip() if self.var_colour else "") or "black"
+    def apply_brush_colour(self, *_):
+        raw = (self.var_brush_colour.get().strip() if self.var_brush_colour else "") or "black"
         try:
             col = Colours.parse_colour(raw)
         except ValueError:
             col = Colours.black
         self.params.brush_colour = col
+        self.mark_dirty()
         try:
-            self.tbar.palette_brush.set_selected(col.name or "custom")
+            self.tbar.palette_brush.set_selected(col.hexa)
         except Exception:
             pass
 
+    def apply_bg_colour(self, *_):
+        raw = (self.var_bg_colour.get().strip() if self.var_bg_colour else "") or "white"
+        try:
+            col = Colours.parse_colour(raw)
+        except ValueError:
+            col = Colours.white
+        self.params.bg_colour = col
+        self.mark_dirty()
+        display_bg = Colours.sys.dark_gray if col.alpha == 0 else col
+        self.canvas.config(bg=display_bg.hex)
+        try:
+            self.tbar.palette_bg.set_selected(col.hexa)
+        except Exception:
+            pass
+        self.layers.redraw(Layer_Type.grid, force=True)
+
     def apply_label_colour(self, *_):
-        raw = (self.var_label_colour.get().strip() if self.var_label_colour else "") or self.var_colour.get()
+        raw = (self.var_label_colour.get().strip() if self.var_label_colour else "") or self.var_brush_colour.get()
         try:
             col = Colours.parse_colour(raw)
         except ValueError:
             col = self.params.brush_colour
-        self.current_label_colour = col
+        self.params.label_colour = col
+        self.mark_dirty()
         try:
-            self.tbar.palette_label.set_selected(col.name or "custom")
+            self.tbar.palette_label.set_selected(col.hexa)
         except Exception:
             pass
 
     def apply_icon_colour(self, *_):
-        raw = (self.var_icon_colour.get().strip() if self.var_icon_colour else "") or self.var_colour.get()
+        raw = (self.var_icon_colour.get().strip() if self.var_icon_colour else "") or self.var_brush_colour.get()
         try:
             col = Colours.parse_colour(raw)
         except ValueError:
             col = self.params.brush_colour
-        self.current_icon_colour = col
+        self.params.icon_colour = col
+        self.mark_dirty()
         try:
-            self.tbar.palette_icon.set_selected(col.name or "custom")
+            self.tbar.palette_icon.set_selected(col.hexa)
         except Exception:
             pass
 
@@ -718,10 +726,12 @@ class App:
         self.var_width_px.set(self.params.width)
         self.var_height_px.set(self.params.height)
         self.var_brush_w.set(self.params.brush_width)
-        self.var_bg.set(self.params.bg_mode.name or "Unknown")
-        self.var_colour.set(self.params.brush_colour.name or "Unknown")
+        self.var_brush_colour.set(self.params.brush_colour.hexa)
+        self.var_bg_colour.set(self.params.bg_colour.hexa)
+        self.var_label_colour.set(self.params.label_colour.hexa)
+        self.var_icon_colour.set(self.params.icon_colour.hexa)
         self.var_line_style.set(self.params.line_style.value)
-        display_bg = Colours.sys.dark_gray.hex if self.params.bg_mode.alpha == 0 else self.params.bg_mode.hex
+        display_bg = Colours.sys.dark_gray.hex if self.params.bg_colour.alpha == 0 else self.params.bg_colour.hex
         self.canvas.config(width=self.params.width, height=self.params.height, bg=display_bg)
 
     def _apply_size_increments(self, g: int):
@@ -767,6 +777,8 @@ class App:
         self.root.title(f"Linework — {name}{star}")
 
     def mark_dirty(self, _reason: str = ""):
+        if self.project_path.name.startswith("untitled"):
+            return
         self.dirty = True
         self._update_title()
         self._maybe_autosave()

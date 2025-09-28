@@ -79,8 +79,8 @@ class Colour_Palette(ttk.Frame):
             sw = CanvasLW(frame, width=22, height=22, highlightthickness=0)
             sw.create_rectangle(1, 1, 21, 21, outline=Colours.black.hex, fill=col.hex)
             sw.pack(side="top", pady=2, padx=2)
-            sw.bind("<Button-1>", lambda _e, name=col.name_str: (self._select(name), self._close_popup()))
-            self._swatches.append((sw, col.name_str))
+            sw.bind("<Button-1>", lambda _e, t=col.hexa: (self._select(t), self._close_popup()))
+            self._swatches.append((sw, col.hexa))
 
         top.focus_force()
         try:
@@ -131,9 +131,10 @@ class Colour_Palette(ttk.Frame):
 
     def _update_highlight(self, selected: str):
         try:
-            col = next((c for c in self._colours if c.name_str == selected), None)
+            col = next((c for c in self._colours if c.hexa == selected), None)
             if col is not None:
-                self._btn.itemconfigure(self._rect_id, fill=col.hex)
+                fill = Colours.sys.dark_gray.hex if col.alpha == 0 else col.hex
+                self._btn.itemconfigure(self._rect_id, fill=fill)
         except Exception:
             pass
         for canvas, name in self._swatches:
