@@ -31,45 +31,113 @@ class Colour_Palette(ttk.Frame):
         master,
         colours: Iterable[Colour],
         on_select: Callable[[str], None],
-        on_set_bg: Callable[[str], None],
-        selected_name: str | None = None,
     ):
         super().__init__(master)
         self._on_select = on_select
-        self._on_set_bg = on_set_bg
+        self._colours = list(colours)
         self._swatches: list[tuple[CanvasLW, str]] = []
+        self._popup: tk.Toplevel | None = None
 
-        # label (optional)
-        ttk.Label(self).pack(side="left", padx=(0, 6))
+        self._btn = CanvasLW(self, width=22, height=22, highlightthickness=1)
+        self._btn.configure(
+            highlightbackground=Colours.sys.dark_gray.hex,
+            highlightcolor=Colours.sys.dark_gray.hex,
+        )
+        self._rect_id = self._btn.create_rectangle(1, 1, 21, 21, outline=Colours.black.hex, fill=Colours.black.hex)
+        self._btn.pack(side="left", padx=4)
+        self._btn.bind("<Button-1>", self._toggle_popup)
 
-        for col in colours:
-            sw = CanvasLW(self, width=18, height=18, highlightthickness=0)
-            sw.configure(highlightbackground=Colours.sys.dark_gray.hex, highlightcolor=Colours.sys.dark_gray.hex)
-            sw.create_rectangle(0, 0, 18, 18, outline=Colours.black.hex, fill=col.hex)
-            sw.pack(side="left", padx=2)
+    # ------- popup -------
+    def _toggle_popup(self, _evt=None):
+        if self._popup:
+            self._close_popup()
+        else:
+            self._open_popup()
 
-            sw.bind("<Button-1>", lambda _e, name=col.name_str: self._select(name))
-            sw.bind("<Button-2>", lambda _e, name=col.name_str: self._set_bg(name))
-            sw.bind("<Button-3>", lambda _e, name=col.name_str: self._set_bg(name))
+    def _arm_outside_handlers(self):
+        if not self._popup:
+            return
+        self._popup.update_idletasks()
+        self._popup.bind_all("<Escape>", lambda _e: self._close_popup(), add="+")
+        self._popup.bind_all("<ButtonRelease-1>", self._maybe_close_on_click, add="+")
+
+    def _open_popup(self, _evt=None):
+        self._close_popup()
+        top = tk.Toplevel(self)
+        top.wm_overrideredirect(True)
+        top.transient(self.winfo_toplevel())
+
+        bx = self._btn.winfo_rootx()
+        by = self._btn.winfo_rooty() + self._btn.winfo_height()
+        top.geometry(f"+{bx}+{by}")
+
+        frame = ttk.Frame(top, borderwidth=1, relief="solid")
+        frame.pack(fill="both", expand=True)
+
+        self._swatches.clear()
+        for col in self._colours:
+            sw = CanvasLW(frame, width=22, height=22, highlightthickness=0)
+            sw.create_rectangle(1, 1, 21, 21, outline=Colours.black.hex, fill=col.hex)
+            sw.pack(side="top", pady=2, padx=2)
+            sw.bind("<Button-1>", lambda _e, name=col.name_str: (self._select(name), self._close_popup()))
             self._swatches.append((sw, col.name_str))
 
-        if selected_name:
-            self._update_highlight(selected_name)
+        top.focus_force()
+        try:
+            top.grab_set()
+        except Exception:
+            pass
 
+        self._popup = top
+        top.after_idle(self._arm_outside_handlers)
+
+    def _close_popup(self):
+        if self._popup is not None:
+            try:
+                self._popup.unbind_all("<Escape>")
+                self._popup.unbind_all("<ButtonRelease-1>")
+                self._popup.grab_release()
+            except Exception:
+                pass
+            try:
+                self._popup.destroy()
+            except Exception:
+                pass
+            self._popup = None
+            self._swatches.clear()
+
+    def _maybe_close_on_click(self, e):
+        if not self._popup:
+            return
+        x, y = e.x_root, e.y_root
+        px, py = self._popup.winfo_rootx(), self._popup.winfo_rooty()
+        pw, ph = self._popup.winfo_width(), self._popup.winfo_height()
+        inside = (px <= x < px + pw) and (py <= y < py + ph)
+        if inside:
+            return
+
+        bx, by = self._btn.winfo_rootx(), self._btn.winfo_rooty()
+        bw, bh = self._btn.winfo_width(), self._btn.winfo_height()
+        on_btn = (bx <= x < bx + bw) and (by <= y < by + bh)
+        if on_btn:
+            return
+
+        self._close_popup()
+
+    # ------- selection -------
     def _select(self, name: str):
         self._on_select(name)
         self._update_highlight(name)
 
-    def _set_bg(self, name: str):
-        if name != "transparent":
-            self._on_set_bg(name)
-
     def _update_highlight(self, selected: str):
+        try:
+            col = next((c for c in self._colours if c.name_str == selected), None)
+            if col is not None:
+                self._btn.itemconfigure(self._rect_id, fill=col.hex)
+        except Exception:
+            pass
         for canvas, name in self._swatches:
-            if name == selected:
-                canvas.configure(highlightthickness=3)
-            else:
-                canvas.configure(highlightthickness=0)
+            canvas.configure(highlightthickness=3 if name == selected else 0)
 
 
 @dataclass
@@ -84,11 +152,13 @@ class Toolbar_Handles:
     spin_brush: Composite_Spinbox
     spin_w: Composite_Spinbox
     spin_h: Composite_Spinbox
-    cb_bg: ttk.Combobox
     cb_dtd: ttk.Checkbutton
     cb_cardinal: ttk.Checkbutton
     cb_style: ttk.Combobox
-    palette: Palette_Handles
+    palette_brush: Palette_Handles
+    palette_bg: Palette_Handles
+    palette_label: Palette_Handles
+    palette_icon: Palette_Handles
 
 
 class Side(StrEnum):
@@ -155,10 +225,8 @@ class Bars:
         master,
         colours: Iterable[Colour],
         on_select: Callable[[str], None],
-        on_set_bg: Callable[[str], None],
-        selected_name: str,
     ) -> Palette_Handles:
-        pal = Colour_Palette(master, colours, on_select, on_set_bg, selected_name)
+        pal = Colour_Palette(master, colours, on_select)
         pal.pack(side="right", padx=8)
         return Palette_Handles(frame=pal, set_selected=pal._update_highlight)
 
@@ -212,17 +280,16 @@ class Bars:
         brush_var: tk.IntVar,
         width_var: tk.IntVar,
         height_var: tk.IntVar,
-        bg_var: tk.StringVar,
         drag_to_draw_var: tk.BooleanVar,
         cardinal_var: tk.BooleanVar,
         style_var: tk.StringVar,
         on_grid_change,
         on_brush_change,
         on_canvas_size_change,
-        on_palette_select,
-        on_palette_set_bg,
-        on_style_change,
-        selected_colour_name: str,
+        on_palette_select_brush,
+        on_palette_select_bg,
+        on_palette_select_label,
+        on_palette_select_icon,
     ):
         """Builds the toolbar strip and returns widget handles."""
         frame = ttk.Frame(master)
@@ -257,17 +324,6 @@ class Bars:
             "H:",
         )
 
-        cbox_bg = cls._add_labeled(
-            frame,
-            lambda p: ttk.Combobox(
-                p,
-                textvariable=bg_var,
-                values=Colours.names(),  # include transparent
-                state="readonly",
-                width=10,
-            ),
-            "BG:",
-        )
         cbut_dtd = cls._add_labeled(
             frame,
             lambda p: ttk.Checkbutton(
@@ -287,17 +343,49 @@ class Bars:
         styles = [s.value for s in LineStyle]
         cb_style = cls._add_labeled(
             frame,
-            lambda p: ttk.Combobox(p, values=styles, state="readonly", width=9, textvariable=style_var),
+            lambda p: ttk.Combobox(p, values=styles, state="readonly", width=9, textvariable=style_var, height=12),
             "Style:",
         )
-        cb_style.bind("<<ComboboxSelected>>", lambda _e: on_style_change())
-        pal = cls.create_palette(
-            frame,
-            colours=Colours.list(min_alpha=25),
-            on_select=on_palette_select,
-            on_set_bg=on_palette_set_bg,
-            selected_name=selected_colour_name,
-        )
+
+        def _make_brush(p):
+            return Colour_Palette(
+                p,
+                Colours.list(min_alpha=25),
+                on_select=on_palette_select_brush,
+            )
+
+        brush_widget = cls._add_labeled(frame, _make_brush, "Brush:")
+        pal_brush = Palette_Handles(frame=brush_widget, set_selected=brush_widget._update_highlight)
+
+        def _make_bg(p):
+            return Colour_Palette(
+                p,
+                Colours.list(),
+                on_select=on_palette_select_bg,
+            )
+
+        bg_widget = cls._add_labeled(frame, _make_bg, "BG:")
+        pal_bg = Palette_Handles(frame=bg_widget, set_selected=bg_widget._update_highlight)
+
+        def _make_label(p):
+            return Colour_Palette(
+                p,
+                Colours.list(min_alpha=25),
+                on_select=on_palette_select_label,
+            )
+
+        lb_widget = cls._add_labeled(frame, _make_label, "Label:")
+        pal_label = Palette_Handles(frame=lb_widget, set_selected=lb_widget._update_highlight)
+
+        def _make_icon(p):
+            return Colour_Palette(
+                p,
+                Colours.list(min_alpha=25),
+                on_select=on_palette_select_icon,
+            )
+
+        ic_widget = cls._add_labeled(frame, _make_icon, "Icon:")
+        pal_icon = Palette_Handles(frame=ic_widget, set_selected=ic_widget._update_highlight)
 
         sbox_grid.bind("<Return>", lambda _e: on_grid_change())
         sbox_brush.bind("<Return>", lambda _e: on_brush_change())
@@ -310,11 +398,13 @@ class Bars:
             spin_brush=sbox_brush,
             spin_w=sbox_w,
             spin_h=sbox_h,
-            cb_bg=cbox_bg,
             cb_dtd=cbut_dtd,
             cb_cardinal=cbut_cardinal,
             cb_style=cb_style,
-            palette=pal,
+            palette_brush=pal_brush,
+            palette_bg=pal_bg,
+            palette_label=pal_label,
+            palette_icon=pal_icon,
         )
 
     class Status:

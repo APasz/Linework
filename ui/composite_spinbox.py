@@ -36,13 +36,13 @@ class Composite_Spinbox(ttk.Frame):
         self.var = textvariable or tk.StringVar(value=str(self._min))
 
         self.entry = ttk.Entry(self, textvariable=self.var, width=width, justify=justify.value)
-        self.entry.grid(row=0, column=0, sticky="nsew")
+        self.entry.grid(row=0, column=0, sticky="nsew", padx=0, pady=4)
         btncol = ttk.Frame(self)
-        btncol.grid(row=0, column=1, sticky="ns", padx=(1, 0))
+        btncol.grid(row=0, column=1, sticky="", padx=0, pady=4)
         self.columnconfigure(0, weight=1)
 
         style = ttk.Style()
-        style.configure("SpinButton.TButton", padding=0, font=("TkDefaultFont", 6))
+        style.configure("SpinButton.TButton", padding=1, font=("TkDefaultFont", 6))
         self.btn_up = ttk.Button(
             btncol, text="▲", width=1, style="SpinButton.TButton", command=self._bump_up, takefocus=0
         )
@@ -50,8 +50,8 @@ class Composite_Spinbox(ttk.Frame):
         self.btn_dn = ttk.Button(
             btncol, text="▼", width=1, style="SpinButton.TButton", command=self._bump_down, takefocus=0
         )
-        self.btn_up.pack(side="top", fill="x")
-        self.btn_dn.pack(side="top", fill="x")
+        self.btn_up.pack(side="top", fill="both")
+        self.btn_dn.pack(side="bottom", fill="both")
 
         # bindings
         self.entry.bind("<Return>", self._validate_event)

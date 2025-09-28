@@ -8,7 +8,7 @@ from controllers.commands import Add_Icon
 from controllers.tools_base import DragAction, ToolBase
 from models.assets import Icon_Name
 from models.geo import Builtin_Icon, Icon_Source, Icon_Type, Picture_Icon, Point
-from models.styling import TkCursor
+from models.styling import Colours, TkCursor
 from ui.bars import Tool_Name
 from ui.edit_dialog import Icon_Gallery
 from ui.input import MotionEvent, get_mods
@@ -55,10 +55,12 @@ class Icon_Tool(ToolBase):
                 except Exception:
                     src = Icon_Source.builtin(Icon_Name.SIGNAL)
 
+        col = Colours.parse_colour(app.var_icon_colour.get()) if app.var_icon_colour else app.params.brush_colour
+
         if src.kind == Icon_Type.builtin and src.name:
-            ico = Builtin_Icon(p=p, col=app.params.brush_colour, name=src.name, size=48, snap=not mods.alt)
+            ico = Builtin_Icon(p=p, col=col, name=src.name, size=48, snap=not mods.alt)
         elif src.kind == Icon_Type.picture and src.src:
-            ico = Picture_Icon(p=p, col=app.params.brush_colour, src=src.src, size=192, snap=not mods.alt)
+            ico = Picture_Icon(p=p, col=col, src=src.src, size=192, snap=not mods.alt)
         else:
             return
         app.editors.apply_icon_defaults(ico)

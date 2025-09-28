@@ -61,6 +61,14 @@ class App:
         self.var_brush_w = tk.IntVar(value=self.params.brush_width)
         self.var_bg = tk.StringVar(value=self.params.bg_mode.name)
         self.var_colour = tk.StringVar(value=self.params.brush_colour.name)
+        self.var_label_colour = tk.StringVar(value=self.var_colour.get())
+        self.var_icon_colour = tk.StringVar(value=self.var_colour.get())
+        self.var_colour.trace_add("write", self.apply_colour)
+        self.var_bg.trace_add("write", self.apply_bg)
+        self.var_label_colour.trace_add("write", self.apply_label_colour)
+        self.var_icon_colour.trace_add("write", self.apply_icon_colour)
+        self.current_icon_colour = Colours.parse_colour(self.var_icon_colour.get())
+
         self.var_line_style = tk.StringVar(value=self.params.line_style.value)
         self.var_drag_to_draw = tk.BooleanVar(value=True)
         self.var_cardinal = tk.BooleanVar(value=True)
@@ -68,7 +76,7 @@ class App:
         self.var_icon_label = tk.StringVar(value=self.var_icon.get())
         self.current_icon = Icon_Source.builtin(Icon_Name.SIGNAL)
 
-        # ---------- header / toolbar ----------
+        # ---------- header / toolbar / status ----------
         self.hbar = Bars.create_header(
             self.root,
             mode_var=self.mode,
@@ -89,18 +97,20 @@ class App:
             brush_var=self.var_brush_w,
             width_var=self.var_width_px,
             height_var=self.var_height_px,
-            bg_var=self.var_bg,
             drag_to_draw_var=self.var_drag_to_draw,
             cardinal_var=self.var_cardinal,
             style_var=self.var_line_style,
-            on_style_change=self.on_style_change,
             on_grid_change=self.on_grid_change,
             on_brush_change=self.on_brush_change,
             on_canvas_size_change=self.on_canvas_size_change,
-            on_palette_select=lambda name: self.var_colour.set(name),
-            on_palette_set_bg=lambda name: self.var_bg.set(name),
-            selected_colour_name=self.var_colour.get(),
+            on_palette_select_brush=lambda name: self.var_colour.set(name),
+            on_palette_select_bg=lambda name: self.var_bg.set(name),
+            on_palette_select_label=lambda name: self.var_label_colour.set(name),
+            on_palette_select_icon=lambda name: self.var_icon_colour.set(name),
         )
+
+        self.status = Bars.Status(self.root)
+        self.status_bar = Bars.create_status(self.root, self.status)
 
         # ---------- canvas ----------
         display_bg = Colours.sys.dark_gray.hex if self.params.bg_mode.alpha == 0 else self.params.bg_mode.hex
@@ -109,12 +119,6 @@ class App:
 
         # ---------- editors ----------
         self.editors = Editors(self)
-
-        # ---------- status ----------
-        self.status = Bars.Status(self.root)
-        self.status_bar = Bars.create_status(self.root, self.status)
-
-        self.status.set("Ready")
 
         # ---------- scene / paint / layers ----------
         self.scene = Scene(self.params)
@@ -181,6 +185,7 @@ class App:
         self.var_drag_to_draw.trace_add("write", self._on_drag_to_draw_change)
 
         self._status_hints_set()
+        self.status.set("Ready")
 
     # ========= small app API used by tools =========
     def prompt_text(self, title: str, prompt: str) -> str | None:
@@ -417,6 +422,11 @@ class App:
         self.params.bg_mode = col
         display_bg = Colours.sys.dark_gray if col.alpha == 0 else col
         self.canvas.config(bg=display_bg.hex)
+        # sync BG palette highlight
+        try:
+            self.tbar.palette_bg.set_selected(col.name or "custom")
+        except Exception:
+            pass
         self.layers.redraw(Layer_Type.grid, force=True)
 
     def apply_colour(self, *_):
@@ -426,6 +436,34 @@ class App:
         except ValueError:
             col = Colours.black
         self.params.brush_colour = col
+        try:
+            self.tbar.palette_brush.set_selected(col.name or "custom")
+        except Exception:
+            pass
+
+    def apply_label_colour(self, *_):
+        raw = (self.var_label_colour.get().strip() if self.var_label_colour else "") or self.var_colour.get()
+        try:
+            col = Colours.parse_colour(raw)
+        except ValueError:
+            col = self.params.brush_colour
+        self.current_label_colour = col
+        try:
+            self.tbar.palette_label.set_selected(col.name or "custom")
+        except Exception:
+            pass
+
+    def apply_icon_colour(self, *_):
+        raw = (self.var_icon_colour.get().strip() if self.var_icon_colour else "") or self.var_colour.get()
+        try:
+            col = Colours.parse_colour(raw)
+        except ValueError:
+            col = self.params.brush_colour
+        self.current_icon_colour = col
+        try:
+            self.tbar.palette_icon.set_selected(col.name or "custom")
+        except Exception:
+            pass
 
     def on_double_click(self, evt):
         self.tool_mgr.cancel()

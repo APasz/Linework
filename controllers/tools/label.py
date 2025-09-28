@@ -7,7 +7,7 @@ from canvas.layers import Hit_Kind, Layer_Type
 from controllers.commands import Add_Label
 from controllers.tools_base import DragAction, ToolBase
 from models.geo import Label, Point
-from models.styling import TkCursor
+from models.styling import Colours, TkCursor
 from ui.bars import Tool_Name
 from ui.input import MotionEvent, get_mods
 
@@ -28,8 +28,9 @@ class Label_Tool(ToolBase):
     def on_press(self, app: App, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
+        col = Colours.parse_colour(app.var_label_colour.get()) if app.var_label_colour else app.params.brush_colour
         if mods.shift:
-            lab = Label(p=p, text="", col=app.params.brush_colour, snap=not mods.alt)
+            lab = Label(p=p, text="", col=col, snap=not mods.alt)
             app.editors.apply_label_defaults(lab)
             if app.editors.edit(app.root, lab):
                 app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Type.labels)))
@@ -39,7 +40,7 @@ class Label_Tool(ToolBase):
         text = app.prompt_text("New label", "Text:")
         if not text:
             return
-        lab = Label(p=p, text=text, col=app.params.brush_colour, snap=not mods.alt)
+        lab = Label(p=p, text=text, col=col, snap=not mods.alt)
         app.editors.apply_label_defaults(lab)
         app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Type.labels)))
         app.mark_dirty()
