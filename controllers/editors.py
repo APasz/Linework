@@ -17,6 +17,42 @@ if TYPE_CHECKING:
 M = TypeVar("M")
 
 
+MASTER = [
+    "src",
+    "text",
+    "name",
+    "x",
+    "y",
+    "x1",
+    "y1",
+    "x2",
+    "y2",
+    "colour",
+    "size",
+    "width",
+    "rotation",
+    "anchor",
+    "capstyle",
+    "style",
+    "dash_offset",
+    "snap_to_grid",
+    "snap_flag",
+    "remember_defaults",
+]
+
+
+def make_order_key(names):
+    pos = {n: i for i, n in enumerate(names)}
+
+    def key(f):  # f: FieldSpec
+        return (0, pos[f.name]) if f.name in pos else (1, f.label.lower())
+
+    return key
+
+
+_order_key = make_order_key(MASTER)
+
+
 class EKind(StrEnum):
     INT = "int"
     FLOAT = "float"
@@ -24,6 +60,7 @@ class EKind(StrEnum):
     CHOICE = "choice"
     CHOICE_DICT = "choice_dict"
     BOOL = "bool"
+    COLOUR = "colour"
 
 
 @dataclass(frozen=True)
@@ -35,6 +72,7 @@ class FieldSpec:
     max: int | float | None = None
     choices: Callable[[], list[str]] | None = None
     choices_dict: Callable[[], dict[str, Any]] | None = None
+    sort: bool = False
 
 
 @dataclass
@@ -43,6 +81,18 @@ class EditPlan(Generic[M]):
     fields: list[FieldSpec]
     init: Callable[[M], dict[str, Any]]
     apply: Callable[[M, dict[str, Any]], None]
+    override_sort: bool | Callable[[FieldSpec], Any] = True
+
+    def __post_init__(self):
+        if not self.fields:
+            raise ValueError("EditPlan must have at least one field")
+        if not callable(self.init):
+            raise TypeError("init must be callable")
+        if not callable(self.apply):
+            raise TypeError("apply must be callable")
+        if self.override_sort:
+            key = self.override_sort if callable(self.override_sort) else (lambda f: f.label.lower())
+            self.fields.sort(key=key)
 
 
 class Editors:
@@ -115,6 +165,7 @@ class Editors:
             d["choices"] = f.choices()
         if f.kind is EKind.CHOICE_DICT and f.choices_dict:
             d["choices"] = f.choices_dict()
+        d["sort"] = f.sort
         return d
 
     def _resolve_plan(self, obj: Any) -> EditPlan[Any]:
@@ -134,9 +185,9 @@ class Editors:
             FieldSpec("snap_flag", "Keep snapped when dragging", EKind.BOOL),
             FieldSpec("size", "Size", EKind.INT, min=1),
             FieldSpec("rotation", "Rotation (deg)", EKind.INT),
-            FieldSpec("anchor", "Anchor", EKind.CHOICE, choices=self._anchor_choices_tk),
-            FieldSpec("colour", "Colour", EKind.CHOICE, choices=self._colour_choices),
-            FieldSpec("remember_defaults", "Remember size/rotation/anchor for this session", EKind.BOOL),
+            FieldSpec("anchor", "Anchor", EKind.CHOICE, choices=self._anchor_choices_tk, sort=False),
+            FieldSpec("colour", "Colour", EKind.COLOUR),
+            FieldSpec("remember_defaults", "Remember for this session;\nsize/rotation/anchor", EKind.BOOL),
         ]
 
         def init(lab: Label) -> dict[str, Any]:
@@ -171,7 +222,7 @@ class Editors:
                     "anchor": data["anchor"],
                 }
 
-        return EditPlan(title="Edit Label", fields=fields, init=init, apply=apply)
+        return EditPlan(title="Edit Label", fields=fields, init=init, apply=apply, override_sort=_order_key)
 
     # --- Line ---
     def _plan_line(self, lin: Line) -> EditPlan[Line]:
@@ -184,7 +235,7 @@ class Editors:
             FieldSpec("width", "Width", EKind.INT, min=1),
             FieldSpec("capstyle", "Cap", EKind.CHOICE, choices=self._cap_choices),
             FieldSpec("style", "Dash", EKind.CHOICE, choices=self._style_choices),
-            FieldSpec("colour", "Colour", EKind.CHOICE, choices=self._colour_choices),
+            FieldSpec("colour", "Colour", EKind.COLOUR),
             FieldSpec("dash_offset", "Dash offset", EKind.INT, min=0),
         ]
 
@@ -214,14 +265,14 @@ class Editors:
             lin.col = Colours.parse_colour(data["colour"]) if data.get("colour") else lin.col
             lin.dash_offset = int(data.get("dash_offset", 0))
 
-        return EditPlan(title="Edit Line", fields=fields, init=init, apply=apply)
+        return EditPlan(title="Edit Line", fields=fields, init=init, apply=apply, override_sort=_order_key)
 
     # --- Built-in Icon ---
     def _plan_builtin_icon(self, ico: Builtin_Icon) -> EditPlan[Builtin_Icon]:
         fields_common = self._icon_common_fields()
         fields = [
             FieldSpec("name", "Icon", EKind.CHOICE, choices=self._icon_choices),
-            FieldSpec("colour", "Colour", EKind.CHOICE, choices=self._colour_choices),
+            FieldSpec("colour", "Colour", EKind.COLOUR),
             *fields_common,
         ]
 
@@ -258,7 +309,7 @@ class Editors:
                     "anchor": data["anchor"],
                 }
 
-        return EditPlan(title="Edit Icon", fields=fields, init=init, apply=apply)
+        return EditPlan(title="Edit Icon", fields=fields, init=init, apply=apply, override_sort=_order_key)
 
     def _plan_picture_icon(self, pic: Picture_Icon) -> EditPlan[Picture_Icon]:
         fields_common = self._icon_common_fields()
@@ -298,7 +349,7 @@ class Editors:
                     "anchor": data["anchor"],
                 }
 
-        return EditPlan(title="Edit Picture", fields=fields, init=init, apply=apply)
+        return EditPlan(title="Edit Picture", fields=fields, init=init, apply=apply, override_sort=_order_key)
 
     # --- shared icon fields ---
     def _icon_common_fields(self) -> list[FieldSpec]:
@@ -309,6 +360,6 @@ class Editors:
             FieldSpec("snap_flag", "Keep snapped when dragging", EKind.BOOL),
             FieldSpec("size", "Size", EKind.INT, min=1),
             FieldSpec("rotation", "Rotation (deg)", EKind.INT),
-            FieldSpec("anchor", "Anchor", EKind.CHOICE, choices=self._anchor_choices_tk),
-            FieldSpec("remember_defaults", "Remember size/rotation/anchor for this session", EKind.BOOL),
+            FieldSpec("anchor", "Anchor", EKind.CHOICE, choices=self._anchor_choices_tk, sort=False),
+            FieldSpec("remember_defaults", "Remember for this session;\nsize/rotation/anchor", EKind.BOOL),
         ]

@@ -357,28 +357,52 @@ class Bars:
         sbox_grid = cls._add_labeled(
             frame,
             lambda p: Composite_Spinbox(
-                p, from_=0, to=200, increment=5, width=3, textvariable=grid_var, command=on_grid_change
+                p,
+                from_=0,
+                to=200,
+                increment=5,
+                width=3,
+                textvariable=grid_var,
+                command=on_grid_change,
             ),
             "Grid:",
         )
         sbox_brush = cls._add_labeled(
             frame,
             lambda p: Composite_Spinbox(
-                p, from_=1, to=50, increment=1, width=3, textvariable=brush_var, command=on_brush_change
+                p,
+                from_=1,
+                to=50,
+                increment=1,
+                width=3,
+                textvariable=brush_var,
+                command=on_brush_change,
             ),
             "Line:",
         )
         sbox_w = cls._add_labeled(
             frame,
             lambda p: Composite_Spinbox(
-                p, from_=100, to=10000, increment=50, width=4, textvariable=width_var, command=on_canvas_size_change
+                p,
+                from_=100,
+                to=10000,
+                increment=50,
+                width=4,
+                textvariable=width_var,
+                command=on_canvas_size_change,
             ),
             "W:",
         )
         sbox_h = cls._add_labeled(
             frame,
             lambda p: Composite_Spinbox(
-                p, from_=100, to=10000, increment=50, width=4, textvariable=height_var, command=on_canvas_size_change
+                p,
+                from_=100,
+                to=10000,
+                increment=50,
+                width=4,
+                textvariable=height_var,
+                command=on_canvas_size_change,
             ),
             "H:",
         )
@@ -402,7 +426,14 @@ class Bars:
         styles = [s.value for s in LineStyle]
         cb_style = cls._add_labeled(
             frame,
-            lambda p: ttk.Combobox(p, values=styles, state="readonly", width=9, textvariable=style_var, height=12),
+            lambda p: ttk.Combobox(
+                p,
+                values=sorted(styles, key=str.lower),
+                state="readonly",
+                width=9,
+                textvariable=style_var,
+                height=16,
+            ),
             "Style:",
         )
 

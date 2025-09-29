@@ -14,6 +14,7 @@ from disk.export import _emit_pil_plan
 from models.assets import _builtin_icon_plan, _open_rgba
 from models.geo import Icon_Name, Icon_Source, Icon_Type, Point
 from models.styling import Colours
+from ui.bars import Colour_Palette
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -345,6 +346,7 @@ class GenericEditDialog(simpledialog.Dialog):
             "text": self._build_text,
             "choice": self._build_choice,
             "choice_dict": self._build_choice_dict,
+            "colour": self._build_colour,
         }
         builder = BUILDERS.get(kind, self._build_entry)
         w = builder(parent, fld, init_val)
@@ -369,6 +371,8 @@ class GenericEditDialog(simpledialog.Dialog):
 
     def _build_choice(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
         keys = _resolve_choices_seq(fld.get("choices"))
+        if fld.get("sort", True):
+            keys = sorted(keys, key=str.casefold)  # <— new
         init_key = str(init_val) if init_val is not None else (keys[0] if keys else "")
         var = tk.StringVar(value=init_key)
         self._meta[fld["name"]]["var"] = var
@@ -377,6 +381,8 @@ class GenericEditDialog(simpledialog.Dialog):
     def _build_choice_dict(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
         mapping = _resolve_choices_map(fld.get("choices"))
         keys = list(mapping.keys())
+        if fld.get("sort", True):
+            keys = sorted(keys, key=str.casefold)
         init_key = keys[0] if keys else ""
         for k, v in mapping.items():
             if v == init_val or (isinstance(v, Path) and str(v) == str(init_val)):
@@ -388,6 +394,21 @@ class GenericEditDialog(simpledialog.Dialog):
         meta["map"] = mapping
         return ttk.Combobox(parent, values=keys, textvariable=var, state="readonly")
 
+    def _build_colour(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
+        init = str(init_val) if init_val is not None else ""
+        var = tk.StringVar(value=init)
+        self._meta[fld["name"]]["var"] = var
+        pal = Colour_Palette(
+            parent,
+            Colours.list(min_alpha=25),
+            on_select=lambda hexa: var.set(hexa),
+        )
+        try:
+            pal._update_highlight(var.get())
+        except Exception:
+            pass
+        return pal
+
     # ---- readers (per kind) ----
     def _read_value(self, name: str, kind: str, fld: dict) -> Any:
         READERS: dict[str, Callable[[str, dict], Any]] = {
@@ -398,6 +419,7 @@ class GenericEditDialog(simpledialog.Dialog):
             "int": self._read_int,
             "float": self._read_float,
             "str": self._read_str,
+            "colour": self._read_str,
         }
         reader = READERS.get(kind, self._read_str)
         return reader(name, fld)
