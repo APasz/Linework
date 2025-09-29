@@ -90,7 +90,7 @@ class Icon_Gallery(tk.Toplevel):
         if key in self._thumb_cache:
             return self._thumb_cache[key]
 
-        plan = _builtin_icon_plan(name, self._thumb_size - 8, Colours.white.hex)
+        plan = _builtin_icon_plan(name, self._thumb_size - 8, Colours.white.hexh)
 
         img = Image.new("RGBA", (self._thumb_size, self._thumb_size), (0, 0, 0, 0))
 

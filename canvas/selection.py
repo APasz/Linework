@@ -271,8 +271,8 @@ class SelectionOverlay:
             cx + r,
             cy + r,
             tags=Tag(TagNS.handle, Hit_Kind.line, idx, which).to_strings(),
-            outline=HANDLE_OUTLINE.hex,
-            fill=HANDLE_FILL.hex,
+            outline=HANDLE_OUTLINE.hexh,
+            fill=HANDLE_FILL.hexh,
             width=1,
         )
 
@@ -395,7 +395,7 @@ class SelectionOverlay:
                 xB,
                 yB,
                 tags=tag.to_strings(),
-                fill=OUTLINE_COLOUR.hex,
+                fill=OUTLINE_COLOUR.hexh,
                 width=2,
                 capstyle=CapStyle.ROUND.value,
                 joinstyle=JoinStyle.ROUND.value,

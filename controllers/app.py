@@ -30,7 +30,7 @@ from disk.storage import IO
 from models.assets import Formats, Icon_Name, get_asset_library
 from models.geo import CanvasLW, Icon_Source, Point
 from models.params import Params
-from models.styling import Colours, LineStyle
+from models.styling import Colour, Colours, LineStyle
 from ui.bars import Bars, Side, Tool_Name
 
 
@@ -61,10 +61,10 @@ class App:
         self.var_brush_w = tk.IntVar(value=self.params.brush_width)
         self.var_line_style = tk.StringVar(value=self.params.line_style.value)
 
-        self.var_brush_colour = tk.StringVar(value=self.params.brush_colour.hexa)
-        self.var_bg_colour = tk.StringVar(value=self.params.bg_colour.hexa)
-        self.var_label_colour = tk.StringVar(value=self.params.label_colour.hexa)
-        self.var_icon_colour = tk.StringVar(value=self.params.icon_colour.hexa)
+        self.var_brush_colour = tk.StringVar(value=self.params.brush_colour.hexah)
+        self.var_bg_colour = tk.StringVar(value=self.params.bg_colour.hexah)
+        self.var_label_colour = tk.StringVar(value=self.params.label_colour.hexah)
+        self.var_icon_colour = tk.StringVar(value=self.params.icon_colour.hexah)
 
         self.var_brush_colour.trace_add("write", self.apply_brush_colour)
         self.var_bg_colour.trace_add("write", self.apply_bg_colour)
@@ -109,13 +109,15 @@ class App:
             on_palette_select_bg=lambda name: self.var_bg_colour.set(name),
             on_palette_select_label=lambda name: self.var_label_colour.set(name),
             on_palette_select_icon=lambda name: self.var_icon_colour.set(name),
+            custom_palette=self.params.custom_palette,
+            on_update_custom=self._set_custom_colour,
         )
 
         self.status = Bars.Status(self.root)
         self.status_bar = Bars.create_status(self.root, self.status)
 
         # ---------- canvas ----------
-        display_bg = Colours.sys.dark_gray.hex if self.params.bg_colour.alpha == 0 else self.params.bg_colour.hex
+        display_bg = Colours.sys.dark_gray.hexh if self.params.bg_colour.alpha == 0 else self.params.bg_colour.hexh
         self.canvas = CanvasLW(self.root, width=self.params.width, height=self.params.height, bg=display_bg)
         self.canvas.pack(fill="both", expand=False)
 
@@ -427,7 +429,7 @@ class App:
         self.params.brush_colour = col
         self.mark_dirty()
         try:
-            self.tbar.palette_brush.set_selected(col.hexa)
+            self.tbar.palette_brush.set_selected(col.hexah)
         except Exception:
             pass
 
@@ -440,9 +442,9 @@ class App:
         self.params.bg_colour = col
         self.mark_dirty()
         display_bg = Colours.sys.dark_gray if col.alpha == 0 else col
-        self.canvas.config(bg=display_bg.hex)
+        self.canvas.config(bg=display_bg.hexh)
         try:
-            self.tbar.palette_bg.set_selected(col.hexa)
+            self.tbar.palette_bg.set_selected(col.hexah)
         except Exception:
             pass
         self.layers.redraw(Layer_Type.grid, force=True)
@@ -456,7 +458,7 @@ class App:
         self.params.label_colour = col
         self.mark_dirty()
         try:
-            self.tbar.palette_label.set_selected(col.hexa)
+            self.tbar.palette_label.set_selected(col.hexah)
         except Exception:
             pass
 
@@ -469,9 +471,13 @@ class App:
         self.params.icon_colour = col
         self.mark_dirty()
         try:
-            self.tbar.palette_icon.set_selected(col.hexa)
+            self.tbar.palette_icon.set_selected(col.hexah)
         except Exception:
             pass
+
+    def _set_custom_colour(self, idx: int, col: Colour | None):
+        Colours.custom_palette[idx] = col
+        self.mark_dirty()
 
     def on_double_click(self, evt):
         self.tool_mgr.cancel()
@@ -726,12 +732,12 @@ class App:
         self.var_width_px.set(self.params.width)
         self.var_height_px.set(self.params.height)
         self.var_brush_w.set(self.params.brush_width)
-        self.var_brush_colour.set(self.params.brush_colour.hexa)
-        self.var_bg_colour.set(self.params.bg_colour.hexa)
-        self.var_label_colour.set(self.params.label_colour.hexa)
-        self.var_icon_colour.set(self.params.icon_colour.hexa)
+        self.var_brush_colour.set(self.params.brush_colour.hexah)
+        self.var_bg_colour.set(self.params.bg_colour.hexah)
+        self.var_label_colour.set(self.params.label_colour.hexah)
+        self.var_icon_colour.set(self.params.icon_colour.hexah)
         self.var_line_style.set(self.params.line_style.value)
-        display_bg = Colours.sys.dark_gray.hex if self.params.bg_colour.alpha == 0 else self.params.bg_colour.hex
+        display_bg = Colours.sys.dark_gray.hexh if self.params.bg_colour.alpha == 0 else self.params.bg_colour.hexh
         self.canvas.config(width=self.params.width, height=self.params.height, bg=display_bg)
 
     def _apply_size_increments(self, g: int):

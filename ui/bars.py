@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from tkinter import ttk
+from tkinter import colorchooser
 
 from models.geo import CanvasLW
 from models.styling import Colour, Colours, LineStyle
@@ -22,28 +23,34 @@ class Tool_Name(StrEnum):
 class Palette_Handles:
     frame: ttk.Frame
     set_selected: Callable[[str], None]
-    "call with colour name"
+    "call with colour hexa"
 
 
 class Colour_Palette(ttk.Frame):
+    _open_owner: "Colour_Palette | None" = None
+
     def __init__(
         self,
         master,
         colours: Iterable[Colour],
         on_select: Callable[[str], None],
+        custom: list[Colour | None] | None = None,
+        on_update_custom: Callable[[int, Colour | None], None] | None = None,
     ):
         super().__init__(master)
         self._on_select = on_select
         self._colours = list(colours)
         self._swatches: list[tuple[CanvasLW, str]] = []
         self._popup: tk.Toplevel | None = None
+        self._custom: list[Colour | None] = custom if custom is not None else [None] * len(Colours.list())
+        self._on_update_custom = on_update_custom
 
         self._btn = CanvasLW(self, width=22, height=22, highlightthickness=1)
         self._btn.configure(
-            highlightbackground=Colours.sys.dark_gray.hex,
-            highlightcolor=Colours.sys.dark_gray.hex,
+            highlightbackground=Colours.sys.dark_gray.hexh,
+            highlightcolor=Colours.sys.dark_gray.hexh,
         )
-        self._rect_id = self._btn.create_rectangle(1, 1, 21, 21, outline=Colours.black.hex, fill=Colours.black.hex)
+        self._rect_id = self._btn.create_rectangle(1, 1, 21, 21, outline=Colours.black.hexh, fill=Colours.black.hexh)
         self._btn.pack(side="left", padx=4)
         self._btn.bind("<Button-1>", self._toggle_popup)
 
@@ -52,17 +59,16 @@ class Colour_Palette(ttk.Frame):
         if self._popup:
             self._close_popup()
         else:
+            if Colour_Palette._open_owner and Colour_Palette._open_owner is not self:
+                try:
+                    Colour_Palette._open_owner._close_popup()
+                except Exception:
+                    pass
             self._open_popup()
-
-    def _arm_outside_handlers(self):
-        if not self._popup:
-            return
-        self._popup.update_idletasks()
-        self._popup.bind_all("<Escape>", lambda _e: self._close_popup(), add="+")
-        self._popup.bind_all("<ButtonRelease-1>", self._maybe_close_on_click, add="+")
 
     def _open_popup(self, _evt=None):
         self._close_popup()
+        Colour_Palette._open_owner = self
         top = tk.Toplevel(self)
         top.wm_overrideredirect(True)
         top.transient(self.winfo_toplevel())
@@ -74,13 +80,38 @@ class Colour_Palette(ttk.Frame):
         frame = ttk.Frame(top, borderwidth=1, relief="solid")
         frame.pack(fill="both", expand=True)
 
+        left = ttk.Frame(frame)
+        left.pack(side="left", padx=6, pady=6)
+        right = ttk.Frame(frame)
+        right.pack(side="left", padx=(0, 6), pady=6)
+        ttk.Label(right, text="Custom").pack(anchor="w", padx=2, pady=(0, 4))
+
         self._swatches.clear()
+        # Built-ins (left)
         for col in self._colours:
-            sw = CanvasLW(frame, width=22, height=22, highlightthickness=0)
-            sw.create_rectangle(1, 1, 21, 21, outline=Colours.black.hex, fill=col.hex)
-            sw.pack(side="top", pady=2, padx=2)
-            sw.bind("<Button-1>", lambda _e, t=col.hexa: (self._select(t), self._close_popup()))
-            self._swatches.append((sw, col.hexa))
+            c = CanvasLW(left, width=22, height=22, highlightthickness=0)
+            fill = Colours.sys.dark_gray.hexh if col.alpha == 0 else col.hexh
+            c.create_rectangle(1, 1, 21, 21, outline=Colours.sys.dark_gray.hexh, fill=fill)
+            c.bind("<Button-1>", lambda _e, hexa=col.hexah: (self._select(hexa), self._close_popup()))
+            c.pack(side="top", pady=2)
+            self._swatches.append((c, col.hexah))
+
+        # Custom (right)
+        for i, val in enumerate(self._custom):
+            c = CanvasLW(right, width=22, height=22, highlightthickness=0)
+            fill = Colours.white.hexh if val is None else (Colours.sys.dark_gray.hexh if val.alpha == 0 else val.hexh)
+            c.create_rectangle(1, 1, 21, 21, outline=Colours.sys.dark_gray.hexh, fill=fill)
+            if val is None:
+                # Empty slot → open picker immediately
+                c.bind("<Button-1>", lambda _e, i=i: self._edit_custom(i, None))
+            else:
+                # Click selects; Shift-click edits
+                c.bind("<Button-1>", lambda _e, hexa=val.hexah: (self._select(hexa), self._close_popup()))
+                c.bind("<Shift-Button-1>", lambda _e, i=i, init=val: self._edit_custom(i, init))
+            # Right-click clears
+            c.bind("<Button-3>", lambda _e, i=i: self._clear_custom(i))
+            c.pack(side="top", pady=2)
+            self._swatches.append((c, val.hexah if val else ""))
 
         top.focus_force()
         try:
@@ -105,6 +136,32 @@ class Colour_Palette(ttk.Frame):
                 pass
             self._popup = None
             self._swatches.clear()
+            if Colour_Palette._open_owner is self:
+                Colour_Palette._open_owner = None
+
+    def _arm_outside_handlers(self):
+        if not self._popup:
+            return
+        self._popup.update_idletasks()
+        self._popup.bind_all("<Escape>", lambda _e: self._close_popup(), add="+")
+        self._popup.bind_all("<ButtonRelease-1>", self._maybe_close_on_click, add="+")
+
+    def _edit_custom(self, idx: int, initial: Colour | None):
+        _rgb, hx = colorchooser.askcolor(color=initial.hexh if initial else None, parent=self)
+        if not hx:
+            return
+        col = Colours.parse_colour(hx)
+        self._custom[idx] = col
+        if self._on_update_custom:
+            self._on_update_custom(idx, col)
+        self._select(col.hexah)
+        self._close_popup()
+
+    def _clear_custom(self, idx: int):
+        self._custom[idx] = None
+        if self._on_update_custom:
+            self._on_update_custom(idx, None)
+        self._close_popup()
 
     def _maybe_close_on_click(self, e):
         if not self._popup:
@@ -131,14 +188,13 @@ class Colour_Palette(ttk.Frame):
 
     def _update_highlight(self, selected: str):
         try:
-            col = next((c for c in self._colours if c.hexa == selected), None)
-            if col is not None:
-                fill = Colours.sys.dark_gray.hex if col.alpha == 0 else col.hex
-                self._btn.itemconfigure(self._rect_id, fill=fill)
+            col = next((c for c in self._colours if c.hexah == selected), None)
+            if col is None:
+                col = Colours.parse_colour(selected)
+            fill = Colours.sys.dark_gray.hexh if col.alpha == 0 else col.hexh
+            self._btn.itemconfigure(self._rect_id, fill=fill)
         except Exception:
             pass
-        for canvas, name in self._swatches:
-            canvas.configure(highlightthickness=3 if name == selected else 0)
 
 
 @dataclass
@@ -291,6 +347,8 @@ class Bars:
         on_palette_select_bg,
         on_palette_select_label,
         on_palette_select_icon,
+        custom_palette: list[Colour | None] | None = None,
+        on_update_custom: Callable[[int, Colour | None], None] | None = None,
     ):
         """Builds the toolbar strip and returns widget handles."""
         frame = ttk.Frame(master)
@@ -353,6 +411,8 @@ class Bars:
                 p,
                 Colours.list(min_alpha=25),
                 on_select=on_palette_select_brush,
+                custom=custom_palette,
+                on_update_custom=on_update_custom,
             )
 
         brush_widget = cls._add_labeled(frame, _make_brush, "Brush:")
@@ -363,6 +423,8 @@ class Bars:
                 p,
                 Colours.list(),
                 on_select=on_palette_select_bg,
+                custom=custom_palette,
+                on_update_custom=on_update_custom,
             )
 
         bg_widget = cls._add_labeled(frame, _make_bg, "BG:")
@@ -373,6 +435,8 @@ class Bars:
                 p,
                 Colours.list(min_alpha=25),
                 on_select=on_palette_select_label,
+                custom=custom_palette,
+                on_update_custom=on_update_custom,
             )
 
         lb_widget = cls._add_labeled(frame, _make_label, "Label:")
@@ -383,6 +447,8 @@ class Bars:
                 p,
                 Colours.list(min_alpha=25),
                 on_select=on_palette_select_icon,
+                custom=custom_palette,
+                on_update_custom=on_update_custom,
             )
 
         ic_widget = cls._add_labeled(frame, _make_icon, "Icon:")

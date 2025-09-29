@@ -233,7 +233,7 @@ class CanvasLW(tk.Canvas):
             a.y,
             b.x,
             b.y,
-            fill=col.hex,
+            fill=col.hexh,
             width=width,
             capstyle=capstyle.value,
             dash=dash or [],
@@ -257,7 +257,7 @@ class CanvasLW(tk.Canvas):
             line.a.y,
             line.b.x,
             line.b.y,
-            fill=line.col.hex,
+            fill=line.col.hexh,
             width=line.width,
             capstyle=line.capstyle.value,
             dash=dash or [],
@@ -279,7 +279,7 @@ class CanvasLW(tk.Canvas):
             label.p.x,
             label.p.y,
             text=label.text,
-            fill=label.col.hex,
+            fill=label.col.hexh,
             anchor=label.anchor.tk,
             font=("TkDefaultFont", label.size),
             angle=label.rotation,
@@ -345,7 +345,7 @@ class CanvasLW(tk.Canvas):
         tag_type: Layer_Type = Layer_Type.icons,
     ):
         tag = tag_sort(tag_type, base_kind=Hit_Kind.icon, idx=idx, override=override_tag, extra=extra_tags)
-        col = icon.col.hex
+        col = icon.col.hexh
         size = float(icon.size)
         rot = float(icon.rotation or 0.0)
 

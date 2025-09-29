@@ -16,6 +16,7 @@ class Params(Model):
     bg_colour: Colour = Colours.white
     icon_colour: Colour = Colours.black
     label_colour: Colour = Colours.black
+    custom_palette: list[Colour | None] = Colours.custom_palette
     brush_width: int = 10
     line_style: LineStyle = LineStyle.SOLID
     line_dash_offset: int = 0

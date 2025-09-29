@@ -36,7 +36,7 @@ except Exception:
 
 
 def _col_and_opacity(col: Colour) -> tuple[str, str]:
-    hex_rgb = col.hex
+    hex_rgb = col.hexh
     if col.alpha < 255:
         op = f' opacity="{col.alpha / 255:.3f}"'
     else:

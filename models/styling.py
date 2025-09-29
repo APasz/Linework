@@ -5,7 +5,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from enum import Enum, StrEnum
 from functools import lru_cache
 from types import MappingProxyType
-from typing import ClassVar, Final, Literal, Self
+from typing import Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -205,7 +205,7 @@ class Colour(Model):
     blue: int
     alpha: int = 255
 
-    model_config = ConfigDict(frozen=True, extra="ignore")  # ignore legacy "name"
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     @model_validator(mode="after")
     def _clamp(self):
@@ -228,66 +228,43 @@ class Colour(Model):
 
     @property
     def hex(self) -> str:
-        return f"#{self.red:02X}{self.green:02X}{self.blue:02X}"
+        return self.hexh[:1]
 
     @property
     def hexa(self) -> str:
+        return self.hexah[:1]
+
+    @property
+    def hexh(self) -> str:
+        return f"#{self.red:02X}{self.green:02X}{self.blue:02X}"
+
+    @property
+    def hexah(self) -> str:
         return f"#{self.red:02X}{self.green:02X}{self.blue:02X}{self.alpha:02X}"
 
     def with_alpha(self, a: int) -> "Colour":
         return Colour(red=self.red, green=self.green, blue=self.blue, alpha=a)
 
 
-Colour_Name = Literal[
-    "white",
-    "black",
-    "transparent",
-    "red",
-    "green",
-    "blue",
-    "cyan",
-    "magenta",
-    "yellow",
-    "gray",
-    "light_gray",
-    "dark_gray",
-    "sky",
-    "ocean",
-]
-
-
-@lru_cache(maxsize=256)
-def nearest_name(col: Colour, *, include_alpha: bool = False) -> str | None:
-    # simple Euclidean distance in RGB or RGBA space
-    target = col.rgba if include_alpha else col.rgb
-    best_name: str | None = None
-    best_d = 10**9
-    for name, c in PALETTE.items():
-        v = c.rgba if include_alpha else c.rgb
-        d = sum((a - b) * (a - b) for a, b in zip(target, v))
-        if d < best_d:
-            best_d = d
-            best_name = name
-    return best_name
-
-
 class Colours:
-    white: ClassVar[Colour] = Colour(red=255, green=255, blue=255)
-    black: ClassVar[Colour] = Colour(red=0, green=0, blue=0)
-    transparent: ClassVar[Colour] = Colour(red=0, green=0, blue=0, alpha=0)
-    red: ClassVar[Colour] = Colour(red=255, green=0, blue=0)
-    green: ClassVar[Colour] = Colour(red=0, green=255, blue=0)
-    blue: ClassVar[Colour] = Colour(red=0, green=0, blue=255)
-    cyan: ClassVar[Colour] = Colour(red=0, green=255, blue=255)
-    magenta: ClassVar[Colour] = Colour(red=255, green=0, blue=255)
-    yellow: ClassVar[Colour] = Colour(red=255, green=255, blue=0)
-    gray: ClassVar[Colour] = Colour(red=128, green=128, blue=128)
+    white: Colour = Colour(red=255, green=255, blue=255)
+    black: Colour = Colour(red=0, green=0, blue=0)
+    transparent: Colour = Colour(red=0, green=0, blue=0, alpha=0)
+    red: Colour = Colour(red=255, green=0, blue=0)
+    green: Colour = Colour(red=0, green=255, blue=0)
+    blue: Colour = Colour(red=0, green=0, blue=255)
+    cyan: Colour = Colour(red=0, green=255, blue=255)
+    magenta: Colour = Colour(red=255, green=0, blue=255)
+    yellow: Colour = Colour(red=255, green=255, blue=0)
+    gray: Colour = Colour(red=128, green=128, blue=128)
 
     class sys:
-        light_gray: ClassVar[Colour] = Colour(red=200, green=200, blue=200)
-        dark_gray: ClassVar[Colour] = Colour(red=60, green=60, blue=60)
-        sky: ClassVar[Colour] = Colour(red=30, green=200, blue=255)
-        ocean: ClassVar[Colour] = Colour(red=20, green=126, blue=168)
+        light_gray: Colour = Colour(red=200, green=200, blue=200)
+        dark_gray: Colour = Colour(red=60, green=60, blue=60)
+        sky: Colour = Colour(red=30, green=200, blue=255)
+        ocean: Colour = Colour(red=20, green=126, blue=168)
+
+    custom_palette: list[Colour | None]
 
     # ---------- internals ----------
     @classmethod
@@ -325,6 +302,7 @@ class Colours:
     def all(self) -> Mapping[str, Colour]:  # read-only view
         return PALETTE
 
+    # ---------- parsing ----------
     _HEX_RE = re.compile(r"^#?(?P<hex>[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$")
 
     @classmethod
@@ -336,22 +314,19 @@ class Colours:
             a = rest[0] if rest else 255
             return Colour(red=r, green=g, blue=b, alpha=a)
         if isinstance(value, str):
-            if c := get_colour(value):
-                return c
-            m = cls._HEX_RE.match(value.strip())
-            if m:
+            value = value.removeprefix("#").replace(" ", "").upper()
+            if m := cls._HEX_RE.match(value.strip()):
                 hx = m.group("hex")
                 if len(hx) == 6:
-                    r, g, b = int(hx[0:2], 16), int(hx[2:4], 16), int(hx[4:6], 16)
+                    r, g, b = (int(hx[i : i + 2], 16) for i in (0, 2, 4))
                     return Colour(red=r, green=g, blue=b)
                 else:
                     r, g, b, a = (int(hx[i : i + 2], 16) for i in (0, 2, 4, 6))
                     return Colour(red=r, green=g, blue=b, alpha=a)
         raise ValueError(f"Unrecognized colour: {value!r}")
 
-    @staticmethod
-    def name_for(col: Colour) -> str | None:
-        return PALETTE_BY_RGBA.get(col.rgba)
+
+Colours.custom_palette = [None] * len(Colours.list())
 
 
 def _collect_palette() -> dict[str, Colour]:
@@ -362,16 +337,6 @@ def _collect_palette() -> dict[str, Colour]:
 
 
 PALETTE: Final[Mapping[str, Colour]] = _collect_palette()
-PALETTE_BY_RGBA: Final[Mapping[tuple[int, int, int, int], str]] = {c.rgba: n for n, c in PALETTE.items()}
-
-
-# Convenience
-def get_colour(name: Colour_Name | str) -> Colour | None:
-    return PALETTE.get(name.lower())
-
-
-def get_colour_or(name: str, fallback: Colour | None = None) -> Colour:
-    return get_colour(name) or fallback or Colours.white
 
 
 class TkCursor(StrEnum):
