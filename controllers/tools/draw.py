@@ -59,7 +59,7 @@ class Draw_Tool(ToolBase):
                     style=app.params.line_style,
                     dash_offset=app.params.line_dash_offset,
                 )
-                if not mods.shift or app.editors.edit(app.root, line):
+                if not mods.shift or app.editors.edit(app, line):
                     app.cmd.push_and_do(
                         Add_Line(app.params, line, on_after=lambda: app.layers.redraw(Layer_Type.lines))
                     )
@@ -108,7 +108,7 @@ class Draw_Tool(ToolBase):
                 style=app.params.line_style,
                 dash_offset=app.params.line_dash_offset,
             )
-            if not mods.shift or app.editors.edit(app.root, line):
+            if not mods.shift or app.editors.edit(app, line):
                 app.cmd.push_and_do(Add_Line(app.params, line, on_after=lambda: app.layers.redraw(Layer_Type.lines)))
                 app.mark_dirty()
 

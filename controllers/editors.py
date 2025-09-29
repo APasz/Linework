@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import tkinter as tk
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from models.assets import Icon_Name
 from models.geo import Builtin_Icon, Label, Line, Picture_Icon, Point
@@ -15,6 +15,19 @@ if TYPE_CHECKING:
     from controllers.app import App
 
 M = TypeVar("M")
+
+
+class EKind(StrEnum):
+    STR = "str"
+    INT = "int"
+    FLOAT = "float"
+    BOOL = "bool"
+    TEXT = "text"
+    CHOICE = "choice"
+    CHOICE_DICT = "choice_dict"
+    COLOUR = "colour"
+    ICON_BUILTIN = "icon_builtin"
+    ICON_PICTURE = "icon_picture"
 
 
 MASTER = [
@@ -51,16 +64,6 @@ def make_order_key(names):
 
 
 _order_key = make_order_key(MASTER)
-
-
-class EKind(StrEnum):
-    INT = "int"
-    FLOAT = "float"
-    TEXT = "text"
-    CHOICE = "choice"
-    CHOICE_DICT = "choice_dict"
-    BOOL = "bool"
-    COLOUR = "colour"
 
 
 @dataclass(frozen=True)
@@ -144,10 +147,10 @@ class Editors:
         return {p.name: p for p in self.app.asset_lib.list_pictures()}
 
     # ---------- single public entry point ----------
-    def edit(self, parent: tk.Misc, obj: Any) -> bool:
+    def edit(self, app: App, obj: Any) -> bool:
         plan = self._resolve_plan(obj)
         schema = [self._field_to_schema(f) for f in plan.fields]
-        dlg = GenericEditDialog(parent, plan.title, schema, plan.init(obj))
+        dlg = GenericEditDialog(app, plan.title, schema, plan.init(obj))
         result = getattr(dlg, "result", None)
         if not result:
             return False
@@ -271,7 +274,7 @@ class Editors:
     def _plan_builtin_icon(self, ico: Builtin_Icon) -> EditPlan[Builtin_Icon]:
         fields_common = self._icon_common_fields()
         fields = [
-            FieldSpec("name", "Icon", EKind.CHOICE, choices=self._icon_choices),
+            FieldSpec("name", "Icon", EKind.ICON_BUILTIN),
             FieldSpec("colour", "Colour", EKind.COLOUR),
             *fields_common,
         ]
@@ -314,7 +317,7 @@ class Editors:
     def _plan_picture_icon(self, pic: Picture_Icon) -> EditPlan[Picture_Icon]:
         fields_common = self._icon_common_fields()
         fields = [
-            FieldSpec("src", "Picture", EKind.CHOICE_DICT, choices_dict=self._picture_choices),
+            FieldSpec("src", "Picture", EKind.ICON_PICTURE),
             *fields_common,
         ]
 

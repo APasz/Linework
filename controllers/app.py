@@ -499,7 +499,7 @@ class App:
             return
 
         self._set_selected(hit.kind, hit.tag_idx)
-        if self.editors.edit(self.root, obj):
+        if self.editors.edit(self, obj):
             self.layers.redraw(layer, True)
             self.selection.update_bbox()
             self.mark_dirty()

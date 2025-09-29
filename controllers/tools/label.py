@@ -32,7 +32,7 @@ class Label_Tool(ToolBase):
         if mods.shift:
             lab = Label(p=p, text="", col=col, snap=not mods.alt)
             app.editors.apply_label_defaults(lab)
-            if app.editors.edit(app.root, lab):
+            if app.editors.edit(app, lab):
                 app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Type.labels)))
                 app.mark_dirty()
             return

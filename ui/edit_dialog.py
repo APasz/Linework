@@ -21,7 +21,16 @@ if TYPE_CHECKING:
 
 
 class Icon_Gallery(tk.Toplevel):
-    def __init__(self, master, app: App, recent: Iterable[Icon_Source], at: Point | None = None):
+    def __init__(
+        self,
+        master,
+        app: App,
+        recent: Iterable[Icon_Source],
+        at: Point,
+        show_builtins: bool = True,
+        show_pictures: bool = True,
+        show_recent: bool = True,
+    ):
         super().__init__(master)
         self._thumb_size = 40
         self.project_path = app.project_path
@@ -33,20 +42,35 @@ class Icon_Gallery(tk.Toplevel):
         self._thumb_cache: dict[tuple, ImageTk.PhotoImage] = {}
 
         nb = ttk.Notebook(self)
-        self.tab_builtins = ttk.Frame(nb)
-        self.tab_pictures = ttk.Frame(nb)
-        self.tab_recent = ttk.Frame(nb)
-        nb.add(self.tab_builtins, text="Built-ins")
-        nb.add(self.tab_pictures, text="Pictures")
-        nb.add(self.tab_recent, text="Recent")
+        if show_builtins:
+            self._tab_builtin = ttk.Frame(nb)
+            nb.add(self._tab_builtin, text="Built-ins")
+        else:
+            self._tab_builtin = None
+        if show_pictures:
+            self._tab_pictures = ttk.Frame(nb)
+            nb.add(self._tab_pictures, text="Pictures")
+        else:
+            self._tab_pictures = None
+        if show_recent:
+            self._tab_recent = ttk.Frame(nb)
+            nb.add(self._tab_recent, text="Recent")
+        else:
+            self._tab_recent = None
         nb.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self._build_builtins(self.tab_builtins)
-        self._build_pictures(self.tab_pictures)
-        self._build_recent(self.tab_recent, list(recent))
+        if self._tab_builtin:
+            self._build_builtins(self._tab_builtin)
+        if self._tab_pictures:
+            self._build_pictures(self._tab_pictures)
+        if self._tab_recent:
+            self._build_recent(self._tab_recent, list(recent))
 
         btns = ttk.Frame(self)
-        ttk.Button(btns, text="Import…", command=self._import_images).pack(side="left", padx=4)
+        if self._tab_pictures:
+            self._btn_import = ttk.Button(self, text="Import…", command=self._import_images)
+            self._btn_import.pack(side="left", padx=6, pady=6)
+
         ttk.Button(btns, text="Cancel", command=self._cancel).pack(side="right", padx=4)
         btns.pack(fill="x", padx=8, pady=(0, 8))
 
@@ -133,8 +157,16 @@ class Icon_Gallery(tk.Toplevel):
 
     # ---------- recent ----------
     def _build_recent(self, parent, recent: list[Icon_Source]):
+        allowed = set()
+        if self._tab_builtin is not None:
+            allowed.add(Icon_Type.builtin)
+        if self._tab_pictures is not None:
+            allowed.add(Icon_Type.picture)
+
         frame = _ScrollGrid(parent)
-        for src in recent:  # pyright: ignore[reportAssignmentType]
+        for src in recent:
+            if src.kind not in allowed:
+                continue
             if src.kind == Icon_Type.builtin and src.name:
                 thumb = self._thumb_for_builtin(src.name)
                 txt = src.name.name
@@ -142,7 +174,7 @@ class Icon_Gallery(tk.Toplevel):
                 thumb = self._thumb_for_picture(src.src)
                 txt = src.src.name
             else:
-                raise ValueError(f"Unknown kind: {src.kind}")
+                continue
             b = ttk.Button(frame.body, image=thumb, text=txt, compound="top", command=lambda s=src: self._choose(s))
             frame.add(b)
         frame.pack(fill="both", expand=True)
@@ -195,21 +227,24 @@ class _ScrollGrid(ttk.Frame):
         self._row = 0
 
 
-class ED_Kind(StrEnum):
-    str = "str"
-    int = "int"
-    float = "float"
-    bool = "bool"
-    text = "text"
-    choice = "choice"
-    choice_dict = "choice_dict"
+class EKind(StrEnum):
+    STR = "str"
+    INT = "int"
+    FLOAT = "float"
+    BOOL = "bool"
+    TEXT = "text"
+    CHOICE = "choice"
+    CHOICE_DICT = "choice_dict"
+    COLOUR = "colour"
+    ICON_BUILTIN = "icon_builtin"
+    ICON_PICTURE = "icon_picture"
 
 
 @dataclass(frozen=True)
 class _FieldSpec:
     name: str
     label: str | None = None
-    kind: ED_Kind = ED_Kind.str
+    kind: EKind = EKind.STR
     min: int | float | None = None
     max: int | float | None = None
     choices: Sequence[str] | Callable[[], Sequence[str]] | None = None
@@ -231,9 +266,9 @@ def _coerce_schema_item(item: Any) -> dict[str, Any]:
             d["min"] = item.min
         if item.max is not None:
             d["max"] = item.max
-        if item.kind is ED_Kind.choice and item.choices:
+        if item.kind is EKind.CHOICE and item.choices:
             d["choices"] = item.choices() if callable(item.choices) else list(item.choices)
-        if item.kind is ED_Kind.choice_dict and item.choices_dict:
+        if item.kind is EKind.CHOICE_DICT and item.choices_dict:
             d["choices"] = item.choices_dict() if callable(item.choices_dict) else dict(item.choices_dict)
         return d
 
@@ -241,7 +276,7 @@ def _coerce_schema_item(item: Any) -> dict[str, Any]:
         raise TypeError(f"Schema entries must be dict or _FieldSpec, got {type(item)}")
     d = dict(item)
     k = d.get("kind", "str")
-    if isinstance(k, ED_Kind):
+    if isinstance(k, EKind):
         d["kind"] = k.value
     else:
         d["kind"] = str(k).lower()
@@ -277,16 +312,17 @@ class GenericEditDialog(simpledialog.Dialog):
 
     def __init__(
         self,
-        parent: tk.Misc,
+        app: App,
         title: str,
         schema: Sequence[dict[str, Any] | _FieldSpec],
         values: dict[str, Any] | None,
     ):
+        self.app: App = app
         self.schema: list[dict[str, Any]] = [_coerce_schema_item(s) for s in list(schema)]
-        self.values = dict(values or {})
+        self.values: dict[str, Any] = dict(values or {})
         self.widgets: dict[str, tk.Widget] = {}
         self._meta: dict[str, dict[str, Any]] = {}
-        super().__init__(parent, title)
+        super().__init__(app.root, title)
 
     # ---- Dialog hooks ----
     def body(self, master: tk.Frame) -> tk.Widget:
@@ -347,6 +383,8 @@ class GenericEditDialog(simpledialog.Dialog):
             "choice": self._build_choice,
             "choice_dict": self._build_choice_dict,
             "colour": self._build_colour,
+            "icon_builtin": self._build_icon_builtin,
+            "icon_picture": self._build_icon_picture,
         }
         builder = BUILDERS.get(kind, self._build_entry)
         w = builder(parent, fld, init_val)
@@ -409,6 +447,61 @@ class GenericEditDialog(simpledialog.Dialog):
             pass
         return pal
 
+    # --- icon pickers ---
+    def _build_icon_builtin(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
+        frm = ttk.Frame(parent)
+        var = tk.StringVar(value=self._stringify_init(init_val))
+        self._meta[fld["name"]]["var"] = var
+        shown = tk.StringVar(value=var.get())
+        ttk.Label(frm, textvariable=shown).pack(side="left", padx=(0, 6))
+
+        def _choose():
+            dlg = Icon_Gallery(
+                self,
+                self.app,
+                getattr(getattr(self.app, "params", None), "recent_icons", []),
+                Point(x=parent.winfo_rootx(), y=parent.winfo_rooty()),
+                show_builtins=True,
+                show_pictures=False,
+                show_recent=True,
+            )
+            self.wait_window(dlg)
+            src = getattr(dlg, "result", None)
+            if src and getattr(src, "name", None):
+                var.set(getattr(src.name, "value", ""))
+                shown.set(var.get())
+
+        ttk.Button(frm, text="Choose…", command=_choose).pack(side="right")
+        return frm
+
+    def _build_icon_picture(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
+        frm = ttk.Frame(parent)
+        init = self._stringify_init(init_val)
+        var = tk.StringVar(value=init)
+        self._meta[fld["name"]]["var"] = var
+        shown = tk.StringVar(value=Path(init).name if init else "")
+        ttk.Label(frm, textvariable=shown).pack(side="left", padx=(0, 6))
+
+        def _choose():
+            dlg = Icon_Gallery(
+                self,
+                self.app,
+                getattr(getattr(self.app, "params", None), "recent_icons", []),
+                Point(x=parent.winfo_rootx(), y=parent.winfo_rooty()),
+                show_builtins=False,
+                show_pictures=True,
+                show_recent=True,
+            )
+            self.wait_window(dlg)
+            src = getattr(dlg, "result", None)
+            p = getattr(src, "src", None)
+            if p:
+                var.set(str(p))
+                shown.set(Path(p).name)
+
+        ttk.Button(frm, text="Choose…", command=_choose).pack(side="right")
+        return frm
+
     # ---- readers (per kind) ----
     def _read_value(self, name: str, kind: str, fld: dict) -> Any:
         READERS: dict[str, Callable[[str, dict], Any]] = {
@@ -447,7 +540,6 @@ class GenericEditDialog(simpledialog.Dialog):
     def _read_int(self, name: str, fld: dict) -> int:
         s = self._read_str(name, fld)
         try:
-            # lenient: allow "12.0"
             return int(float(s))
         except Exception:
             raise ValueError(f"{fld.get('label', name)} must be an integer")
@@ -469,11 +561,10 @@ class GenericEditDialog(simpledialog.Dialog):
         return "" if v is None else str(v)
 
     def _close_popdowns(self):
-        # Close any open ttk combobox popdowns to avoid X BadWindow on X11
         for w in self.widgets.values():
             if isinstance(w, ttk.Combobox):
                 try:
-                    w.event_generate("<Escape>")  # closes the popdown if open
+                    w.event_generate("<Escape>")
                 except Exception:
                     pass
         try:
@@ -482,7 +573,6 @@ class GenericEditDialog(simpledialog.Dialog):
             pass
 
     def _hide_combobox_popdowns(self):
-        # Close any open ttk.Combobox popdown without triggering dialog bindings
         for w in self.widgets.values():
             if isinstance(w, ttk.Combobox):
                 try:

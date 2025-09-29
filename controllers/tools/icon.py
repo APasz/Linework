@@ -66,7 +66,7 @@ class Icon_Tool(ToolBase):
         app.editors.apply_icon_defaults(ico)
 
         if mods.shift:
-            if not app.editors.edit(app.root, ico):
+            if not app.editors.edit(app, ico):
                 return
 
         app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers.redraw(Layer_Type.icons)))

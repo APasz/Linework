@@ -118,7 +118,6 @@ def get_asset_library(project_root: Path) -> Asset_Library:
 def _open_rgba(src: Path, w: int, h: int) -> Image.Image:
     ext = src.suffix[1:].lower()
     if ext == "svg":
-        # rasterize just this SVG icon to target size
         try:
             data = src.read_bytes()
             png = cairosvg.svg2png(bytestring=data, output_width=w, output_height=h)
@@ -135,8 +134,8 @@ def _open_rgba(src: Path, w: int, h: int) -> Image.Image:
 # === Names ===========================================================
 class Icon_Name(StrEnum):
     SIGNAL = "signal"
-    SWITCH_LEFT = "switch_left"
-    SWITCH_RIGHT = "switch_right"
+    SWITCH_LEFT = "switch_l"
+    SWITCH_RIGHT = "switch_r"
     BUFFER = "buffer"
     CROSSING = "crossing"
 
