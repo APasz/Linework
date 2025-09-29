@@ -418,11 +418,11 @@ class Tool_Manager:
         self.app.canvas.config(cursor=cur.value if isinstance(cur, TkCursor) else "")
         self.app.canvas.tag_raise_l(Layer_Type.selection)
 
-    def on_press(self, evt: MotionEvent | MotionEvent | tk.Event):
+    def on_press(self, evt: MotionEvent | tk.Event):
         setattr(evt, "mods", get_mods(evt))
         self.current.on_press(self.app, evt)
 
-    def on_motion(self, evt: MotionEvent | MotionEvent | tk.Event):
+    def on_motion(self, evt: MotionEvent | tk.Event):
         self._last_motion = MotionEvent(evt.x, evt.y, getattr(evt, "state", 0))
         if self._motion_pending:
             return
@@ -438,11 +438,11 @@ class Tool_Manager:
 
         self.app.canvas.after_idle(_dispatch)
 
-    def on_release(self, evt: MotionEvent | MotionEvent | tk.Event):
+    def on_release(self, evt: MotionEvent | tk.Event):
         setattr(evt, "mods", get_mods(evt))
         self.current.on_release(self.app, evt)
 
-    def on_key(self, evt: MotionEvent | MotionEvent | tk.Event):
+    def on_key(self, evt: MotionEvent | tk.Event):
         setattr(evt, "mods", get_mods(evt))
         self.current.on_key(self.app, evt)
 

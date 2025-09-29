@@ -19,6 +19,8 @@ from ui.bars import Colour_Palette
 if TYPE_CHECKING:
     from controllers.app import App
 
+ICON_PICKER_COLUMNS = 6
+
 
 class Icon_Gallery(tk.Toplevel):
     def __init__(
@@ -32,6 +34,7 @@ class Icon_Gallery(tk.Toplevel):
         show_recent: bool = True,
     ):
         super().__init__(master)
+        self.withdraw()
         self._thumb_size = 40
         self.project_path = app.project_path
         self.app = app
@@ -41,7 +44,10 @@ class Icon_Gallery(tk.Toplevel):
         self.result: Icon_Source | None = None
         self._thumb_cache: dict[tuple, ImageTk.PhotoImage] = {}
 
+        self._grids: list[_ScrollGrid] = []
+        self._cols: int | None = ICON_PICKER_COLUMNS
         nb = ttk.Notebook(self)
+
         if show_builtins:
             self._tab_builtin = ttk.Frame(nb)
             nb.add(self._tab_builtin, text="Built-ins")
@@ -68,10 +74,19 @@ class Icon_Gallery(tk.Toplevel):
 
         btns = ttk.Frame(self)
         if self._tab_pictures:
-            self._btn_import = ttk.Button(self, text="Import…", command=self._import_images)
+            self._btn_import = ttk.Button(btns, text="Import…", command=self._import_images)
             self._btn_import.pack(side="left", padx=6, pady=6)
 
-        ttk.Button(btns, text="Cancel", command=self._cancel).pack(side="right", padx=4)
+        def _bump_cols(d: int):
+            n = ICON_PICKER_COLUMNS if self._cols is None else self._cols
+            self._cols = max(1, n + d)
+            for g in self._grids:
+                g.set_columns(self._cols)
+            self._resize_to_req()
+
+        ttk.Button(btns, text="Cancel", command=self._cancel).pack(side="right", padx=(0, 4))
+        ttk.Button(btns, text="−", width=3, command=lambda: _bump_cols(-1)).pack(side="left", padx=(2, 4))
+        ttk.Button(btns, text="+", width=3, command=lambda: _bump_cols(+1)).pack(side="left", padx=(2, 8))
         btns.pack(fill="x", padx=8, pady=(0, 8))
 
         self.bind("<Escape>", lambda e: self._cancel())
@@ -80,8 +95,14 @@ class Icon_Gallery(tk.Toplevel):
             self.geometry(f"+{at.x}+{at.y}")
         else:
             self.center()
-
+        # now show without flicker
+        self.deiconify()
         self.grab_set()
+
+    def _resize_to_req(self):
+        self.update_idletasks()
+        w, h = self.winfo_reqwidth(), self.winfo_reqheight()
+        self.geometry(f"{w}x{h}")
 
     def center(self):
         self.update_idletasks()
@@ -97,18 +118,20 @@ class Icon_Gallery(tk.Toplevel):
 
     # ---------- built-ins ----------
     def _build_builtins(self, parent):
-        frame = _ScrollGrid(parent)
+        frame = _ScrollGrid(parent, columns=self._cols)
         for name in Icon_Name:
             thumb = self._thumb_for_builtin(name)
             b = ttk.Button(
                 frame.body,
                 image=thumb,
-                text=name.name,
+                text=name.value.replace("_", " ").title(),
                 compound="top",
                 command=lambda n=name: self._choose(Icon_Source.builtin(n)),
             )
             frame.add(b)
         frame.pack(fill="both", expand=True)
+        frame.force_layout()
+        self._grids.append(frame)
 
     def _thumb_for_builtin(self, name: Icon_Name) -> ImageTk.PhotoImage:
         key = (Icon_Type.builtin, name.name)
@@ -127,9 +150,11 @@ class Icon_Gallery(tk.Toplevel):
 
     # ---------- pictures ----------
     def _build_pictures(self, parent):
-        self._pics_frame = _ScrollGrid(parent)
+        self._pics_frame = _ScrollGrid(parent, columns=self._cols)
         self._pics_frame.pack(fill="both", expand=True)
         self._refresh_pictures()
+        self._pics_frame.force_layout()
+        self._grids.append(self._pics_frame)
 
     def _refresh_pictures(self):
         self._pics_frame.clear()
@@ -163,7 +188,7 @@ class Icon_Gallery(tk.Toplevel):
         if self._tab_pictures is not None:
             allowed.add(Icon_Type.picture)
 
-        frame = _ScrollGrid(parent)
+        frame = _ScrollGrid(parent, columns=self._cols)
         for src in recent:
             if src.kind not in allowed:
                 continue
@@ -178,6 +203,8 @@ class Icon_Gallery(tk.Toplevel):
             b = ttk.Button(frame.body, image=thumb, text=txt, compound="top", command=lambda s=src: self._choose(s))
             frame.add(b)
         frame.pack(fill="both", expand=True)
+        frame.force_layout()
+        self._grids.append(frame)
 
     def _import_images(self):
         paths = filedialog.askopenfilenames(
@@ -198,33 +225,133 @@ class Icon_Gallery(tk.Toplevel):
 
 
 class _ScrollGrid(ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, columns: int | None = ICON_PICKER_COLUMNS, cell_pad: int = 8):
         super().__init__(master)
         canvas = tk.Canvas(self, width=480, height=320, highlightthickness=0)
         vs = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
         self.body = ttk.Frame(canvas)
+
+        self._win = canvas.create_window((0, 0), window=self.body, anchor="nw")
         self.body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=self.body, anchor="nw")
+        canvas.bind("<Configure>", self._on_canvas_resize)
+
+        self.canvas = canvas
+        self.columns = columns
+        self.pad = cell_pad
+        self.widgets: list[tk.Widget] = []
+        self._cell_w = 0
+        self._cell_h = 0
+        self._vs = vs
+        self._layout_pending = False
+
+        def _on_wheel(ev):
+            try:
+                x, y = ev.x_root, ev.y_root
+                rx, ry = canvas.winfo_rootx(), canvas.winfo_rooty()
+                if not (rx <= x < rx + canvas.winfo_width() and ry <= y < ry + canvas.winfo_height()):
+                    return
+            except Exception:
+                return
+            d = getattr(ev, "delta", 0)
+            step = (-1 if d > 0 else 1) if d else (-1 if getattr(ev, "num", 0) == 4 else 1)
+            canvas.yview_scroll(step, "units")
+            return "break"
+
+        for w in (canvas, self.body):
+            w.bind("<MouseWheel>", _on_wheel)
+            w.bind("<Button-4>", _on_wheel)  # X11
+            w.bind("<Button-5>", _on_wheel)  # X11
+
         canvas.configure(yscrollcommand=vs.set)
         canvas.grid(row=0, column=0, sticky="nsew")
         vs.grid(row=0, column=1, sticky="ns")
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
-        self._col = 0
-        self._row = 0
 
+    # ---- layout helpers ----
+    def _measure(self):
+        self.body.update_idletasks()
+        if not self.widgets:
+            self._cell_w = self._cell_h = 80
+            return
+        maxw = max(w.winfo_reqwidth() for w in self.widgets)
+        maxh = max(w.winfo_reqheight() for w in self.widgets)
+        self._cell_w = maxw + self.pad * 2
+        self._cell_h = maxh + self.pad * 2
+
+    def _compute_cols(self):
+        if self.columns and self.columns > 0:
+            return self.columns
+        avail = max(1, self.canvas.winfo_width())
+        return max(1, avail // max(1, self._cell_w))
+
+    def _relayout(self):
+        self._layout_pending = False
+        self._measure()
+        cols = self._compute_cols()
+        n = len(self.widgets)
+        rows = max(1, (n + cols - 1) // cols)
+
+        for c in range(cols):
+            self.body.grid_columnconfigure(c, minsize=self._cell_w, uniform="tiles")
+        for r in range(rows):
+            self.body.grid_rowconfigure(r, minsize=self._cell_h, uniform="tiles")
+
+        for i, w in enumerate(self.widgets):
+            r, c = divmod(i, cols)
+            w.grid_configure(row=r, column=c, padx=self.pad, pady=self.pad, sticky="")
+
+        if self.columns and self.columns > 0 and self._cell_w > 0:
+            sbw = self._vs.winfo_reqwidth() or 12
+            want = cols * self._cell_w + sbw
+            self.canvas.configure(width=want)
+
+        self.body.update_idletasks()
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def _on_canvas_resize(self, e):
+        self.canvas.itemconfigure(self._win, width=e.width)
+        if not self._layout_pending:
+            self._layout_pending = True
+            self.after_idle(self._relayout)
+
+    # ---- public API ----
     def add(self, widget):
-        widget.grid(row=self._row, column=self._col, padx=6, pady=6)
-        self._col += 1
-        if self._col >= 8:
-            self._col = 0
-            self._row += 1
+        widget.grid(row=0, column=0)
+
+        def _forward_wheel(ev, c=self.canvas):
+            if hasattr(ev, "delta") and ev.delta:
+                c.event_generate("<MouseWheel>", delta=ev.delta)
+            else:
+                num = getattr(ev, "num", 0)
+                if num in (4, 5):
+                    c.event_generate(f"<Button-{num}>")
+            return "break"
+
+        widget.bind("<MouseWheel>", _forward_wheel)
+        widget.bind("<Button-4>", _forward_wheel)  # X11
+        widget.bind("<Button-5>", _forward_wheel)  # X11
+        self.widgets.append(widget)
+        if not self._layout_pending:
+            self._layout_pending = True
+            self.after_idle(self._relayout)
 
     def clear(self):
         for c in list(self.body.children.values()):
             c.destroy()
-        self._col = 0
-        self._row = 0
+        self.widgets.clear()
+        if not self._layout_pending:
+            self._layout_pending = True
+            self.after_idle(self._relayout)
+
+    def set_columns(self, num: int | None):
+        self.columns = num
+        if not self._layout_pending:
+            self._layout_pending = True
+            self.after_idle(self._relayout)
+
+    def force_layout(self):
+        self._relayout()
 
 
 class EKind(StrEnum):

@@ -295,7 +295,6 @@ class Bars:
         on_toggle_grid,
         on_undo,
         on_redo,
-        on_clear,
         on_save,
         on_export,
         on_new,
@@ -311,7 +310,6 @@ class Bars:
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Grid (G)", command=on_toggle_grid))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Undo (Z)", command=on_undo))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Redo (Y)", command=on_redo))
-        cls._add_labeled(frame, lambda p: ttk.Button(p, text="Clear (C)", command=on_clear))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Export…", command=on_export))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="New", command=on_new))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Open…", command=on_open))
@@ -343,6 +341,7 @@ class Bars:
         on_grid_change,
         on_brush_change,
         on_canvas_size_change,
+        on_style_change,
         on_palette_select_brush,
         on_palette_select_bg,
         on_palette_select_label,
@@ -436,6 +435,8 @@ class Bars:
             ),
             "Style:",
         )
+        cb_style.bind("<<ComboboxSelected>>", lambda _e: on_style_change())
+        style_var.trace_add("write", lambda *_: on_style_change())
 
         def _make_brush(p):
             return Colour_Palette(

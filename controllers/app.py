@@ -66,17 +66,17 @@ class App:
         self.var_label_colour = tk.StringVar(value=self.params.label_colour.hexah)
         self.var_icon_colour = tk.StringVar(value=self.params.icon_colour.hexah)
 
-        self.var_brush_colour.trace_add("write", self.apply_brush_colour)
-        self.var_bg_colour.trace_add("write", self.apply_bg_colour)
-        self.var_label_colour.trace_add("write", self.apply_label_colour)
-        self.var_icon_colour.trace_add("write", self.apply_icon_colour)
-
         self.var_drag_to_draw = tk.BooleanVar(value=True)
         self.var_cardinal = tk.BooleanVar(value=True)
         self.var_icon = tk.StringVar(value=Icon_Name.SIGNAL.value)
         self.var_icon_label = tk.StringVar(value=self.var_icon.get())
 
         self.current_icon = Icon_Source.builtin(Icon_Name.SIGNAL)
+
+        self.var_brush_colour.trace_add("write", self.apply_brush_colour)
+        self.var_bg_colour.trace_add("write", self.apply_bg_colour)
+        self.var_label_colour.trace_add("write", self.apply_label_colour)
+        self.var_icon_colour.trace_add("write", self.apply_icon_colour)
 
         # ---------- header / toolbar / status ----------
         self.hbar = Bars.create_header(
@@ -85,7 +85,6 @@ class App:
             on_toggle_grid=self.toggle_grid,
             on_undo=self.on_undo,
             on_redo=self.on_redo,
-            on_clear=self.on_clear,
             on_new=self.new_project,
             on_open=self.open_project,
             on_save=self.save_project,
@@ -105,6 +104,7 @@ class App:
             on_grid_change=self.on_grid_change,
             on_brush_change=self.on_brush_change,
             on_canvas_size_change=self.on_canvas_size_change,
+            on_style_change=self.on_style_change,
             on_palette_select_brush=lambda name: self.var_brush_colour.set(name),
             on_palette_select_bg=lambda name: self.var_bg_colour.set(name),
             on_palette_select_label=lambda name: self.var_label_colour.set(name),
@@ -232,7 +232,7 @@ class App:
         self.selection.clear()
 
     def select_set(self, items: list[tuple[Hit_Kind, int]]):
-        items = [(k, i) for k, i in items if (k and k and i is not None)]
+        items = [(k, i) for k, i in items if k and i is not None]
         self.multi_sel = []
         # make the first item primary if any
         if items:
@@ -343,12 +343,13 @@ class App:
     def on_delete(self, _evt=None):
         self.tool_mgr.cancel()
         kind, idx = self._selected()
-        if not self.multi_sel:
+        targets = list(self.multi_sel) if self.multi_sel else ([(kind, idx)] if kind and idx is not None else [])
+        if not targets:
             self.status.temp("Nothing selected to delete", 1500)
             return
 
         subs = []
-        for k, i in sorted(self.multi_sel, key=lambda t: (t[0].value, -t[1])):
+        for k, i in sorted(targets, key=lambda t: (t[0].value, -t[1])):
             if k == Hit_Kind.line:
                 subs.append(Delete_Line(self.params, i, on_after=lambda: self.layers_redraw(Layer_Type.lines)))
             elif k == Hit_Kind.label:
@@ -365,6 +366,7 @@ class App:
             self.params.line_style = LineStyle(self.var_line_style.get())
         except Exception:
             self.params.line_style = LineStyle.SOLID
+        self.layers_redraw(Layer_Type.lines)
         self.status.temp(f"Line style: {self.params.line_style.value}")
 
     def _on_mode_change(self, *_):
@@ -533,7 +535,7 @@ class App:
         self.status.temp("Redo")
         self._set_selected(self.selection_kind, self.selection_index)
 
-    def on_clear(self, _evt=None):
+    def on_clear(self, _evt=None):  # unwired but kept just in case
         self.tool_mgr.cancel()
         self.params.lines.clear()
         self.params.labels.clear()
@@ -586,7 +588,7 @@ class App:
     # ========= export / persistence =========
     @property
     def _autosave_path(self) -> Path:
-        return Path(f"{self.project_path.name}.autosave")
+        return self.project_path.with_suffix(f"{self.project_path.suffix}.autosave")
 
     def _maybe_autosave(self):
         if self.project_path.name.startswith("untitled"):

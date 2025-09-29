@@ -133,11 +133,36 @@ def _open_rgba(src: Path, w: int, h: int) -> Image.Image:
 
 # === Names ===========================================================
 class Icon_Name(StrEnum):
+    # ---- generic ----
+    PLUS = "plus"
+    MINUS = "minus"
+    CHECK = "check"
+    CROSS_MARK = "crossmark"
+    PLAY = "play"
+    PAUSE = "pause"
+    STOP = "stop"
+    ARROW_UP = "arrow_up"
+    ARROW_RIGHT = "arrow_right"
+    ARROW_DOWN = "arrow_down"
+    ARROW_LEFT = "arrow_left"
+    CIRCLE_DOT = "circle_dot"
+    SQUARE = "square"
+    # ---- railway ----
     SIGNAL = "signal"
-    SWITCH_LEFT = "switch_l"
-    SWITCH_RIGHT = "switch_r"
+    SWITCH_LEFT = "switch_left"
+    SWITCH_RIGHT = "switch_right"
     BUFFER = "buffer"
-    CROSSING = "crossing"
+    BRIDGE = "bridge"
+    TUNNEL = "tunnel"
+    CROSSOVER = "crossover"
+    DOUBLE_SLIP = "double_slip"
+    # ---- electrical ----
+    RESISTOR = "resistor"
+    CAPACITOR = "capacitor"
+    INDUCTOR = "inductor"
+    DIODE = "diode"
+    GROUND = "ground"
+    SWITCH_SPST = "switch_spst"
 
 
 # === Styles ==========================================================
@@ -207,6 +232,73 @@ class IconDef:
 
 class Builtins:
     @classmethod
+    def _plus(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        L = 360.0
+        return IconDef(vb, [Primitives.Line(-L, 0.0, L, 0.0, STROKE), Primitives.Line(0.0, -L, 0.0, L, STROKE)])
+
+    @classmethod
+    def _minus(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        L = 380.0
+        return IconDef(vb, [Primitives.Line(-L, 0.0, L, 0.0, STROKE)])
+
+    @classmethod
+    def _check(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        pts = ((-320.0, -20.0), (-80.0, 220.0), (340.0, -220.0))
+        return IconDef(vb, [Primitives.Polyline(points=pts, closed=False, style=STROKE)])
+
+    @classmethod
+    def _cross_mark(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        L = 380.0
+        return IconDef(vb, [Primitives.Line(-L, -L, L, L, STROKE), Primitives.Line(-L, L, L, -L, STROKE)])
+
+    @classmethod
+    def _play(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        tri = ((-160.0, -280.0), (-160.0, 280.0), (260.0, 0.0))
+        return IconDef(vb, [Primitives.Polyline(points=tri, closed=True, style=FILL)])
+
+    @classmethod
+    def _pause(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        w, h, gap = 160.0, 520.0, 140.0
+        return IconDef(
+            vb,
+            [
+                Primitives.Rect(-gap / 2 - w, -h / 2, w, h, FILL),
+                Primitives.Rect(+gap / 2, -h / 2, w, h, FILL),
+            ],
+        )
+
+    @classmethod
+    def _stop(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        s = 520.0
+        return IconDef(vb, [Primitives.Rect(-s / 2, -s / 2, s, s, FILL)])
+
+    @classmethod
+    def _arrow(cls, dir: str) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        L, head = 340.0, 220.0
+        # default: right
+        shaft = Primitives.Line(-L, 0.0, L - head * 0.4, 0.0, STROKE)
+        head_poly = Primitives.Polyline(
+            points=((L - head, -head * 0.55), (L, 0.0), (L - head, head * 0.55)), closed=True, style=FILL
+        )
+        icon = IconDef(vb, [shaft, head_poly])
+        if dir == "up":
+            return cls._rotate(icon, -90)
+        if dir == "down":
+            return cls._rotate(icon, 90)
+        if dir == "left":
+            return cls._rotate(icon, 180)
+        return icon
+
+    # -------- railway --------
+    @classmethod
     def _signal(cls) -> IconDef:
         vb = (-500.0, -500.0, 1000.0, 1000.0)
         r = 280.0
@@ -230,18 +322,6 @@ class Builtins:
         )
 
     @classmethod
-    def _crossing(cls) -> IconDef:
-        vb = (-500.0, -500.0, 1000.0, 1000.0)
-        L = 400.0
-        return IconDef(
-            viewbox=vb,
-            prims=[
-                Primitives.Line(-L, -L, L, L, STROKE),
-                Primitives.Line(-L, L, L, -L, STROKE),
-            ],
-        )
-
-    @classmethod
     def _switch(cls, dir: Literal["left", "right"]) -> IconDef:
         vb = (-500.0, -500.0, 1000.0, 1000.0)
         L = 420.0
@@ -249,19 +329,210 @@ class Builtins:
         return IconDef(
             viewbox=vb,
             prims=[
-                Primitives.Line(-L, 0.0, L, 0.0, STROKE),  # main
-                Primitives.Line(-L, 0.0, L, off, STROKE_THIN),  # diverge
+                Primitives.Line(-L, 0.0, L, 0.0, STROKE),
+                Primitives.Line(-L, 0.0, L, off, STROKE_THIN),
             ],
         )
 
     @classmethod
+    def _bridge(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        deck_w, deck_h = 760.0, 120.0
+        leg_w, leg_h = 120.0, 300.0
+        return IconDef(
+            vb,
+            [
+                Primitives.Rect(-deck_w / 2, -80.0 - deck_h, deck_w, deck_h, FILL),
+                Primitives.Rect(-deck_w / 3 - leg_w / 2, -80.0, leg_w, leg_h, FILL),
+                Primitives.Rect(deck_w / 3 - leg_w / 2, -80.0, leg_w, leg_h, FILL),
+            ],
+        )
+
+    @classmethod
+    def _tunnel(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        w, h = 760.0, 520.0
+        opening = Primitives.Rect(-w / 2, -h / 2, w, h, Style(fill=False, stroke=True, stroke_width=80.0))
+        lintel = Primitives.Rect(-w / 2, -h / 2 - 80.0, w, 80.0, FILL)
+        return IconDef(vb, [opening, lintel])
+
+    @classmethod
+    def _crossover(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        off = 220.0
+        L = 420.0
+        return IconDef(
+            vb,
+            [
+                Primitives.Line(-L, -off, L, +off, STROKE_THIN),
+                Primitives.Line(-L, +off, L, -off, STROKE_THIN),
+            ],
+        )
+
+    @classmethod
+    def _double_slip(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        L = 420.0
+        off = 200.0
+        return IconDef(
+            vb,
+            [
+                Primitives.Line(-L, -L, L, L, STROKE_THIN),
+                Primitives.Line(-L, L, L, -L, STROKE_THIN),
+                Primitives.Line(-off, 0.0, off, 0.0, STROKE_THIN),
+                Primitives.Line(0.0, -off, 0.0, off, STROKE_THIN),
+            ],
+        )
+
+    # -------- electrical --------
+    @classmethod
+    def _resistor(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        # leads
+        leadL = Primitives.Line(-420.0, 0.0, -260.0, 0.0, STROKE)
+        leadR = Primitives.Line(260.0, 0.0, 420.0, 0.0, STROKE)
+        # zigzag body
+        zz = [
+            (-260.0, 0.0),
+            (-220.0, -120.0),
+            (-180.0, 120.0),
+            (-140.0, -120.0),
+            (-100.0, 120.0),
+            (-60.0, -120.0),
+            (-20.0, 120.0),
+            (20.0, -120.0),
+            (60.0, 120.0),
+            (100.0, -120.0),
+            (140.0, 120.0),
+            (180.0, -120.0),
+            (220.0, 0.0),
+        ]
+        body = Primitives.Polyline(points=tuple(zz), closed=False, style=STROKE)
+        return IconDef(vb, [leadL, body, leadR])
+
+    @classmethod
+    def _capacitor(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        return IconDef(
+            vb,
+            [
+                Primitives.Line(-420.0, 0.0, -80.0, 0.0, STROKE),
+                Primitives.Line(-80.0, -200.0, -80.0, 200.0, STROKE),
+                Primitives.Line(+80.0, -200.0, +80.0, 200.0, STROKE),
+                Primitives.Line(+80.0, 0.0, 420.0, 0.0, STROKE),
+            ],
+        )
+
+    @classmethod
+    def _inductor(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        r = 80.0
+        cx = [-160.0, 0.0, 160.0]
+        loops = [Primitives.Circle(x, 0.0, r, STROKE) for x in cx]
+        return IconDef(
+            vb,
+            [
+                Primitives.Line(-420.0, 0.0, -240.0, 0.0, STROKE),
+                *loops,
+                Primitives.Line(240.0, 0.0, 420.0, 0.0, STROKE),
+            ],
+        )
+
+    @classmethod
+    def _diode(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        tri = Primitives.Polyline(points=((-60.0, -180.0), (-60.0, 180.0), (160.0, 0.0)), closed=True, style=FILL)
+        bar = Primitives.Line(200.0, -220.0, 200.0, 220.0, STROKE)
+        return IconDef(
+            vb,
+            [
+                Primitives.Line(-420.0, 0.0, -120.0, 0.0, STROKE),
+                tri,
+                bar,
+                Primitives.Line(200.0, 0.0, 420.0, 0.0, STROKE),
+            ],
+        )
+
+    @classmethod
+    def _ground(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        return IconDef(
+            vb,
+            [
+                Primitives.Line(0.0, -300.0, 0.0, -60.0, STROKE),
+                Primitives.Line(-200.0, 0.0, 200.0, 0.0, STROKE),
+                Primitives.Line(-140.0, 60.0, 140.0, 60.0, STROKE),
+                Primitives.Line(-80.0, 120.0, 80.0, 120.0, STROKE),
+            ],
+        )
+
+    @classmethod
+    def _switch_spst(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        return IconDef(
+            vb,
+            [
+                Primitives.Line(-420.0, 0.0, -80.0, 0.0, STROKE),
+                Primitives.Line(80.0, 0.0, 420.0, 0.0, STROKE),
+                Primitives.Line(-80.0, 0.0, 160.0, -160.0, STROKE),  # movable arm (open)
+            ],
+        )
+
+    @staticmethod
+    def _rotate(icon: IconDef, deg: float) -> IconDef:
+        from math import cos, radians, sin
+
+        c, s = cos(radians(deg)), sin(radians(deg))
+        prims: list[Primitive] = []
+        for p in icon.prims:
+            if isinstance(p, Primitives.Line):
+                x1, y1 = c * p.x1 - s * p.y1, s * p.x1 + c * p.y1
+                x2, y2 = c * p.x2 - s * p.y2, s * p.x2 + c * p.y2
+                prims.append(Primitives.Line(x1, y1, x2, y2, p.style))
+            elif isinstance(p, Primitives.Rect):
+                prims.append(p)  # leave axis-aligned rects; heads use polyline
+            elif isinstance(p, Primitives.Circle):
+                prims.append(Primitives.Circle(c * p.cx - s * p.cy, s * p.cx + c * p.cy, p.r, p.style))
+            elif isinstance(p, Primitives.Polyline):
+                pts = tuple((c * x - s * y, s * x + c * y) for (x, y) in p.points)
+                prims.append(Primitives.Polyline(points=pts, closed=p.closed, style=p.style))
+            else:
+                prims.append(p)
+        return IconDef(icon.viewbox, prims)
+
+    @classmethod
     def icon_def(cls, name: Icon_Name) -> IconDef:
         ICONS: dict[Icon_Name, IconDef] = {
+            # --- generic ---
+            Icon_Name.PLUS: cls._plus(),
+            Icon_Name.MINUS: cls._minus(),
+            Icon_Name.CHECK: cls._check(),
+            Icon_Name.CROSS_MARK: cls._cross_mark(),
+            Icon_Name.PLAY: cls._play(),
+            Icon_Name.PAUSE: cls._pause(),
+            Icon_Name.STOP: cls._stop(),
+            Icon_Name.ARROW_UP: cls._arrow("up"),
+            Icon_Name.ARROW_RIGHT: cls._arrow("right"),
+            Icon_Name.ARROW_DOWN: cls._arrow("down"),
+            Icon_Name.ARROW_LEFT: cls._arrow("left"),
+            Icon_Name.CIRCLE_DOT: IconDef((-500, -500, 1000, 1000), [Primitives.Circle(0.0, 0.0, 300.0, FILL)]),
+            Icon_Name.SQUARE: IconDef((-500, -500, 1000, 1000), [Primitives.Rect(-300.0, -300.0, 600.0, 600.0, FILL)]),
+            # --- railway ---
             Icon_Name.SIGNAL: cls._signal(),
             Icon_Name.BUFFER: cls._buffer(),
-            Icon_Name.CROSSING: cls._crossing(),
             Icon_Name.SWITCH_LEFT: cls._switch("left"),
             Icon_Name.SWITCH_RIGHT: cls._switch("right"),
+            Icon_Name.BRIDGE: cls._bridge(),
+            Icon_Name.TUNNEL: cls._tunnel(),
+            Icon_Name.CROSSOVER: cls._crossover(),
+            Icon_Name.DOUBLE_SLIP: cls._double_slip(),
+            # --- electrical ---
+            Icon_Name.RESISTOR: cls._resistor(),
+            Icon_Name.CAPACITOR: cls._capacitor(),
+            Icon_Name.INDUCTOR: cls._inductor(),
+            Icon_Name.DIODE: cls._diode(),
+            Icon_Name.GROUND: cls._ground(),
+            Icon_Name.SWITCH_SPST: cls._switch_spst(),
         }
         return ICONS[name]
 

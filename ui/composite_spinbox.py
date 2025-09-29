@@ -153,21 +153,16 @@ class Composite_Spinbox(ttk.Frame):
     def _bump(self, direction: int):
         v = self._parse()
         step = self._inc * direction
-        v2 = v + step
+        v_next = v + step
         if self._wrap:
-            span = (self._max - self._min) + (0 if isinstance(self._inc, int) else 0)
-            if span == 0:
-                v2 = self._min
+            span = self._max - self._min
+            if span > 0:
+                v_next = self._min + ((v_next - self._min) % span)
             else:
-                if isinstance(self._inc, int):
-                    rng = self._max - self._min + 1
-                    v2 = ((round(v2) - self._min) % rng) + self._min
-                else:
-                    v2 = min(max(v2, self._min), self._max)
+                v_next = self._min
         else:
-            v2 = min(max(v2, self._min), self._max)
-
-        self.var.set(self._format(v2))
+            v_next = min(max(v_next, self._min), self._max)
+        self.var.set(self._format(v_next))
         if self._command:
             self._command()
 
