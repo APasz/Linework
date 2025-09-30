@@ -308,8 +308,8 @@ class Bars:
 
         # Actions
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Grid (G)", command=on_toggle_grid))
-        cls._add_labeled(frame, lambda p: ttk.Button(p, text="Undo (Z)", command=on_undo))
-        cls._add_labeled(frame, lambda p: ttk.Button(p, text="Redo (Y)", command=on_redo))
+        cls._add_labeled(frame, lambda p: ttk.Button(p, text="Undo (Ctrl+Z)", command=on_undo))
+        cls._add_labeled(frame, lambda p: ttk.Button(p, text="Redo (Ctrl+Y)", command=on_redo))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Export…", command=on_export))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="New", command=on_new))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Open…", command=on_open))
@@ -435,7 +435,6 @@ class Bars:
             ),
             "Style:",
         )
-        cb_style.bind("<<ComboboxSelected>>", lambda _e: on_style_change())
         style_var.trace_add("write", lambda *_: on_style_change())
 
         def _make_brush(p):

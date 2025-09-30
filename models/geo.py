@@ -491,7 +491,7 @@ class CanvasLW(tk.Canvas):
     @overload
     def delete_lw(self, *items: Tag): ...
 
-    def delete_lw(self, *items):  # runtime
+    def delete_lw(self, *items):
         args: list[Deletable] = []
         ids: set[int] = set()
         for it in items:
@@ -502,14 +502,11 @@ class CanvasLW(tk.Canvas):
             elif isinstance(it, Layer_Type):
                 args.append(it.value)
             elif isinstance(it, Tag):
-                # delete all strings this tag emits
                 args.extend(it.to_strings())
-                # also delete plain layer tag if applicable
                 if isinstance(it.kind, Layer_Type):
                     args.append(it.kind.value)
             elif isinstance(it, str):
                 args.append(it)
-            # else: ignore unrecognised
 
         super().delete(*args)
         item_map = getattr(self, "_item_images", {})

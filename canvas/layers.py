@@ -230,6 +230,7 @@ class Layer_Manager:
 
     def clear_preview(self):
         self.clear(Layer_Type.preview)
+        self._enforce_z()
 
     # --- redraws ---
     def redraw(self, layer: Layer_Type, /, force: bool = False):

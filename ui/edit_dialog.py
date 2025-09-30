@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any
 from PIL import Image, ImageTk
 
 from disk.export import _emit_pil_plan
-from models.assets import _builtin_icon_plan, _open_rgba
-from models.geo import Icon_Name, Icon_Source, Icon_Type, Point
+from models.assets import Icon_Name, _builtin_icon_plan, _open_rgba
+from models.geo import Icon_Source, Icon_Type, Point
 from models.styling import Colours
 from ui.bars import Colour_Palette
 

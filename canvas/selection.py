@@ -96,26 +96,17 @@ class SelectionOverlay:
                     self.canvas.delete_lw(iid)
                     setattr(self.ids, name, None)
 
-            try:
-                self.canvas.delete_lw(_TAG_OUTLINE)
-            except Exception:
-                pass
+            self.canvas.delete_lw(_TAG_OUTLINE)
             self.ids.outline_bevel = None
             self._edge_meta[_TAG_OUTLINE] = []
 
             if not keep_marquee:
-                try:
-                    self.canvas.delete_lw(_TAG_MARQUEE)
-                except Exception:
-                    pass
+                self.canvas.delete_lw(_TAG_MARQUEE)
                 self.ids.marquee_bevel = None
                 self._edge_meta[_TAG_MARQUEE] = []
 
             for itag in list(self._outline_tags):
-                try:
-                    self.canvas.delete_lw(itag)
-                except Exception:
-                    pass
+                self.canvas.delete_lw(itag)
                 self._outline_tags.discard(itag)
 
             self.kind, self.idx = None, None

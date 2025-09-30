@@ -73,11 +73,6 @@ class App:
 
         self.current_icon = Icon_Source.builtin(Icon_Name.SIGNAL)
 
-        self.var_brush_colour.trace_add("write", self.apply_brush_colour)
-        self.var_bg_colour.trace_add("write", self.apply_bg_colour)
-        self.var_label_colour.trace_add("write", self.apply_label_colour)
-        self.var_icon_colour.trace_add("write", self.apply_icon_colour)
-
         # ---------- header / toolbar / status ----------
         self.hbar = Bars.create_header(
             self.root,
@@ -163,8 +158,11 @@ class App:
 
         # global keys
         self.root.bind("<Delete>", self.on_delete)
-        self.root.bind("<KeyPress-z>", self.on_undo)
-        self.root.bind("<KeyPress-y>", self.on_redo)
+        self.root.bind("<Control-z>", self.on_undo)
+        self.root.bind("<Control-y>", self.on_redo)
+        self.root.bind("<Control-Shift-Z>", self.on_redo)
+        self.root.bind("<KeyPress-g>", lambda e: self.toggle_grid())
+        self.root.bind("<KeyPress-G>", lambda e: self.toggle_grid())
         self.root.bind("<KeyPress>", self._on_any_key)
         self.root.bind("<KeyRelease>", self._on_any_key)
 
@@ -175,6 +173,8 @@ class App:
         # palette sync
         self.var_brush_colour.trace_add("write", self.apply_brush_colour)
         self.var_bg_colour.trace_add("write", self.apply_bg_colour)
+        self.var_label_colour.trace_add("write", self.apply_label_colour)
+        self.var_icon_colour.trace_add("write", self.apply_icon_colour)
 
         # window close
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -190,6 +190,7 @@ class App:
 
         self.var_icon.trace_add("write", self._sync_icon_from_combo)
         self.var_drag_to_draw.trace_add("write", self._on_drag_to_draw_change)
+        self.var_cardinal.trace_add("write", self._on_cardinal_change)
 
         self._status_hints_set()
         self.status.set("Ready")
@@ -396,6 +397,7 @@ class App:
         self.params.grid_visible = self.params.grid_size > 0
         self._apply_size_increments(self.params.grid_size)
         self.layers.redraw(Layer_Type.grid, True)
+        self.mark_dirty()
 
     def on_brush_change(self, *_):
         try:
@@ -775,6 +777,15 @@ class App:
             on = bool(self.var_drag_to_draw.get())
         self.status.set_centre("Draw: drag to draw" if on else "Draw: click-click mode")
 
+    def _on_cardinal_change(self, *_):
+        self.tool_mgr.cancel()
+        try:
+            v = self.var_cardinal.get()
+            on = bool(int(v)) if not isinstance(v, bool) else v
+        except Exception:
+            on = bool(self.var_cardinal.get())
+        self.status.set_centre("Draw: Cardinal Snap" if on else "Draw: Grid Snap")
+
     def _on_close(self):
         if self._maybe_proceed():
             self.root.destroy()
@@ -785,8 +796,6 @@ class App:
         self.root.title(f"Linework — {name}{star}")
 
     def mark_dirty(self, _reason: str = ""):
-        if self.project_path.name.startswith("untitled"):
-            return
         self.dirty = True
         self._update_title()
         self._maybe_autosave()
