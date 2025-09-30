@@ -480,7 +480,7 @@ class App:
             pass
 
     def _set_custom_colour(self, idx: int, col: Colour | None):
-        Colours.custom_palette[idx] = col
+        self.params.custom_palette[idx] = col
         self.mark_dirty()
 
     def on_double_click(self, evt):

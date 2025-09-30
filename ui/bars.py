@@ -102,13 +102,10 @@ class Colour_Palette(ttk.Frame):
             fill = Colours.white.hexh if val is None else (Colours.sys.dark_gray.hexh if val.alpha == 0 else val.hexh)
             c.create_rectangle(1, 1, 21, 21, outline=Colours.sys.dark_gray.hexh, fill=fill)
             if val is None:
-                # Empty slot → open picker immediately
                 c.bind("<Button-1>", lambda _e, i=i: self._edit_custom(i, None))
             else:
-                # Click selects; Shift-click edits
                 c.bind("<Button-1>", lambda _e, hexa=val.hexah: (self._select(hexa), self._close_popup()))
                 c.bind("<Shift-Button-1>", lambda _e, i=i, init=val: self._edit_custom(i, init))
-            # Right-click clears
             c.bind("<Button-3>", lambda _e, i=i: self._clear_custom(i))
             c.pack(side="top", pady=2)
             self._swatches.append((c, val.hexah if val else ""))
