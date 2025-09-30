@@ -193,6 +193,7 @@ class App:
         self.var_cardinal.trace_add("write", self._on_cardinal_change)
 
         self._status_hints_set()
+        self.mark_clean()
         self.status.set("Ready")
 
     # ========= small app API used by tools =========

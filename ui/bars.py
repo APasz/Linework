@@ -117,13 +117,25 @@ class Colour_Palette(ttk.Frame):
             pass
 
         self._popup = top
+        top.bind("<Destroy>", self._on_popup_destroy, add="+")
         top.after_idle(self._arm_outside_handlers)
+
+    def _on_popup_destroy(self, _e=None):
+        try:
+            self.unbind_all("<Escape>")
+            self.unbind_all("<ButtonRelease-1>")
+        except Exception:
+            pass
+        self._popup = None
+        self._swatches.clear()
+        if Colour_Palette._open_owner is self:
+            Colour_Palette._open_owner = None
 
     def _close_popup(self):
         if self._popup is not None:
             try:
-                self._popup.unbind_all("<Escape>")
-                self._popup.unbind_all("<ButtonRelease-1>")
+                self.unbind_all("<Escape>")
+                self.unbind_all("<ButtonRelease-1>")
                 self._popup.grab_release()
             except Exception:
                 pass
@@ -140,10 +152,11 @@ class Colour_Palette(ttk.Frame):
         if not self._popup:
             return
         self._popup.update_idletasks()
-        self._popup.bind_all("<Escape>", lambda _e: self._close_popup(), add="+")
-        self._popup.bind_all("<ButtonRelease-1>", self._maybe_close_on_click, add="+")
+        self.bind_all("<Escape>", lambda _e: self._close_popup(), add="+")
+        self.bind_all("<ButtonRelease-1>", self._maybe_close_on_click, add="+")
 
     def _edit_custom(self, idx: int, initial: Colour | None):
+        self._close_popup()
         _rgb, hx = colorchooser.askcolor(color=initial.hexh if initial else None, parent=self)
         if not hx:
             return
@@ -152,7 +165,6 @@ class Colour_Palette(ttk.Frame):
         if self._on_update_custom:
             self._on_update_custom(idx, col)
         self._select(col.hexah)
-        self._close_popup()
 
     def _clear_custom(self, idx: int):
         self._custom[idx] = None
@@ -161,7 +173,8 @@ class Colour_Palette(ttk.Frame):
         self._close_popup()
 
     def _maybe_close_on_click(self, e):
-        if not self._popup:
+        if not self._popup or not self._popup.winfo_exists():
+            self._popup = None
             return
         x, y = e.x_root, e.y_root
         px, py = self._popup.winfo_rootx(), self._popup.winfo_rooty()

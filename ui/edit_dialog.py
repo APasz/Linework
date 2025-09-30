@@ -537,7 +537,7 @@ class GenericEditDialog(simpledialog.Dialog):
     def _build_choice(self, parent: tk.Widget, fld: dict, init_val: Any) -> tk.Widget:
         keys = _resolve_choices_seq(fld.get("choices"))
         if fld.get("sort", True):
-            keys = sorted(keys, key=str.casefold)  # <— new
+            keys = sorted(keys, key=str.casefold)
         init_key = str(init_val) if init_val is not None else (keys[0] if keys else "")
         var = tk.StringVar(value=init_key)
         self._meta[fld["name"]]["var"] = var
@@ -566,6 +566,7 @@ class GenericEditDialog(simpledialog.Dialog):
         pal = Colour_Palette(
             parent,
             Colours.list(min_alpha=25),
+            custom=self.app.params.custom_palette,
             on_select=lambda hexa: var.set(hexa),
         )
         try:
