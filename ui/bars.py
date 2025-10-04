@@ -4,8 +4,9 @@ import tkinter as tk
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from tkinter import ttk
-from tkinter import colorchooser
+from tkinter import colorchooser, ttk
+
+from PIL import Image, ImageTk
 
 from models.geo import CanvasLW
 from models.styling import Colour, Colours, LineStyle
@@ -24,6 +25,33 @@ class Palette_Handles:
     frame: ttk.Frame
     set_selected: Callable[[str], None]
     "call with colour hexa"
+
+
+def _checker_photo(master, w=20, h=20, tile=4, a="#eeeeee", b="#cccccc") -> ImageTk.PhotoImage:
+    img = Image.new("RGB", (w, h), a)
+    for y in range(0, h, tile):
+        start = ((y // tile) % 2) * tile
+        for x in range(start, w, tile * 2):
+            Image.Image.paste(img, b, (x, y, x + tile, y + tile))
+    return ImageTk.PhotoImage(img, master=master)
+
+
+def _draw_swatch(canvas: CanvasLW, col: Colour, *, outline: str) -> int:
+    if not canvas.cache.checker_ref:
+        ph = _checker_photo(canvas, 20, 20)
+        canvas.cache.checker_ref = (0, ph)
+    canvas.create_image(1, 1, image=canvas.cache.checker_ref[1], anchor="nw")
+    if col.alpha == 0:
+        return canvas.create_rectangle(1, 1, 21, 21, outline=outline, fill="")
+    return canvas.create_rectangle(
+        1,
+        1,
+        21,
+        21,
+        outline=outline,
+        fill=col.hexh,
+        stipple=CanvasLW._stipple_for_alpha(col.alpha) or "",
+    )
 
 
 class Colour_Palette(ttk.Frame):
@@ -45,12 +73,13 @@ class Colour_Palette(ttk.Frame):
         self._custom: list[Colour | None] = custom if custom is not None else [None] * len(Colours.list())
         self._on_update_custom = on_update_custom
 
-        self._btn = CanvasLW(self, width=22, height=22, highlightthickness=1)
+        self._canvas = CanvasLW(self, width=22, height=22, highlightthickness=1)
+        self._btn = self._canvas
         self._btn.configure(
             highlightbackground=Colours.sys.dark_gray.hexh,
             highlightcolor=Colours.sys.dark_gray.hexh,
         )
-        self._rect_id = self._btn.create_rectangle(1, 1, 21, 21, outline=Colours.black.hexh, fill=Colours.black.hexh)
+        self._rect_id = _draw_swatch(self._btn, Colours.black, outline=Colours.black.hexh)
         self._btn.pack(side="left", padx=4)
         self._btn.bind("<Button-1>", self._toggle_popup)
 
@@ -90,8 +119,8 @@ class Colour_Palette(ttk.Frame):
         # Built-ins (left)
         for col in self._colours:
             c = CanvasLW(left, width=22, height=22, highlightthickness=0)
-            fill = Colours.sys.dark_gray.hexh if col.alpha == 0 else col.hexh
-            c.create_rectangle(1, 1, 21, 21, outline=Colours.sys.dark_gray.hexh, fill=fill)
+            _draw_swatch(c, col, outline=Colours.sys.dark_gray.hexh)
+            # c.create_rectangle(1, 1, 21, 21, outline=Colours.sys.dark_gray.hexh, fill=col.hexh)
             c.bind("<Button-1>", lambda _e, hexa=col.hexah: (self._select(hexa), self._close_popup()))
             c.pack(side="top", pady=2)
             self._swatches.append((c, col.hexah))
@@ -99,11 +128,13 @@ class Colour_Palette(ttk.Frame):
         # Custom (right)
         for i, val in enumerate(self._custom):
             c = CanvasLW(right, width=22, height=22, highlightthickness=0)
-            fill = Colours.white.hexh if val is None else (Colours.sys.dark_gray.hexh if val.alpha == 0 else val.hexh)
-            c.create_rectangle(1, 1, 21, 21, outline=Colours.sys.dark_gray.hexh, fill=fill)
+            # fill = Colours.white.hexh if val is None else val.hexh
+            # c.create_rectangle(1, 1, 21, 21, outline=Colours.sys.dark_gray.hexh, fill=fill)
             if val is None:
+                c.create_rectangle(1, 1, 21, 21, outline=Colours.sys.dark_gray.hexh, fill=Colours.white.hexh)
                 c.bind("<Button-1>", lambda _e, i=i: self._edit_custom(i, None))
             else:
+                _draw_swatch(c, val, outline=Colours.sys.dark_gray.hexh)
                 c.bind("<Button-1>", lambda _e, hexa=val.hexah: (self._select(hexa), self._close_popup()))
                 c.bind("<Shift-Button-1>", lambda _e, i=i, init=val: self._edit_custom(i, init))
             c.bind("<Button-3>", lambda _e, i=i: self._clear_custom(i))
@@ -198,11 +229,15 @@ class Colour_Palette(ttk.Frame):
 
     def _update_highlight(self, selected: str):
         try:
-            col = next((c for c in self._colours if c.hexah == selected), None)
-            if col is None:
-                col = Colours.parse_colour(selected)
-            fill = Colours.sys.dark_gray.hexh if col.alpha == 0 else col.hexh
-            self._btn.itemconfigure(self._rect_id, fill=fill)
+            col = next((c for c in self._colours if c.hexah == selected), None) or Colours.parse_colour(selected)
+            if col.alpha == 0:
+                self._btn.itemconfigure(self._rect_id, fill="", stipple="")
+            else:
+                self._btn.itemconfigure(
+                    self._rect_id,
+                    fill=col.hexh,
+                    stipple=self._canvas._stipple_for_alpha(col.alpha) or "",
+                )
         except Exception:
             pass
 

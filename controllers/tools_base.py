@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from canvas.layers import Hit_Kind, Layer_Manager, Layer_Type, TagNS, tag_parse_multi
 from canvas.selection import SelectionOverlay
-from controllers.commands import Command_Stack, Move_Icon, Move_Label, Move_Line_End, Multi
+from controllers.commands import Command_Stack, Move_Icon, Move_Label, Move_Line, Move_Line_End, Multi
 from models.geo import CanvasLW, Point
 from models.params import Params
 from models.styling import TkCursor
@@ -61,8 +61,6 @@ class Tool(Protocol):
     def on_key(self, app: App, evt: MotionEvent | tk.Event): ...
     def on_cancel(self, app: App): ...
 
-    # Minimal event shapes used by tools
-
 
 class ToolBase:
     """Common helpers for all tools. Keep it boring, keep it reliable."""
@@ -87,9 +85,6 @@ class ToolBase:
         return (dx * dx + dy * dy) >= (tol * tol)
 
     def clear_preview(self, app: App):
-        for iid in self._preview_ids:
-            app.canvas.delete_lw(iid)
-        self._preview_ids.clear()
         app.layers.clear_preview()
 
     def on_press(self, app: App, evt: MotionEvent | tk.Event):
@@ -115,6 +110,11 @@ class DragAction(Protocol):
     def commit(self, app: App, evt: MotionEvent | tk.Event): ...
     def cancel(self, app: App): ...
 
+    @staticmethod
+    def ignore_grid_for(snap_enabled: bool, mods) -> bool:
+        """True if grid should be ignored for this move."""
+        return mods.alt or not snap_enabled
+
 
 @dataclass(slots=True)
 class DragLabel(DragAction):
@@ -128,7 +128,7 @@ class DragLabel(DragAction):
         lab = app.params.labels[self.idx]
         p = app.snap(
             Point(x=evt.x - self.offset_dx, y=evt.y - self.offset_dy),
-            ignore_grid=(mods.alt or not lab.snap),
+            ignore_grid=self.ignore_grid_for(lab.snap, mods),
         )
         dx, dy = p.x - self.start.x, p.y - self.start.y
 
@@ -157,12 +157,12 @@ class DragLabel(DragAction):
                 ox1, oy1, ox2, oy2 = app.canvas.coords(sel.ids.outline)
                 app.selection.set_outline_bbox(ox1 + dx, oy1 + dy, ox2 + dx, oy2 + dy)
 
-    def commit(self, app, evt: MotionEvent | tk.Event):
+    def commit(self, app: App, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         lab = app.params.labels[self.idx]
         p = app.snap(
             Point(x=evt.x - self.offset_dx, y=evt.y - self.offset_dy),
-            ignore_grid=(mods.alt or not lab.snap),
+            ignore_grid=self.ignore_grid_for(lab.snap, mods),
         )
         g = app.params.grid_size
         off_grid = g > 0 and ((p.x % g) != 0 or (p.y % g) != 0)
@@ -196,12 +196,12 @@ class DragIcon(DragAction):
     offset_dx: int
     offset_dy: int
 
-    def update(self, app, evt: MotionEvent | tk.Event):
+    def update(self, app: App, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         ico = app.params.icons[self.idx]
         p = app.snap(
             Point(x=evt.x - self.offset_dx, y=evt.y - self.offset_dy),
-            ignore_grid=(mods.alt or not ico.snap),
+            ignore_grid=self.ignore_grid_for(ico.snap, mods),
         )
 
         ic = app.params.icons[self.idx]
@@ -226,12 +226,12 @@ class DragIcon(DragAction):
         except Exception:
             pass
 
-    def commit(self, app, evt: MotionEvent | tk.Event):
+    def commit(self, app: App, evt: MotionEvent | tk.Event):
         mods = get_mods(evt)
         ico = app.params.icons[self.idx]
         p = app.snap(
             Point(x=evt.x - self.offset_dx, y=evt.y - self.offset_dy),
-            ignore_grid=(mods.alt or not ico.snap),
+            ignore_grid=self.ignore_grid_for(ico.snap, mods),
         )
         g = app.params.grid_size
         off_grid = g > 0 and ((p.x % g) != 0 or (p.y % g) != 0)
@@ -306,13 +306,13 @@ class DragGroup(DragAction):
     icons: list[tuple[int, Point]]  # (idx, orig p)
     lines: list[tuple[int, Point, Point]]  # (idx, orig a, orig b)
 
-    def _delta(self, app, evt: MotionEvent | tk.Event) -> tuple[int, int, bool]:
+    def _delta(self, app: App, evt: MotionEvent | tk.Event) -> tuple[int, int, bool]:
         mods = get_mods(evt)
         cur = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
         a = app.snap(self.start_mouse, ignore_grid=mods.alt)
         return (cur.x - a.x, cur.y - a.y, mods.alt)
 
-    def update(self, app, evt: MotionEvent | tk.Event):
+    def update(self, app: App, evt: MotionEvent | tk.Event):
         dx, dy, alt = self._delta(app, evt)
         app.layers.clear_preview()
 
@@ -337,7 +337,58 @@ class DragGroup(DragAction):
             x1, y1, x2, y2 = bb
             app.selection.set_outline_bbox(x1, y1, x2, y2)
 
-    def commit(self, app, evt: MotionEvent | tk.Event):
+    # def commit(self, app, evt: MotionEvent | tk.Event):
+    #    dx, dy, alt = self._delta(app, evt)
+    #    app.layers.clear_preview()
+    #    subs = []
+
+    #    for idx, p0 in self.labels:
+    #        lb = app.params.labels[idx]
+    #        p = app.snap(Point(x=p0.x + dx, y=p0.y + dy), ignore_grid=(alt or not lb.snap))
+    #        subs.append(
+    #            Move_Label(
+    #                app.params, idx, old_point=p0, new_point=p, on_after=lambda: app.layers.redraw(Layer_Type.labels)
+    #            )
+    #        )
+    #    for idx, p0 in self.icons:
+    #        ic = app.params.icons[idx]
+    #        p = app.snap(Point(x=p0.x + dx, y=p0.y + dy), ignore_grid=(alt or not ic.snap))
+    #        subs.append(
+    #            Move_Icon(
+    #                app.params, idx, old_point=p0, new_point=p, on_after=lambda: app.layers.redraw(Layer_Type.icons)
+    #            )
+    #        )
+    #    for idx, a0, b0 in self.lines:
+    #        a = app.snap(Point(x=a0.x + dx, y=a0.y + dy), ignore_grid=alt)
+    #        b = app.snap(Point(x=b0.x + dx, y=b0.y + dy), ignore_grid=alt)
+    #        # translate both ends via two endpoint moves
+    #        ln = app.params.lines[idx]
+    #        subs.append(
+    #            Move_Line_End(
+    #                app.params,
+    #                idx,
+    #                "a",
+    #                old_point=ln.a,
+    #                new_point=a,
+    #                on_after=lambda: app.layers.redraw(Layer_Type.lines),
+    #            )
+    #        )
+    #        subs.append(
+    #            Move_Line_End(
+    #                app.params,
+    #                idx,
+    #                "b",
+    #                old_point=ln.b,
+    #                new_point=b,
+    #                on_after=lambda: app.layers.redraw(Layer_Type.lines),
+    #            )
+    #        )
+
+    #    app.cmd.push_and_do(Multi(subs))
+    #    app.selection.update_bbox()
+    #    app.mark_dirty()
+
+    def commit(self, app, evt):
         dx, dy, alt = self._delta(app, evt)
         app.layers.clear_preview()
         subs = []
@@ -350,6 +401,7 @@ class DragGroup(DragAction):
                     app.params, idx, old_point=p0, new_point=p, on_after=lambda: app.layers.redraw(Layer_Type.labels)
                 )
             )
+
         for idx, p0 in self.icons:
             ic = app.params.icons[idx]
             p = app.snap(Point(x=p0.x + dx, y=p0.y + dy), ignore_grid=(alt or not ic.snap))
@@ -358,32 +410,24 @@ class DragGroup(DragAction):
                     app.params, idx, old_point=p0, new_point=p, on_after=lambda: app.layers.redraw(Layer_Type.icons)
                 )
             )
+
         for idx, a0, b0 in self.lines:
             a = app.snap(Point(x=a0.x + dx, y=a0.y + dy), ignore_grid=alt)
             b = app.snap(Point(x=b0.x + dx, y=b0.y + dy), ignore_grid=alt)
-            # translate both ends via two endpoint moves
             ln = app.params.lines[idx]
             subs.append(
-                Move_Line_End(
+                Move_Line(
                     app.params,
                     idx,
-                    "a",
-                    old_point=ln.a,
-                    new_point=a,
-                    on_after=lambda: app.layers.redraw(Layer_Type.lines),
-                )
-            )
-            subs.append(
-                Move_Line_End(
-                    app.params,
-                    idx,
-                    "b",
-                    old_point=ln.b,
-                    new_point=b,
+                    old_a=ln.a,
+                    old_b=ln.b,
+                    new_a=a,
+                    new_b=b,
                     on_after=lambda: app.layers.redraw(Layer_Type.lines),
                 )
             )
 
+        # one gesture = one undo step
         app.cmd.push_and_do(Multi(subs))
         app.selection.update_bbox()
         app.mark_dirty()

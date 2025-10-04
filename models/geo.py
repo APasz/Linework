@@ -210,6 +210,29 @@ Deletable = int | ItemID | str
 class CanvasLW(tk.Canvas):
     """Typed convenience wrappers"""
 
+    class cache:
+        checker_bg: tuple[int, ImageTk.PhotoImage] | None = None
+        checker_ref: tuple[int, ImageTk.PhotoImage] | None = None
+        imgs: dict[str, ImageTk.PhotoImage] = {}
+
+    @staticmethod
+    def _stipple_for_alpha(alpha: int | Colour) -> str | None:
+        if isinstance(alpha, Colour):
+            a = alpha.alpha
+        else:
+            a = alpha
+        if a >= 250:
+            return None
+        if a >= 192:
+            return "gray12"
+        if a >= 128:
+            return "gray25"
+        if a >= 64:
+            return "gray50"
+        if a > 0:
+            return "gray75"
+        return "gray75"
+
     # ---------- creation ----------
     def create_with_points(
         self,
@@ -227,7 +250,7 @@ class CanvasLW(tk.Canvas):
         tag_type: Layer_Type = Layer_Type.lines,
     ) -> ItemID:
         dash = scaled_pattern(style, width)
-
+        st = self._stipple_for_alpha(col.alpha)
         iid = super().create_line(
             a.x,
             a.y,
@@ -238,6 +261,7 @@ class CanvasLW(tk.Canvas):
             capstyle=capstyle.value,
             dash=dash or [],
             dashoffset=(dash_offset if dash else 0),
+            stipple=st or "",
             tags=tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags),
         )
         return ItemID(iid)
@@ -252,6 +276,7 @@ class CanvasLW(tk.Canvas):
         tag_type: Layer_Type = Layer_Type.lines,
     ) -> ItemID:
         dash = line.scaled_pattern()
+        st = self._stipple_for_alpha(line.col.alpha)
         iid = super().create_line(
             line.a.x,
             line.a.y,
@@ -262,6 +287,7 @@ class CanvasLW(tk.Canvas):
             capstyle=line.capstyle.value,
             dash=dash or [],
             dashoffset=(line.dash_offset if dash else 0),
+            stipple=st or "",
             tags=tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags),
         )
         return ItemID(iid)
@@ -275,6 +301,7 @@ class CanvasLW(tk.Canvas):
         override_tag: Tag | None = None,
         tag_type: Layer_Type = Layer_Type.labels,
     ) -> ItemID:
+        st = self._stipple_for_alpha(label.col.alpha)
         iid = super().create_text(
             label.p.x,
             label.p.y,
@@ -283,6 +310,7 @@ class CanvasLW(tk.Canvas):
             anchor=label.anchor.tk,
             font=("TkDefaultFont", label.size),
             angle=label.rotation,
+            stipple=st or "",
             tags=tag_sort(tag_type, base_kind=Hit_Kind.label, idx=idx, override=override_tag, extra=extra_tags),
         )
         return ItemID(iid)
@@ -385,6 +413,7 @@ class CanvasLW(tk.Canvas):
             join = {JoinStyle.ROUND: "round", JoinStyle.BEVEL: "bevel", JoinStyle.MITER: "miter"}[sty.line_join]
             return dict(width=w, joinstyle=join)
 
+        st = self._stipple_for_alpha(icon.col.alpha)
         for prim in idef.prims:
             if isinstance(prim, Primitives.Circle):
                 cxp, cyp = M(prim.cx, prim.cy)
@@ -393,7 +422,15 @@ class CanvasLW(tk.Canvas):
                 outline = col if prim.style.stroke else ""
                 width = max(1.0, prim.style.stroke_width * s) if prim.style.stroke else 1.0
                 super().create_oval(
-                    cxp - rr, cyp - rr, cxp + rr, cyp + rr, fill=fill, outline=outline, width=width, tags=tag
+                    cxp - rr,
+                    cyp - rr,
+                    cxp + rr,
+                    cyp + rr,
+                    fill=fill,
+                    outline=outline,
+                    width=width,
+                    tags=tag,
+                    stipple=st or "",
                 )
 
             elif isinstance(prim, Primitives.Rect):
@@ -405,13 +442,29 @@ class CanvasLW(tk.Canvas):
                 opts = _opts_poly(prim.style)
                 fill = col if prim.style.fill else ""
                 outline = col if prim.style.stroke else ""
-                super().create_polygon(*pts, fill=fill, outline=outline, tags=tag, **opts)
+                super().create_polygon(
+                    *pts,
+                    fill=fill,
+                    outline=outline,
+                    tags=tag,
+                    stipple=st or "",
+                    **opts,
+                )
 
             elif isinstance(prim, Primitives.Line):
                 x1, y1 = M(prim.x1, prim.y1)
                 x2, y2 = M(prim.x2, prim.y2)
                 opts = _opts_line(prim.style)
-                super().create_line(x1, y1, x2, y2, fill=col if prim.style.stroke else "", tags=tag, **opts)
+                super().create_line(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    fill=col if prim.style.stroke else "",
+                    tags=tag,
+                    stipple=st or "",
+                    **opts,
+                )
 
             elif isinstance(prim, Primitives.Polyline):
                 pts = []
@@ -425,6 +478,7 @@ class CanvasLW(tk.Canvas):
                         outline=col if prim.style.stroke else "",
                         fill=col if prim.style.fill else "",
                         tags=tag,
+                        stipple=st or "",
                         **opts,
                     )
                 else:

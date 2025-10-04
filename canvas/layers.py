@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+
 if TYPE_CHECKING:
-    from canvas.painters import Painters
-    from models.geo import CanvasLW
+    from controllers.app import App
 
 
 class TagNS(StrEnum):
@@ -168,33 +168,40 @@ class Hit:
 
 def test_hit(canvas, x, y):
     """Pick the nearest valid hit in a small window around (x, y).
-    Ties prefer the topmost item by z-order among overlaps."""
+    Bias: if a handle is directly under the pointer, take it immediately."""
     over = list(canvas.find_overlapping(x - 3, y - 3, x + 3, y + 3))
     best: Hit | None = None
-    best_key: tuple[int, int] | None = None  # (dist2, -z_in_over)
-    for z, iid in enumerate(over):  # z increases with stacking
+    best_key: tuple[int, int] | None = None
+
+    for z, iid in enumerate(over):
         toks = tag_parse_multi(canvas.gettags(iid))
         hit = next((t for t in toks if t.ns is TagNS.hit and t.idx is not None), None)
         if not hit or not isinstance(hit.kind, Hit_Kind):
             continue
+
         which = next((t.meta for t in toks if t.ns is TagNS.handle and t.meta), None)
         bbox = canvas.bbox(iid)
         if not bbox:
             continue
         x1, y1, x2, y2 = bbox
+
+        if which is not None and (x1 <= x <= x2) and (y1 <= y <= y2):
+            return Hit(kind=hit.kind, tag_idx=hit.idx, point=which)
+
         dx = 0 if x1 <= x <= x2 else min((x - x1) ** 2, (x - x2) ** 2)
         dy = 0 if y1 <= y <= y2 else min((y - y1) ** 2, (y - y2) ** 2)
-        key = (dx + dy, -z)  # nearest, then true topmost
+        key = (dx + dy, -z)
         if best_key is None or key < best_key:
             best_key = key
             best = Hit(kind=hit.kind, tag_idx=hit.idx, point=which)
+
     return best
 
 
 class Layer_Manager:
-    def __init__(self, canvas: CanvasLW, painters: Painters):
-        self.canvas = canvas
-        self.painters = painters
+    def __init__(self, app: App):
+        self.canvas = app.canvas
+        self.painters = app.painters
         self.canvas.tag_raise_l(Layer_Type.selection)
 
     def _enforce_z(self):

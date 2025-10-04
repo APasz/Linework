@@ -112,8 +112,12 @@ class App:
         self.status_bar = Bars.create_status(self.root, self.status)
 
         # ---------- canvas ----------
-        display_bg = Colours.sys.dark_gray.hexh if self.params.bg_colour.alpha == 0 else self.params.bg_colour.hexh
-        self.canvas = CanvasLW(self.root, width=self.params.width, height=self.params.height, bg=display_bg)
+        self.canvas = CanvasLW(
+            self.root,
+            width=self.params.width,
+            height=self.params.height,
+            bg=self.params.bg_colour.hexh,
+        )
         self.canvas.pack(fill="both", expand=False)
 
         # ---------- editors ----------
@@ -121,8 +125,8 @@ class App:
 
         # ---------- scene / paint / layers ----------
         self.scene = Scene(self.params)
-        self.painters = Painters(self, self.scene, self.canvas)
-        self.layers = Layer_Manager(self.canvas, self.painters)
+        self.painters = Painters(self)
+        self.layers = Layer_Manager(self)
 
         # ---------- selection ----------
         self.selection = SelectionOverlay(self)
@@ -398,6 +402,7 @@ class App:
         self.params.grid_visible = self.params.grid_size > 0
         self._apply_size_increments(self.params.grid_size)
         self.layers.redraw(Layer_Type.grid, True)
+        self.canvas.cache.checker_bg = None
         self.mark_dirty()
 
     def on_brush_change(self, *_):
@@ -446,8 +451,7 @@ class App:
             col = Colours.white
         self.params.bg_colour = col
         self.mark_dirty()
-        display_bg = Colours.sys.dark_gray if col.alpha == 0 else col
-        self.canvas.config(bg=display_bg.hexh)
+        self.canvas.config(bg=(col.hexh if col.alpha else Colours.white.hexh))
         try:
             self.tbar.palette_bg.set_selected(col.hexah)
         except Exception:
@@ -673,8 +677,8 @@ class App:
             return
         self.params = Params()
         self.scene = Scene(self.params)
-        self.painters = Painters(self, self.scene, self.canvas)
-        self.layers = Layer_Manager(self.canvas, self.painters)
+        self.painters = Painters(self)
+        self.layers = Layer_Manager(self)
         self._set_selected(None, None)
         self.layers.redraw_all()
         self.mark_clean()
@@ -697,8 +701,8 @@ class App:
             messagebox.showerror("Open failed", str(e))
             return
         self.scene = Scene(self.params)
-        self.painters = Painters(self, self.scene, self.canvas)
-        self.layers = Layer_Manager(self.canvas, self.painters)
+        self.painters = Painters(self)
+        self.layers = Layer_Manager(self)
         self._sync_vars_from_params()
         self.layers.redraw_all()
         self._update_title()
@@ -742,8 +746,7 @@ class App:
         self.var_label_colour.set(self.params.label_colour.hexah)
         self.var_icon_colour.set(self.params.icon_colour.hexah)
         self.var_line_style.set(self.params.line_style.value)
-        display_bg = Colours.sys.dark_gray.hexh if self.params.bg_colour.alpha == 0 else self.params.bg_colour.hexh
-        self.canvas.config(width=self.params.width, height=self.params.height, bg=display_bg)
+        self.canvas.config(width=self.params.width, height=self.params.height, bg=self.params.bg_colour.hexh)
 
     def _apply_size_increments(self, g: int):
         step = max(1, g)

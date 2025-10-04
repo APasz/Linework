@@ -228,11 +228,11 @@ class Colour(Model):
 
     @property
     def hex(self) -> str:
-        return self.hexh[:1]
+        return self.hexh[1:]
 
     @property
     def hexa(self) -> str:
-        return self.hexah[:1]
+        return self.hexah[1:]
 
     @property
     def hexh(self) -> str:

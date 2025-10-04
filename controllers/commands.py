@@ -65,21 +65,27 @@ class Add_Line:
     params: Params
     line: Line
     on_after: Callable[[], None]
+    _index: int | None = None
 
     def do(self):
         if (self.line.a.x, self.line.a.y) == (self.line.b.x, self.line.b.y):
             return
         self.params.lines.append(self.line)
+        self._index = len(self.params.lines) - 1
         self.on_after()
 
     def undo(self):
-        if self.params.lines and self.params.lines[-1] is self.line:
-            self.params.lines.pop()
-        else:
-            for idx in range(len(self.params.lines) - 1, -1, -1):
-                if self.params.lines[idx] == self.line:
-                    del self.params.lines[idx]
-                    break
+        if self._index is not None and 0 <= self._index < len(self.params.lines):
+            # prefer surgical removal by the index we appended at
+            if self.params.lines[self._index] is self.line or self.params.lines[self._index] == self.line:
+                del self.params.lines[self._index]
+                self.on_after()
+                return
+        # ultra-conservative fallback (should rarely run)
+        for idx in range(len(self.params.lines) - 1, -1, -1):
+            if self.params.lines[idx] == self.line:
+                del self.params.lines[idx]
+                break
         self.on_after()
 
 
@@ -145,6 +151,27 @@ class Move_Line_End:
             lin.b = self.old_point
         self.params.lines[self.index] = lin
         self.on_after()
+
+
+@dataclass
+class Move_Line:
+    params: Params
+    index: int
+    old_a: Point
+    old_b: Point
+    new_a: Point
+    new_b: Point
+    on_after: Callable[[], None]
+
+    def do(self):
+        if 0 <= self.index < len(self.params.lines):
+            self.params.lines[self.index] = self.params.lines[self.index].with_points(self.new_a, self.new_b)
+            self.on_after()
+
+    def undo(self):
+        if 0 <= self.index < len(self.params.lines):
+            self.params.lines[self.index] = self.params.lines[self.index].with_points(self.old_a, self.old_b)
+            self.on_after()
 
 
 @dataclass
