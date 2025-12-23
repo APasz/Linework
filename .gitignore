@@ -15,6 +15,5 @@ assets/*
 *.jpg
 *.jpeg
 *.svg
-*.spec
 build/*
 dist/*
