@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import sys
 from collections.abc import Iterable, Iterator, Mapping
 from enum import Enum, StrEnum
 from functools import lru_cache
@@ -159,6 +160,16 @@ _BASE: dict[LineStyle | None, tuple[float, ...]] = {
     LineStyle.DASH_DOT: (3, 2, 0.1, 2),
     LineStyle.DASH_DOT_DOT: (3, 2, 0.1, 2, 0.1, 2),
 }
+_IS_WINDOWS = sys.platform.startswith("win")
+_WINDOWS_DASH_BOOST_MAX_W = 3
+_WINDOWS_DASH_BOOST = 2
+_WINDOWS_DASH_STYLES: Final[set[LineStyle]] = {
+    LineStyle.DASH,
+    LineStyle.LONG,
+    LineStyle.SHORT,
+    LineStyle.DASH_DOT,
+    LineStyle.DASH_DOT_DOT,
+}
 
 
 def _normalise_pairs(seq: Iterable[int]) -> tuple[int, ...]:
@@ -187,6 +198,29 @@ def scaled_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
     w = max(1, width_px)
     scaled = [max(1, round(seg * w)) for seg in base]
     return _normalise_pairs(scaled)
+
+
+def _boost_windows_dash(style: LineStyle | None, base: tuple[float, ...], scaled: tuple[int, ...], width_px: int):
+    if not _IS_WINDOWS or style not in _WINDOWS_DASH_STYLES or width_px > _WINDOWS_DASH_BOOST_MAX_W:
+        return scaled
+    # Windows Tk can collapse short dashes into dots at small widths; stretch non-dot segments.
+    out: list[int] = []
+    for seg_base, seg_scaled in zip(base, scaled):
+        if seg_base <= 0.5:
+            out.append(seg_scaled)
+        else:
+            out.append(seg_scaled * _WINDOWS_DASH_BOOST)
+    return tuple(out)
+
+
+def tk_dash_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
+    base = _BASE.get(style, _BASE[None])
+    if not base:
+        return ()
+    pat = scaled_pattern(style, width_px)
+    if not pat:
+        return pat
+    return _boost_windows_dash(style, base, pat, width_px)
 
 
 def svg_dasharray(style: LineStyle | None, width_px: int) -> str | None:

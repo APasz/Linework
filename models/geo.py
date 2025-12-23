@@ -11,7 +11,7 @@ from pydantic import Field, model_validator
 
 from canvas.layers import Hit_Kind, Layer_Type, Tag
 from models.assets import Builtins, Formats, Icon_Name, Primitives, Style, _open_rgba, probe_wh
-from models.styling import Anchor, CapStyle, Colour, JoinStyle, LineStyle, Model, scaled_pattern
+from models.styling import Anchor, CapStyle, Colour, JoinStyle, LineStyle, Model, scaled_pattern, tk_dash_pattern
 
 MAX_CACHE = 128
 
@@ -249,7 +249,7 @@ class CanvasLW(tk.Canvas):
         override_tag: Tag | None = None,
         tag_type: Layer_Type = Layer_Type.lines,
     ) -> ItemID:
-        dash = scaled_pattern(style, width)
+        dash = tk_dash_pattern(style, width)
         st = self._stipple_for_alpha(col.alpha)
         iid = super().create_line(
             a.x,
@@ -275,7 +275,7 @@ class CanvasLW(tk.Canvas):
         override_tag: Tag | None = None,
         tag_type: Layer_Type = Layer_Type.lines,
     ) -> ItemID:
-        dash = line.scaled_pattern()
+        dash = tk_dash_pattern(line.style, line.width)
         st = self._stipple_for_alpha(line.col.alpha)
         iid = super().create_line(
             line.a.x,
