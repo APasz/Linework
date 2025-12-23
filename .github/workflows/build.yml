@@ -2,7 +2,6 @@ name: Build (Windows + Linux)
 
 on:
   push:
-    branches: ["main"]
     tags: ["v*"]
   pull_request:
 
@@ -41,7 +40,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \ 
+          sudo apt-get install -y \
             zip \
             libcairo2 \
             libpango-1.0-0 \

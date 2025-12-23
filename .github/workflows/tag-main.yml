@@ -1,0 +1,45 @@
+name: Auto-tag main
+
+on:
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "*.md"
+      - "*.mustache"
+      - "*.linework*"
+      - "*.gitignore"
+      - "docs/**"
+      - ".github/**"
+      - ".assets/**"
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for commit count + tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create and push tag
+        run: |
+          git fetch --tags --force
+
+          COUNT="$(git rev-list --count HEAD)"
+          TAG="v0.${COUNT}"
+
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists. Skipping."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "$TAG" -m "CI tag $TAG"
+          git push origin "$TAG"
+
+          echo "Created tag $TAG"
