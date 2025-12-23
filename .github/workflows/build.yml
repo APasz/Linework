@@ -82,7 +82,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          Copy-Item "dist\Linework.exe" "out\Linework-windows-x64.exe" -Force
+          Compress-Archive -Path "dist\Linework.exe" -DestinationPath "out\Linework-windows-x64.zip" -Force
           Get-ChildItem out
 
       - name: Prepare artifact (Linux)
