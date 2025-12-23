@@ -8,9 +8,14 @@ _CTRL_KEYS = {"Control_L", "Control_R"}
 _ALT_KEYS = {"Alt_L", "Alt_R", "Alt", "ISO_Level3_Shift", "Option_L", "Option_R"}
 _META_KEYS = {"Meta_L", "Meta_R", "Super_L", "Super_R", "Command"}
 
+_EVENTTYPE = getattr(tk, "EventType", None)
+_KEYPRESS_EVENT_TYPES = {"KeyPress", str(getattr(_EVENTTYPE, "KeyPress", "2"))}
+_KEYRELEASE_EVENT_TYPES = {"KeyRelease", str(getattr(_EVENTTYPE, "KeyRelease", "3"))}
+
 _SHIFT_MASK = 0x0001
 _CTRL_MASK = 0x0004
 _ALT_MASK = 0x0008
+_ALT_MASK_WIN32 = 0x20000
 
 
 class ModifierTracker:
@@ -23,9 +28,12 @@ class ModifierTracker:
 
     def update(self, evt: tk.Event) -> None:
         evt_type = str(getattr(evt, "type", ""))
-        if evt_type not in {"KeyPress", "KeyRelease"}:
+        if evt_type in _KEYPRESS_EVENT_TYPES:
+            down = True
+        elif evt_type in _KEYRELEASE_EVENT_TYPES:
+            down = False
+        else:
             return
-        down = evt_type == "KeyPress"
         keysym = getattr(evt, "keysym", "")
         if keysym in _SHIFT_KEYS:
             self.shift = down
@@ -40,7 +48,7 @@ class ModifierTracker:
         # Prefer tracked keys for cross-platform correctness; masks are fallback for mouse events.
         shift = bool(state & _SHIFT_MASK) or self.shift
         ctrl = bool(state & _CTRL_MASK) or self.ctrl
-        alt = bool(state & _ALT_MASK) or self.alt
+        alt = bool(state & (_ALT_MASK | _ALT_MASK_WIN32)) or self.alt
         if self.windowing == "aqua":
             ctrl = ctrl or self.meta
         return Modifiers(shift=shift, ctrl=ctrl, alt=alt)

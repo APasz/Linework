@@ -77,29 +77,28 @@ jobs:
           find dist -maxdepth 2 -type f -print || true
 
       # Package artifacts nicely
-      - name: Zip artifact (Windows)
+      - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $ART_NAME = "linework-${{ runner.os }}"
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          Compress-Archive -Path "dist\*" -DestinationPath "out\$ART_NAME.zip" -Force
+          Copy-Item "dist\Linework.exe" "out\Linework-windows-x64.exe" -Force
           Get-ChildItem out
 
-      - name: Zip artifact (Linux)
+      - name: Prepare artifact (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          ART_NAME="linework-${{ runner.os }}"
           mkdir -p out
-          (cd dist && zip -r "../out/${ART_NAME}.zip" .)
+          cp "dist/Linework" "out/Linework-linux-x64"
+          chmod +x "out/Linework-linux-x64"
           ls -la out
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: linework-${{ runner.os }}
-          path: out/*.zip
+          path: out/Linework-*
           if-no-files-found: error
           retention-days: 14
 
@@ -114,8 +113,8 @@ jobs:
         with:
             path: artifacts
 
-      - name: Create Release and upload zips
+      - name: Create Release and upload binaries
         uses: softprops/action-gh-release@v2
         with:
-            tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-            files: artifacts/**/**/*.zip
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          files: artifacts/**/Linework-*

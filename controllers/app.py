@@ -171,6 +171,10 @@ class App:
         self.root.bind("<Control-Shift-Z>", self._on_redo_key)
         self.root.bind("<Command-y>", self._on_redo_key)
         self.root.bind("<Command-Shift-Z>", self._on_redo_key)
+        self.root.bind("<Control-s>", self._on_save_key)
+        self.root.bind("<Control-S>", self._on_save_as_key)
+        self.root.bind("<Command-s>", self._on_save_key)
+        self.root.bind("<Command-S>", self._on_save_as_key)
         self.root.bind("<KeyPress-g>", self._on_toggle_grid_key)
         self.root.bind("<KeyPress-G>", self._on_toggle_grid_key)
         self.root.bind("<KeyPress>", self._on_any_key)
@@ -439,6 +443,18 @@ class App:
         if not self._should_handle_global_key(evt):
             return
         self.toggle_grid(evt)
+
+    def _on_save_key(self, evt=None):
+        if not self._should_handle_global_key(evt):
+            return
+        if evt is not None and input_mod.get_mods(evt).shift:
+            return
+        self.save_project()
+
+    def _on_save_as_key(self, evt=None):
+        if not self._should_handle_global_key(evt):
+            return
+        self.save_project_as()
 
     def toggle_grid(self, *_):
         self.params.grid_visible = not self.params.grid_visible
