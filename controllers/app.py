@@ -388,7 +388,7 @@ class App:
         name = Tool_Name(self.mode.get())
         self.status.clear_centre()
         self.tool_mgr.activate(name)
-        self.status.temp(f"Tool: {name.value}", 1500, priority=-50)
+        self.status.temp(f"Tool: {name.value.title()}", 1500, priority=-50)
         self._status_hints_set()
 
     def _on_any_key(self, evt):
