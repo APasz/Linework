@@ -188,7 +188,12 @@ class Colour_Palette(ttk.Frame):
 
     def _edit_custom(self, idx: int, initial: Colour | None):
         self._close_popup()
-        _rgb, hx = colorchooser.askcolor(color=initial.hexh if initial else None, parent=self)
+        try:
+            _rgb, hx = colorchooser.askcolor(color=initial.hexh if initial else None, parent=self)
+        except tk.TclError as exc:
+            if "application has been destroyed" in str(exc):
+                return
+            raise
         if not hx:
             return
         col = Colours.parse_colour(hx)

@@ -201,10 +201,19 @@ class App:
         self.status.set("Ready")
 
     # ========= small app API used by tools =========
+    @staticmethod
+    def _safe_tk_call(func, *args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except tk.TclError as exc:
+            if "application has been destroyed" in str(exc):
+                return None
+            raise
+
     def prompt_text(self, title: str, prompt: str) -> str | None:
         import tkinter.simpledialog as sd
 
-        return sd.askstring(title, prompt, parent=self.root)
+        return self._safe_tk_call(sd.askstring, title, prompt, parent=self.root)
 
     def layers_redraw(self, *names: Layer_Type):
         if names:
@@ -612,7 +621,8 @@ class App:
 
     def export_image(self):
         initialfile = self.params.output_file.name
-        path = filedialog.asksaveasfilename(
+        path = self._safe_tk_call(
+            filedialog.asksaveasfilename,
             parent=self.root,
             title="Export",
             defaultextension=self.params.output_file.suffix,
@@ -625,14 +635,18 @@ class App:
 
         out = Path(path)
         if not Formats.check(out):
-            messagebox.showerror("Invalid filetype", f"Choose one of: {', '.join(Formats)}")
+            self._safe_tk_call(
+                messagebox.showerror,
+                "Invalid filetype",
+                f"Choose one of: {', '.join(Formats)}",
+            )
             return
 
         self.params.output_file = out
         try:
             Exporter.output(self.params)
         except Exception as e:
-            messagebox.showerror("Export failed", str(e))
+            self._safe_tk_call(messagebox.showerror, "Export failed", str(e))
             return
 
         try:
@@ -647,7 +661,7 @@ class App:
         try:
             IO.save_params(self.params, self.project_path)
         except Exception as e:
-            messagebox.showerror("Save failed", str(e))
+            self._safe_tk_call(messagebox.showerror, "Save failed", str(e))
             return False
         self.mark_clean()
         self.on_file_saved(self.project_path)
@@ -656,7 +670,9 @@ class App:
         return True
 
     def save_project_as(self) -> bool:
-        path = filedialog.asksaveasfilename(
+        previous_path = self.project_path
+        path = self._safe_tk_call(
+            filedialog.asksaveasfilename,
             parent=self.root,
             title="Save As",
             defaultextension=".linework",
@@ -670,6 +686,8 @@ class App:
         ok = self.save_project()
         if ok:
             self._update_title()
+            if previous_path != self.project_path:
+                previous_path.with_suffix(f"{previous_path.suffix}.autosave").unlink(missing_ok=True)
         return ok
 
     def new_project(self):
@@ -687,7 +705,8 @@ class App:
     def open_project(self):
         if not self._maybe_proceed():
             return
-        path = filedialog.askopenfilename(
+        path = self._safe_tk_call(
+            filedialog.askopenfilename,
             parent=self.root,
             title="Open Project",
             filetypes=[("Linework Projects", "*.linework"), ("JSON", "*.json"), ("All files", "*.*")],
@@ -698,7 +717,7 @@ class App:
         try:
             self.params = IO.load_params(self.project_path)
         except Exception as e:
-            messagebox.showerror("Open failed", str(e))
+            self._safe_tk_call(messagebox.showerror, "Open failed", str(e))
             return
         self.scene = Scene(self.params)
         self.painters = Painters(self)
@@ -765,7 +784,11 @@ class App:
     def _maybe_proceed(self) -> bool:
         if not self.dirty:
             return True
-        ans = messagebox.askyesnocancel("Save changes?", "Save your changes before continuing?")
+        ans = self._safe_tk_call(
+            messagebox.askyesnocancel,
+            "Save changes?",
+            "Save your changes before continuing?",
+        )
         if ans is None:
             return False
         if ans is True:

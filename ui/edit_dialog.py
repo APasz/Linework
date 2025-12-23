@@ -207,13 +207,18 @@ class Icon_Gallery(tk.Toplevel):
         self._grids.append(frame)
 
     def _import_images(self):
-        paths = filedialog.askopenfilenames(
-            title="Import icons",
-            filetypes=[
-                ("Image files", "*.svg *.png *.jpg *.jpeg *.webp *.bmp"),
-                ("All files", "*.*"),
-            ],
-        )
+        try:
+            paths = filedialog.askopenfilenames(
+                title="Import icons",
+                filetypes=[
+                    ("Image files", "*.svg *.png *.jpg *.jpeg *.webp *.bmp"),
+                    ("All files", "*.*"),
+                ],
+            )
+        except tk.TclError as exc:
+            if "application has been destroyed" in str(exc):
+                return
+            raise
         if not paths:
             return
         self.app.asset_lib.import_files([Path(p) for p in paths])
@@ -487,7 +492,11 @@ class GenericEditDialog(simpledialog.Dialog):
                         raise ValueError(f"{fld.get('label', name)} must be ≤ {fld['max']}")
                 out[name] = raw
         except Exception as e:
-            messagebox.showerror("Invalid input", str(e), parent=self)
+            try:
+                messagebox.showerror("Invalid input", str(e), parent=self)
+            except tk.TclError as exc:
+                if "application has been destroyed" not in str(exc):
+                    raise
             return False
         self._result = out
         return True

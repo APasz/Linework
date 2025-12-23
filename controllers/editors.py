@@ -150,7 +150,9 @@ class Editors:
     def edit(self, app: App, obj: Any) -> bool:
         plan = self._resolve_plan(obj)
         schema = [self._field_to_schema(f) for f in plan.fields]
-        dlg = GenericEditDialog(app, plan.title, schema, plan.init(obj))
+        dlg = app._safe_tk_call(GenericEditDialog, app, plan.title, schema, plan.init(obj))
+        if dlg is None:
+            return False
         result = getattr(dlg, "result", None)
         if not result:
             return False
