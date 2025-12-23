@@ -14,7 +14,7 @@ class Params(Model):
     grid_colour: Colour = Colours.gray
     brush_colour: Colour = Colours.black
     bg_colour: Colour = Colours.white
-    icon_colour: Colour = Colours.black
+    icon_colour: Colour = Colours.red
     label_colour: Colour = Colours.black
     custom_palette: list[Colour | None] = Colours.custom_palette  # Shared across all Params instances
     brush_width: int = 10

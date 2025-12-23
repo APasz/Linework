@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from canvas.layers import Hit_Kind, Layer_Type, test_hit
-from controllers.commands import Move_Line_End
+from controllers.commands import Move_Line, Move_Line_End
 from controllers.tools.draw import Draw_Tool
 from controllers.tools_base import DragAction, DragGroup, DragIcon, DragLabel, DragMarquee, ToolBase
 from models.geo import Point
@@ -69,6 +69,65 @@ class DragLineEndpoint(DragAction):
         app.selection.update_bbox()
 
 
+@dataclass
+class DragLine(DragAction):
+    idx: int
+    start_mouse: Point
+    start_a: Point
+    start_b: Point
+
+    def _delta(self, app: App, evt: MotionEvent | tk.Event) -> tuple[int, int, bool]:
+        mods = get_mods(evt)
+        cur = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
+        start = app.snap(self.start_mouse, ignore_grid=mods.alt)
+        return cur.x - start.x, cur.y - start.y, mods.alt
+
+    def _points(self, app: App, evt: MotionEvent | tk.Event) -> tuple[Point, Point]:
+        dx, dy, alt = self._delta(app, evt)
+        a = app.snap(Point(x=self.start_a.x + dx, y=self.start_a.y + dy), ignore_grid=alt)
+        b = app.snap(Point(x=self.start_b.x + dx, y=self.start_b.y + dy), ignore_grid=alt)
+        return a, b
+
+    def update(self, app: App, evt: MotionEvent | tk.Event):
+        a, b = self._points(app, evt)
+        ln = app.params.lines[self.idx]
+
+        app.layers.clear_preview()
+        app.canvas.create_with_line(
+            ln.with_points(a, b),
+            tag_type=Layer_Type.preview,
+        )
+
+        app.selection.update_line_handles(self.idx, a, b)
+
+        bb = app.canvas.bbox(Layer_Type.preview.value)
+        if bb:
+            x1, y1, x2, y2 = bb
+            app.selection.set_outline_bbox(x1, y1, x2, y2)
+
+    def commit(self, app: App, evt: MotionEvent | tk.Event):
+        a, b = self._points(app, evt)
+        app.layers.clear_preview()
+        app.cmd.push_and_do(
+            Move_Line(
+                app.params,
+                self.idx,
+                old_a=self.start_a,
+                old_b=self.start_b,
+                new_a=a,
+                new_b=b,
+                on_after=lambda: app.layers.redraw(Layer_Type.lines),
+            )
+        )
+        app.selection.update_bbox()
+        app._set_selected(Hit_Kind.line, self.idx)
+        app.mark_dirty()
+
+    def cancel(self, app: App):
+        app.layers.clear_preview()
+        app.selection.update_bbox()
+
+
 class Select_Tool(ToolBase):
     name: Tool_Name = Tool_Name.select
     kind: Hit_Kind | None = None
@@ -114,6 +173,16 @@ class Select_Tool(ToolBase):
             return
 
         app.select_set([(hit.kind, hit.tag_idx if hit.tag_idx is not None else -1)])
+
+        if hit.kind == Hit_Kind.line and hit.tag_idx is not None:
+            ln = app.params.lines[hit.tag_idx]
+            self._drag = DragLine(
+                idx=hit.tag_idx,
+                start_mouse=Point(x=evt.x, y=evt.y),
+                start_a=ln.a,
+                start_b=ln.b,
+            )
+            return
 
         if hit.kind == Hit_Kind.label and hit.tag_idx is not None:
             lb = app.params.labels[hit.tag_idx]
