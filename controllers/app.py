@@ -32,6 +32,7 @@ from models.geo import CanvasLW, Icon_Source, Point
 from models.params import Params
 from models.styling import Colour, Colours, LineStyle
 from ui.bars import Bars, Side, Tool_Name
+from ui import input as input_mod
 
 
 class App:
@@ -156,19 +157,27 @@ class App:
         self.canvas.bind("<ButtonRelease-1>", lambda e: (self.tool_mgr.on_release(e), "break")[-1])
         self.canvas.bind("<Double-Button-1>", lambda e: (self.on_double_click(e), "break")[-1])
         self.canvas.bind("<Leave>", lambda e: self.status.clear_centre())
-        self.root.bind("<Key>", lambda e: self.tool_mgr.on_key(e))
         self.root.bind("<Escape>", lambda e: self.tool_mgr.cancel())
         self.root.bind("<Control-a>", self._on_select_all)
+        self.root.bind("<Command-a>", self._on_select_all)
 
         # global keys
-        self.root.bind("<Delete>", self.on_delete)
-        self.root.bind("<Control-z>", self.on_undo)
-        self.root.bind("<Control-y>", self.on_redo)
-        self.root.bind("<Control-Shift-Z>", self.on_redo)
-        self.root.bind("<KeyPress-g>", lambda e: self.toggle_grid())
-        self.root.bind("<KeyPress-G>", lambda e: self.toggle_grid())
+        self.root.bind("<Delete>", self._on_delete_key)
+        self.root.bind("<BackSpace>", self._on_delete_key)
+        self.root.bind("<Command-BackSpace>", self._on_delete_key)
+        self.root.bind("<Control-z>", self._on_undo_key)
+        self.root.bind("<Command-z>", self._on_undo_key)
+        self.root.bind("<Control-y>", self._on_redo_key)
+        self.root.bind("<Control-Shift-Z>", self._on_redo_key)
+        self.root.bind("<Command-y>", self._on_redo_key)
+        self.root.bind("<Command-Shift-Z>", self._on_redo_key)
+        self.root.bind("<KeyPress-g>", self._on_toggle_grid_key)
+        self.root.bind("<KeyPress-G>", self._on_toggle_grid_key)
         self.root.bind("<KeyPress>", self._on_any_key)
         self.root.bind("<KeyRelease>", self._on_any_key)
+        self.root.bind("<KeyPress>", input_mod.handle_key_event, add="+")
+        self.root.bind("<KeyRelease>", input_mod.handle_key_event, add="+")
+        self.root.bind("<FocusOut>", lambda _e: input_mod.reset_mods(), add="+")
 
         # mode activation
         self.mode.trace_add("write", self._on_mode_change)
@@ -391,8 +400,45 @@ class App:
         self.status.temp(f"Tool: {name.value.title()}", 1500, priority=-50)
         self._status_hints_set()
 
+    @staticmethod
+    def _is_text_input_widget(widget: tk.Widget | None) -> bool:
+        if widget is None:
+            return False
+        if isinstance(widget, (tk.Entry, tk.Text, tk.Spinbox)):
+            return True
+        if isinstance(widget, (ttk.Entry, ttk.Spinbox, ttk.Combobox)):
+            return True
+        return widget.winfo_class() in {"Entry", "Text", "Spinbox", "TEntry", "TSpinbox", "TCombobox"}
+
+    def _should_handle_global_key(self, evt: tk.Event | None) -> bool:
+        if evt is None:
+            return True
+        return not self._is_text_input_widget(getattr(evt, "widget", None))
+
     def _on_any_key(self, evt):
+        if not self._should_handle_global_key(evt):
+            return
         self.tool_mgr.on_key(evt)
+
+    def _on_delete_key(self, evt=None):
+        if not self._should_handle_global_key(evt):
+            return
+        self.on_delete(evt)
+
+    def _on_undo_key(self, evt=None):
+        if not self._should_handle_global_key(evt):
+            return
+        self.on_undo(evt)
+
+    def _on_redo_key(self, evt=None):
+        if not self._should_handle_global_key(evt):
+            return
+        self.on_redo(evt)
+
+    def _on_toggle_grid_key(self, evt=None):
+        if not self._should_handle_global_key(evt):
+            return
+        self.toggle_grid(evt)
 
     def toggle_grid(self, *_):
         self.params.grid_visible = not self.params.grid_visible
@@ -595,6 +641,8 @@ class App:
 
     # ---- keys ----
     def _on_select_all(self, _evt=None):
+        if not self._should_handle_global_key(_evt):
+            return
         items: list[tuple[Hit_Kind, int]] = []
         items += [(Hit_Kind.line, i) for i in range(len(self.params.lines))]
         items += [(Hit_Kind.label, i) for i in range(len(self.params.labels))]
