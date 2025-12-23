@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import sys
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from enum import Enum, StrEnum
 from functools import lru_cache
 from types import MappingProxyType
@@ -172,6 +172,10 @@ _WINDOWS_DASH_STYLES: Final[set[LineStyle]] = {
 }
 
 
+def use_manual_tk_dash(style: LineStyle | None) -> bool:
+    return _IS_WINDOWS and style in _WINDOWS_DASH_STYLES
+
+
 def _normalise_pairs(seq: Iterable[int]) -> tuple[int, ...]:
     """Ensure even-length (on/off pairs) and no zeros except for tiny 'dot' hack."""
     arr = list(seq)
@@ -221,6 +225,62 @@ def tk_dash_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
     if not pat:
         return pat
     return _boost_windows_dash(style, base, pat, width_px)
+
+
+def dash_seq(dash: Sequence[int] | None, offset: int) -> tuple[list[int], bool]:
+    if not dash:
+        return ([], True)
+
+    seq = [int(p) for p in dash if p > 0]
+    if not seq:
+        return ([], True)
+
+    if len(seq) % 2 == 1:
+        seq *= 2
+
+    total = sum(seq)
+    off = int(offset) % total if total > 0 else 0
+
+    i = 0
+    while off > 0 and seq:
+        step = min(off, seq[0])
+        seq[0] -= step
+        off -= step
+        if seq[0] == 0:
+            seq.pop(0)
+            i += 1
+
+    if not seq:
+        seq = [int(p) for p in dash if p > 0]
+        if len(seq) % 2 == 1:
+            seq *= 2
+
+    start_on = i % 2 == 0
+    return (seq, start_on)
+
+
+def iter_dash_spans(L: float, dash: Sequence[int] | None, offset: int) -> Iterator[tuple[float, float, bool]]:
+    if L <= 0:
+        return
+    seq, on = dash_seq(dash, offset)
+    if not seq:  # solid
+        yield 0.0, L, True
+        return
+
+    pos = 0.0
+    idx = 0
+    max_iters = 200000
+
+    while pos < L and idx < max_iters:
+        seg_len = min(seq[idx % len(seq)], int(L - pos + 0.5))
+        if seg_len <= 0:
+            break
+        a = pos
+        b = pos + seg_len
+        yield a, b, on
+        pos = b
+        idx += 1
+        on = not on
 
 
 def svg_dasharray(style: LineStyle | None, width_px: int) -> str | None:

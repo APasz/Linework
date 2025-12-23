@@ -11,7 +11,18 @@ from pydantic import Field, model_validator
 
 from canvas.layers import Hit_Kind, Layer_Type, Tag
 from models.assets import Builtins, Formats, Icon_Name, Primitives, Style, _open_rgba, probe_wh
-from models.styling import Anchor, CapStyle, Colour, JoinStyle, LineStyle, Model, scaled_pattern, tk_dash_pattern
+from models.styling import (
+    Anchor,
+    CapStyle,
+    Colour,
+    JoinStyle,
+    LineStyle,
+    Model,
+    iter_dash_spans,
+    scaled_pattern,
+    tk_dash_pattern,
+    use_manual_tk_dash,
+)
 
 MAX_CACHE = 128
 
@@ -233,6 +244,47 @@ class CanvasLW(tk.Canvas):
             return "gray75"
         return "gray75"
 
+    def _create_dashed_segments(
+        self,
+        a: Point,
+        b: Point,
+        *,
+        col: Colour,
+        width: int,
+        capstyle: CapStyle,
+        dash: tuple[int, ...],
+        dash_offset: int,
+        tags: Collection[str],
+        stipple: str | None,
+    ) -> ItemID:
+        dx, dy = b.x - a.x, b.y - a.y
+        L = math.hypot(dx, dy)
+        if L <= 0:
+            return ItemID(0)
+        ux, uy = dx / L, dy / L
+        x1, y1 = float(a.x), float(a.y)
+
+        first_iid: int | None = None
+        for seg_a, seg_b, on in iter_dash_spans(L, dash, dash_offset):
+            if not on:
+                continue
+            xA, yA = x1 + ux * seg_a, y1 + uy * seg_a
+            xB, yB = x1 + ux * seg_b, y1 + uy * seg_b
+            iid = super().create_line(
+                xA,
+                yA,
+                xB,
+                yB,
+                fill=col.hexh,
+                width=width,
+                capstyle=capstyle.value,
+                stipple=stipple or "",
+                tags=list(tags),
+            )
+            if first_iid is None:
+                first_iid = iid
+        return ItemID(first_iid or 0)
+
     # ---------- creation ----------
     def create_with_points(
         self,
@@ -249,8 +301,22 @@ class CanvasLW(tk.Canvas):
         override_tag: Tag | None = None,
         tag_type: Layer_Type = Layer_Type.lines,
     ) -> ItemID:
-        dash = tk_dash_pattern(style, width)
+        use_manual = use_manual_tk_dash(style)
+        dash = scaled_pattern(style, width) if use_manual else tk_dash_pattern(style, width)
         st = self._stipple_for_alpha(col.alpha)
+        tags = tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags)
+        if use_manual and dash:
+            return self._create_dashed_segments(
+                a,
+                b,
+                col=col,
+                width=width,
+                capstyle=capstyle,
+                dash=dash,
+                dash_offset=dash_offset,
+                tags=tags,
+                stipple=st,
+            )
         iid = super().create_line(
             a.x,
             a.y,
@@ -262,7 +328,7 @@ class CanvasLW(tk.Canvas):
             dash=dash or [],
             dashoffset=(dash_offset if dash else 0),
             stipple=st or "",
-            tags=tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags),
+            tags=tags,
         )
         return ItemID(iid)
 
@@ -275,8 +341,22 @@ class CanvasLW(tk.Canvas):
         override_tag: Tag | None = None,
         tag_type: Layer_Type = Layer_Type.lines,
     ) -> ItemID:
-        dash = tk_dash_pattern(line.style, line.width)
+        use_manual = use_manual_tk_dash(line.style)
+        dash = scaled_pattern(line.style, line.width) if use_manual else tk_dash_pattern(line.style, line.width)
         st = self._stipple_for_alpha(line.col.alpha)
+        tags = tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags)
+        if use_manual and dash:
+            return self._create_dashed_segments(
+                line.a,
+                line.b,
+                col=line.col,
+                width=line.width,
+                capstyle=line.capstyle,
+                dash=dash,
+                dash_offset=line.dash_offset,
+                tags=tags,
+                stipple=st,
+            )
         iid = super().create_line(
             line.a.x,
             line.a.y,
@@ -288,7 +368,7 @@ class CanvasLW(tk.Canvas):
             dash=dash or [],
             dashoffset=(line.dash_offset if dash else 0),
             stipple=st or "",
-            tags=tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags),
+            tags=tags,
         )
         return ItemID(iid)
 

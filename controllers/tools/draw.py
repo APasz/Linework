@@ -7,7 +7,7 @@ from canvas.layers import Hit_Kind, Layer_Type
 from controllers.commands import Add_Line
 from controllers.tools_base import ToolBase
 from models.geo import Line, Point
-from models.styling import CapStyle, TkCursor
+from models.styling import CapStyle, TkCursor, use_manual_tk_dash
 from ui.bars import Tool_Name
 from ui.input import MotionEvent, get_mods
 
@@ -22,6 +22,15 @@ class Draw_Tool(ToolBase):
     tool_hints: str = "Ctrl: Invert Cardinal  |  Shift: Editor  |  Alt: Ignore Grid"
 
     def preview_line(self, app: App, a: Point, b: Point, **opts) -> int:
+        if use_manual_tk_dash(opts.get("style")):
+            self.clear_preview(app)
+            app.canvas.create_with_points(
+                a,
+                b,
+                **opts,
+                tag_type=Layer_Type.preview,
+            )
+            return 0
         if self._preview_ids:
             app.canvas.coords(self._preview_ids[0], a.x, a.y, b.x, b.y)
         else:

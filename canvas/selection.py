@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from canvas.layers import Hit_Kind, Layer_Type, Tag, TagNS
 from models.geo import CanvasLW, Point
 from models.params import Params
-from models.styling import CapStyle, Colours, JoinStyle
+from models.styling import CapStyle, Colours, JoinStyle, use_manual_tk_dash
 
 if TYPE_CHECKING:
     from controllers.app import App
@@ -210,6 +210,12 @@ class SelectionOverlay:
         return None
 
     def _line_endpoints_from_canvas_or_model(self, idx: int, tag: str) -> tuple[Point | None, Point | None]:
+        try:
+            ln = self.app.params.lines[idx]
+            if use_manual_tk_dash(ln.style):
+                return ln.a, ln.b
+        except Exception:
+            pass
         try:
             item_ids = list(self.canvas.find_withtag(tag))
         except Exception:

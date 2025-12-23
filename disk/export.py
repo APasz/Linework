@@ -4,7 +4,7 @@ import base64
 import io
 import subprocess
 import tempfile
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -14,7 +14,7 @@ from PIL import Image, ImageDraw, ImageFont
 from models.assets import Formats, _builtin_icon_plan, _open_rgba
 from models.geo import Line, Picture_Icon
 from models.params import Params
-from models.styling import CapStyle, Colour, svg_dasharray
+from models.styling import CapStyle, Colour, iter_dash_spans, svg_dasharray
 
 DOT_FACTOR = 0.8
 SVG_STRICT_PARITY = False
@@ -45,62 +45,6 @@ def _col_and_opacity(col: Colour) -> tuple[str, str]:
 
 
 # --- Dashing math ------------------------------------------------------------
-
-
-def dash_seq(dash: Sequence[int] | None, offset: int) -> tuple[list[int], bool]:
-    if not dash:
-        return ([], True)
-
-    seq = [int(p) for p in dash if p > 0]
-    if not seq:
-        return ([], True)
-
-    if len(seq) % 2 == 1:
-        seq *= 2
-
-    total = sum(seq)
-    off = int(offset) % total if total > 0 else 0
-
-    i = 0
-    while off > 0 and seq:
-        step = min(off, seq[0])
-        seq[0] -= step
-        off -= step
-        if seq[0] == 0:
-            seq.pop(0)
-            i += 1
-
-    if not seq:
-        seq = [int(p) for p in dash if p > 0]
-        if len(seq) % 2 == 1:
-            seq *= 2
-
-    start_on = i % 2 == 0
-    return (seq, start_on)
-
-
-def iter_dash_spans(L: float, dash: Sequence[int] | None, offset: int):
-    if L <= 0:
-        return
-    seq, on = dash_seq(dash, offset)
-    if not seq:  # solid
-        yield 0.0, L, True
-        return
-
-    pos = 0.0
-    idx = 0
-    max_iters = 200000
-
-    while pos < L and idx < max_iters:
-        seg_len = min(seq[idx % len(seq)], int(L - pos + 0.5))
-        if seg_len <= 0:
-            break
-        a = pos
-        b = pos + seg_len
-        yield a, b, on
-        pos = b
-        idx += 1
-        on = not on
 
 
 def extend_span_for_projecting(a: float, b: float, r: float, L: float) -> tuple[float, float]:
