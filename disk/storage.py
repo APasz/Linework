@@ -17,11 +17,11 @@ def dict_to_params(dic: dict[str, Any]) -> Params:
 class IO:
     @staticmethod
     def save_params(params: Params, path: Path):
-        path.write_text(params.model_dump_json(indent=4, exclude_none=True))
+        path.write_text(params.model_dump_json(indent=4, exclude_none=True), encoding="utf-8")
 
     @staticmethod
     def load_params(path: Path) -> Params:
-        raw = json.loads(path.read_text()) if path.exists() else {"version": SCHEMA_VERSION}
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"version": SCHEMA_VERSION}
         return dict_to_params(raw)
 
 

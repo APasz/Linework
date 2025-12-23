@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from PIL import Image, ImageTk
 
 from disk.export import _emit_pil_plan
-from models.assets import Icon_Name, _builtin_icon_plan, _open_rgba
+from models.assets import Icon_Name, SVG_SUPPORTED, _builtin_icon_plan, _open_rgba
 from models.geo import Icon_Source, Icon_Type, Point
 from models.styling import Colours
 from ui.bars import Colour_Palette
@@ -208,10 +208,13 @@ class Icon_Gallery(tk.Toplevel):
 
     def _import_images(self):
         try:
+            exts = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp"]
+            if SVG_SUPPORTED:
+                exts.insert(0, "*.svg")
             paths = filedialog.askopenfilenames(
                 title="Import icons",
                 filetypes=[
-                    ("Image files", "*.svg *.png *.jpg *.jpeg *.webp *.bmp"),
+                    ("Image files", " ".join(exts)),
                     ("All files", "*.*"),
                 ],
             )
@@ -219,6 +222,16 @@ class Icon_Gallery(tk.Toplevel):
             if "application has been destroyed" in str(exc):
                 return
             raise
+        if not paths:
+            return
+        if not SVG_SUPPORTED:
+            svg_paths = [p for p in paths if Path(p).suffix.lower() == ".svg"]
+            if svg_paths:
+                messagebox.showwarning(
+                    "SVG import unavailable",
+                    "SVG import requires cairosvg; install it to enable SVG icons.",
+                )
+            paths = [p for p in paths if Path(p).suffix.lower() != ".svg"]
         if not paths:
             return
         self.app.asset_lib.import_files([Path(p) for p in paths])

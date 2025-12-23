@@ -1,4 +1,4 @@
 pillow
 sv-ttk
 pydantic
-cairosvg
+cairosvg; platform_system != "Windows"

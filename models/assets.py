@@ -11,11 +11,15 @@ from shutil import copy2
 from typing import Any, Literal
 import xml.etree.ElementTree as ET
 
-import cairosvg
+try:
+    import cairosvg
+except Exception:
+    cairosvg = None
 from PIL import Image
 
 from models.styling import CapStyle, JoinStyle
 
+SVG_SUPPORTED = cairosvg is not None
 
 class Formats(StrEnum):
     webp = "webp"
@@ -118,6 +122,8 @@ def get_asset_library(project_root: Path) -> Asset_Library:
 def _open_rgba(src: Path, w: int, h: int) -> Image.Image:
     ext = src.suffix[1:].lower()
     if ext == "svg":
+        if cairosvg is None:
+            return Image.new("RGBA", (max(1, w), max(1, h)), (0, 0, 0, 0))
         try:
             data = src.read_bytes()
             png = cairosvg.svg2png(bytestring=data, output_width=w, output_height=h)
