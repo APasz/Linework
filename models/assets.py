@@ -147,6 +147,7 @@ class Icon_Name(StrEnum):
     ARROW_LEFT = "arrow_left"
     CIRCLE_DOT = "circle_dot"
     SQUARE = "square"
+    TRIANGLE = "triangle"
     # ---- railway ----
     SIGNAL = "signal"
     SWITCH_LEFT = "switch_left"
@@ -260,6 +261,13 @@ class Builtins:
         vb = (-500.0, -500.0, 1000.0, 1000.0)
         tri = ((-160.0, -280.0), (-160.0, 280.0), (260.0, 0.0))
         return IconDef(vb, [Primitives.Polyline(points=tri, closed=True, style=FILL)])
+
+    @classmethod
+    def _triangle(cls) -> IconDef:
+        vb = (-500.0, -500.0, 1000.0, 1000.0)
+        tri = ((-320.0, 260.0), (320.0, 260.0), (0.0, -320.0))
+        icon = IconDef(vb, [Primitives.Polyline(points=tri, closed=True, style=FILL)])
+        return cls._rotate(icon, 90)
 
     @classmethod
     def _pause(cls) -> IconDef:
@@ -517,6 +525,7 @@ class Builtins:
             Icon_Name.ARROW_LEFT: cls._arrow("left"),
             Icon_Name.CIRCLE_DOT: IconDef((-500, -500, 1000, 1000), [Primitives.Circle(0.0, 0.0, 300.0, FILL)]),
             Icon_Name.SQUARE: IconDef((-500, -500, 1000, 1000), [Primitives.Rect(-300.0, -300.0, 600.0, 600.0, FILL)]),
+            Icon_Name.TRIANGLE: cls._triangle(),
             # --- railway ---
             Icon_Name.SIGNAL: cls._signal(),
             Icon_Name.BUFFER: cls._buffer(),

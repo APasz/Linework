@@ -128,7 +128,7 @@ class Icon_Source(Model):
 class Base_Icon(Model):
     p: Point
     col: Colour
-    anchor: Anchor = Anchor.SE
+    anchor: Anchor = Anchor.C
     size: int = 48
     rotation: int = 0
     snap: bool = True
