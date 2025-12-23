@@ -41,7 +41,8 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -y \ 
+            zip \
             libcairo2 \
             libpango-1.0-0 \
             libpangocairo-1.0-0 \
@@ -64,16 +65,23 @@ jobs:
           find dist -maxdepth 2 -type f -print || true
 
       # Package artifacts nicely
-      - name: Zip artifact
+      - name: Zip artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ART_NAME = "linework-${{ runner.os }}"
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Compress-Archive -Path "dist\*" -DestinationPath "out\$ART_NAME.zip" -Force
+          Get-ChildItem out
+
+      - name: Zip artifact (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
           ART_NAME="linework-${{ runner.os }}"
           mkdir -p out
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            # dist usually contains either a onefile exe or a folder; zip whatever is in dist/
-            powershell -NoProfile -Command "Compress-Archive -Path dist\* -DestinationPath out\${ART_NAME}.zip -Force"
-          else
-            (cd dist && zip -r "../out/${ART_NAME}.zip" .)
-          fi
+          (cd dist && zip -r "../out/${ART_NAME}.zip" .)
+          ls -la out
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
