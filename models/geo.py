@@ -483,7 +483,13 @@ class CanvasLW(tk.Canvas):
                     )
                 else:
                     opts = _opts_line(prim.style)
-                    super().create_line(*pts, fill=col if prim.style.stroke else "", tags=tag, **opts)
+                    super().create_line(
+                        *pts,
+                        fill=col if prim.style.stroke else "",
+                        tags=tag,
+                        stipple=st or "",
+                        **opts,
+                    )
 
             elif isinstance(prim, Primitives.Path):
                 # Not supported on Tk canvas; pre-approximate to Polyline if need curves

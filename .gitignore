@@ -5,9 +5,13 @@ logs/
 __p*
 .env*
 config.json
-output.*
 *.linework
 *.linework.autosave
 *.bak
 *.zip
 assets/*
+*.webp
+*.png
+*.jpg
+*.jpeg
+*.svg

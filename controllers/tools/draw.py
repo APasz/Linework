@@ -50,6 +50,9 @@ class Draw_Tool(ToolBase):
                 p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
                 b = self._maybe_cardinal(app, self._start, p, mods.ctrl)
                 self.clear_preview(app)
+                if (self._start.x, self._start.y) == (b.x, b.y):
+                    self._start = None
+                    return
                 line = Line(
                     a=self._start,
                     b=b,

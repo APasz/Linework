@@ -75,6 +75,8 @@ class Add_Line:
         self.on_after()
 
     def undo(self):
+        if self._index is None:
+            return
         if self._index is not None and 0 <= self._index < len(self.params.lines):
             # prefer surgical removal by the index we appended at
             if self.params.lines[self._index] is self.line or self.params.lines[self._index] == self.line:

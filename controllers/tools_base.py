@@ -86,6 +86,7 @@ class ToolBase:
 
     def clear_preview(self, app: App):
         app.layers.clear_preview()
+        self._preview_ids.clear()
 
     def on_press(self, app: App, evt: MotionEvent | tk.Event):
         pass
