@@ -29,8 +29,9 @@ class Label_Tool(ToolBase):
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
         col = Colours.parse_colour(app.var_label_colour.get()) if app.var_label_colour else app.params.brush_colour
+        snap = bool(app.params.label_snap) and not mods.alt
         if mods.shift:
-            lab = Label(p=p, text="", col=col, snap=not mods.alt)
+            lab = Label(p=p, text="", col=col, snap=snap)
             app.editors.apply_label_defaults(lab)
             if app.editors.edit(app, lab):
                 app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Type.labels)))
@@ -40,7 +41,7 @@ class Label_Tool(ToolBase):
         text = app.prompt_text("New label", "Text:")
         if not text:
             return
-        lab = Label(p=p, text=text, col=col, snap=not mods.alt)
+        lab = Label(p=p, text=text, col=col, snap=snap)
         app.editors.apply_label_defaults(lab)
         app.cmd.push_and_do(Add_Label(app.params, lab, on_after=lambda: app.layers.redraw(Layer_Type.labels)))
         app.mark_dirty()

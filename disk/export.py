@@ -64,10 +64,17 @@ _MIME_BY_EXT = {
 }
 
 
-def _picture_bytes_and_mime(src: Path) -> tuple[bytes, str]:
+def _picture_bytes_and_mime(src: Path, size: tuple[int, int] | None = None) -> tuple[bytes, str]:
     ext = src.suffix[1:].lower()
-    data = src.read_bytes()
-    return data, _MIME_BY_EXT.get(ext, "application/octet-stream")
+    try:
+        data = src.read_bytes()
+        return data, _MIME_BY_EXT.get(ext, "application/octet-stream")
+    except Exception:
+        w, h = size if size else (64, 64)
+        img = _open_rgba(src, w, h)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue(), "image/png"
 
 
 # SVG helpers
@@ -490,7 +497,7 @@ class Exporter:
             cx, cy = ico.anchor._centre(ico.p.x, ico.p.y, bw, bh)
 
             if isinstance(ico, Picture_Icon):
-                data, mime = _picture_bytes_and_mime(Path(ico.src))
+                data, mime = _picture_bytes_and_mime(Path(ico.src), size=(bw, bh))
                 b64 = base64.b64encode(data).decode("ascii")
                 parts.append(
                     f'<g transform="translate({cx} {cy}) rotate({-ico.rotation}) translate({-bw / 2} {-bh / 2})">'

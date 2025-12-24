@@ -641,12 +641,30 @@ class CanvasLW(tk.Canvas):
                 ids.add(i)
             elif isinstance(it, Layer_Type):
                 args.append(it.value)
+                try:
+                    ids.update(int(i) for i in super().find_withtag(it.value))
+                except Exception:
+                    pass
             elif isinstance(it, Tag):
-                args.extend(it.to_strings())
+                tag_strs = it.to_strings()
+                args.extend(tag_strs)
+                for tag in tag_strs:
+                    try:
+                        ids.update(int(i) for i in super().find_withtag(tag))
+                    except Exception:
+                        pass
                 if isinstance(it.kind, Layer_Type):
                     args.append(it.kind.value)
+                    try:
+                        ids.update(int(i) for i in super().find_withtag(it.kind.value))
+                    except Exception:
+                        pass
             elif isinstance(it, str):
                 args.append(it)
+                try:
+                    ids.update(int(i) for i in super().find_withtag(it))
+                except Exception:
+                    pass
 
         super().delete(*args)
         item_map = getattr(self, "_item_images", {})

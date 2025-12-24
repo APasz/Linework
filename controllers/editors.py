@@ -113,20 +113,17 @@ class Editors:
 
     # ---------- apply session defaults ----------
     def apply_label_defaults(self, lab: Label):
-        d = self._label_defaults
-        if not d:
-            return
-        lab.size = int(d.get("size", lab.size))
-        lab.rotation = int(d.get("rotation", lab.rotation))
-        lab.anchor = Anchor.parse(d.get("anchor")) or lab.anchor
+        d = self._label_defaults or {}
+        lab.size = int(d.get("size", self.app.params.label_size))
+        lab.rotation = int(d.get("rotation", self.app.params.label_rotation))
+        lab.anchor = Anchor.parse(d.get("anchor", self.app.params.label_anchor)) or lab.anchor
 
     def apply_icon_defaults(self, ico):
-        d = self._icon_defaults
-        if not d:
-            return
-        ico.size = int(d.get("size", ico.size))
-        ico.rotation = int(d.get("rotation", ico.rotation))
-        ico.anchor = Anchor.parse(d.get("anchor")) or ico.anchor
+        d = self._icon_defaults or {}
+        default_size = self.app.params.picture_size if isinstance(ico, Picture_Icon) else self.app.params.icon_size
+        ico.size = int(d.get("size", default_size))
+        ico.rotation = int(d.get("rotation", self.app.params.icon_rotation))
+        ico.anchor = Anchor.parse(d.get("anchor", self.app.params.icon_anchor)) or ico.anchor
 
     def _colour_choices(self) -> list[str]:
         return Colours.names(min_alpha=25)
