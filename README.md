@@ -2,7 +2,7 @@
 
 Linework is a small Tkinter app for drawing simple track diagrams and line drawings. It started because I just wanted a dead simple tool and could not find one that was not overkill, broken, paywalled, or missing the basics.
 
-![Example output](signals.webp)
+![Example output](example.webp)
 
 ## Features
 - Draw lines with grid and cardinal snapping, multiple line styles, and adjustable widths

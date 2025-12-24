@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import tkinter as tk
 from collections import OrderedDict
 from collections.abc import Callable
@@ -94,6 +95,8 @@ class SettingsDialog(GenericEditDialog):
             tab = ttk.Frame(notebook)
             notebook.add(tab, text=title)
             _add_fields(tab, fields)
+
+        self._add_about_tab(notebook)
 
         if first_widget is None:
             first_widget = notebook
@@ -210,6 +213,37 @@ class SettingsDialog(GenericEditDialog):
             except Exception:
                 pass
             self._icon_hint_popup = None
+
+    def _add_about_tab(self, notebook: ttk.Notebook) -> None:
+        tab = ttk.Frame(notebook)
+        notebook.add(tab, text="About")
+        tab.grid_columnconfigure(0, weight=1)
+
+        title = ttk.Label(tab, text="Linework", font=("TkDefaultFont", 14, "bold"))
+        title.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 4))
+
+        description = "A small Tkinter app for drawing simple track diagrams and line drawings"
+        wraplength = 350
+        desc_label = ttk.Label(tab, text=description, wraplength=wraplength, justify="left")
+        desc_label.grid(row=1, column=0, sticky="w", padx=10)
+
+        ttk.Separator(tab, orient="horizontal").grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+
+        try:
+            tk_version = str(self.tk.call("info", "patchlevel"))
+        except Exception:
+            tk_version = str(tk.TkVersion)
+
+        info_text = "\n".join(
+            [
+                f"Python: {sys.version.split()[0]}",
+                f"Tk: {tk_version}",
+                "Project files: .linework",
+                "Autosave: .linework.autosave",
+            ]
+        )
+        info_label = ttk.Label(tab, text=info_text, justify="left", wraplength=wraplength)
+        info_label.grid(row=3, column=0, sticky="w", padx=10, pady=(0, 10))
 
     def destroy(self):
         self._hide_icon_hint()
