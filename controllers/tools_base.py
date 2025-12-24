@@ -309,9 +309,7 @@ class DragGroup(DragAction):
 
     def _delta(self, app: App, evt: MotionEvent | tk.Event) -> tuple[int, int, bool]:
         mods = get_mods(evt)
-        cur = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
-        a = app.snap(self.start_mouse, ignore_grid=mods.alt)
-        return (cur.x - a.x, cur.y - a.y, mods.alt)
+        return (evt.x - self.start_mouse.x, evt.y - self.start_mouse.y, mods.alt)
 
     def update(self, app: App, evt: MotionEvent | tk.Event):
         dx, dy, alt = self._delta(app, evt)

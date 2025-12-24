@@ -15,7 +15,7 @@ try:
     import cairosvg
 except Exception:
     cairosvg = None
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from models.styling import CapStyle, JoinStyle
 
@@ -119,19 +119,36 @@ def get_asset_library(project_root: Path) -> Asset_Library:
     return _ICON_LIB
 
 
+def _missing_rgba(w: int, h: int) -> Image.Image:
+    w = max(1, int(w))
+    h = max(1, int(h))
+    img = Image.new("RGBA", (w, h), (235, 235, 235, 255))
+    draw = ImageDraw.Draw(img)
+    stroke = max(1, min(w, h) // 8)
+    draw.rectangle([0, 0, w - 1, h - 1], outline=(180, 0, 0, 255), width=stroke)
+    draw.line((0, 0, w - 1, h - 1), fill=(180, 0, 0, 255), width=stroke)
+    draw.line((0, h - 1, w - 1, 0), fill=(180, 0, 0, 255), width=stroke)
+    return img
+
+
 def _open_rgba(src: Path, w: int, h: int) -> Image.Image:
+    w = max(1, int(w))
+    h = max(1, int(h))
     ext = src.suffix[1:].lower()
     if ext == "svg":
         if cairosvg is None:
-            return Image.new("RGBA", (max(1, w), max(1, h)), (0, 0, 0, 0))
+            return _missing_rgba(w, h)
         try:
             data = src.read_bytes()
             png = cairosvg.svg2png(bytestring=data, output_width=w, output_height=h)
             return Image.open(io.BytesIO(png)).convert("RGBA")  # pyright: ignore[reportArgumentType]
         except Exception:
-            return Image.new("RGBA", (max(1, w), max(1, h)), (0, 0, 0, 0))
+            return _missing_rgba(w, h)
     else:
-        im = Image.open(src).convert("RGBA")
+        try:
+            im = Image.open(src).convert("RGBA")
+        except Exception:
+            return _missing_rgba(w, h)
         if im.size != (w, h):
             im = im.resize((w, h), Image.Resampling.LANCZOS)
         return im

@@ -3,6 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
+from typing import Any
 
 try:
     import sv_ttk
@@ -26,13 +27,15 @@ from controllers.tools.label import Label_Tool
 from controllers.tools.select import Select_Tool
 from controllers.tools_base import Tool, Tool_Manager
 from disk.export import Exporter
-from disk.storage import IO
+from disk.storage import IO, default_settings_path
 from models.assets import Formats, Icon_Name, get_asset_library
-from models.geo import CanvasLW, Icon_Source, Point
+from models.geo import CanvasLW, Icon_Source, Icon_Type, Point
 from models.params import Params
-from models.styling import Colour, Colours, LineStyle
-from ui.bars import Bars, Side, Tool_Name
+from models.schemas import settings_schema
+from models.styling import Anchor, Colour, Colours, LineStyle
 from ui import input as input_mod
+from ui.bars import Bars, Side, Tool_Name
+from ui.settings_dialog import SettingsDialog
 
 
 class App:
@@ -40,9 +43,20 @@ class App:
         self.root = root
         self.root.title("Linework")
 
-        # ---------- project / params ----------
+        # ---------- settings / project ----------
         self.project_path: Path = project_path or Path("untitled.linework")
-        self.params: Params = IO.load_params(self.project_path) if self.project_path.exists() else Params()
+        self.defaults_path = default_settings_path()
+        try:
+            self.defaults_profile = IO.load_defaults(self.defaults_path)
+        except Exception as exc:
+            self.defaults_profile = Params()
+            self._safe_tk_call(messagebox.showwarning, "Settings load failed", str(exc))
+
+        if self.project_path.exists():
+            self.params = IO.load_params(self.project_path)
+        else:
+            self.params = Params()
+            self.params.apply_profile(self.defaults_profile, inplace_palette=True)
         self.asset_lib = get_asset_library(self.project_path)
         self.dirty = False
         self.autosave_every = 10
@@ -67,12 +81,13 @@ class App:
         self.var_label_colour = tk.StringVar(value=self.params.label_colour.hexah)
         self.var_icon_colour = tk.StringVar(value=self.params.icon_colour.hexah)
 
-        self.var_drag_to_draw = tk.BooleanVar(value=True)
-        self.var_cardinal = tk.BooleanVar(value=True)
+        self.var_drag_to_draw = tk.BooleanVar(value=self.params.drag_to_draw)
+        self.var_cardinal = tk.BooleanVar(value=self.params.cardinal_snap)
         self.var_icon = tk.StringVar(value=Icon_Name.SIGNAL.value)
         self.var_icon_label = tk.StringVar(value=self.var_icon.get())
 
         self.current_icon = Icon_Source.builtin(Icon_Name.SIGNAL)
+        self._apply_default_icon_source(self.params.default_icon)
 
         # ---------- header / toolbar / status ----------
         self.hbar = Bars.create_header(
@@ -85,6 +100,7 @@ class App:
             on_open=self.open_project,
             on_save=self.save_project,
             on_save_as=self.save_project_as,
+            on_settings=self.open_settings,
             on_export=self.export_image,
             icon_label_var=self.var_icon_label,
         )
@@ -757,11 +773,20 @@ class App:
     def new_project(self):
         if not self._maybe_proceed():
             return
+        self.project_path = Path("untitled.linework")
+        self._actions_since_autosave = 0
+        if hasattr(self, "_cmd"):
+            self._cmd = Command_Stack()
         self.params = Params()
+        self.params.apply_profile(self.defaults_profile, inplace_palette=True)
         self.scene = Scene(self.params)
         self.painters = Painters(self)
         self.layers = Layer_Manager(self)
+        self._reset_canvas_caches()
+        self.asset_lib = get_asset_library(self.project_path)
         self._set_selected(None, None)
+        self._sync_vars_from_params()
+        self._apply_size_increments(self.params.grid_size)
         self.layers.redraw_all()
         self.mark_clean()
         self.status.set("New Project")
@@ -777,15 +802,20 @@ class App:
         )
         if not path:
             return
-        self.project_path = Path(path)
         try:
-            self.params = IO.load_params(self.project_path)
+            params = IO.load_params(Path(path))
         except Exception as e:
             self._safe_tk_call(messagebox.showerror, "Open failed", str(e))
             return
+        self.project_path = Path(path)
+        self.params = params
+        self._actions_since_autosave = 0
+        if hasattr(self, "_cmd"):
+            self._cmd = Command_Stack()
         self.scene = Scene(self.params)
         self.painters = Painters(self)
         self.layers = Layer_Manager(self)
+        self._reset_canvas_caches()
         self._sync_vars_from_params()
         self.layers.redraw_all()
         self._update_title()
@@ -794,6 +824,15 @@ class App:
         self.asset_lib = get_asset_library(self.project_path)
 
     # ========= helpers =========
+
+    def _reset_canvas_caches(self):
+        self.canvas.cache.checker_bg = None
+        self.canvas.cache.checker_ref = None
+        self.canvas.cache.imgs.clear()
+        if hasattr(self.canvas, "_picture_cache"):
+            self.canvas._picture_cache.clear()
+        if hasattr(self.canvas, "_item_images"):
+            self.canvas._item_images.clear()
 
     def _snap_dim_to_grid(self, var: int, grid: int) -> int:
         if grid <= 0:
@@ -817,6 +856,21 @@ class App:
             src = Icon_Source.builtin(Icon_Name.SIGNAL)
         self.current_icon = src
         self.var_icon_label.set(src.name.value if src.name else "Unknown")
+        if getattr(self.params, "default_icon", None) != src:
+            self.params.default_icon = src
+            self.mark_dirty()
+
+    def _apply_default_icon_source(self, src: Icon_Source | None):
+        if not src:
+            src = Icon_Source.builtin(Icon_Name.SIGNAL)
+        self.current_icon = src
+        if src.kind == Icon_Type.builtin and src.name:
+            self.var_icon.set(src.name.value)
+            self.var_icon_label.set(src.name.value)
+        elif src.kind == Icon_Type.picture and src.src:
+            self.var_icon_label.set(src.src.name)
+        else:
+            self.var_icon_label.set("Unknown")
 
     def _sync_vars_from_params(self):
         self.repair_snap_flags(self.params)
@@ -829,7 +883,163 @@ class App:
         self.var_label_colour.set(self.params.label_colour.hexah)
         self.var_icon_colour.set(self.params.icon_colour.hexah)
         self.var_line_style.set(self.params.line_style.value)
+        self.var_drag_to_draw.set(self.params.drag_to_draw)
+        self.var_cardinal.set(self.params.cardinal_snap)
+        self._apply_default_icon_source(self.params.default_icon)
         self.canvas.config(width=self.params.width, height=self.params.height, bg=self.params.bg_colour.hexh)
+
+    def open_settings(self):
+        schema = settings_schema()
+        values = self._settings_values_from_params(self.params)
+        base_profile = self.params.model_copy()
+
+        def _save_defaults(data: dict[str, Any]) -> bool:
+            new_profile = self._settings_from_dialog(data, base_profile)
+            try:
+                IO.save_defaults(new_profile, self.defaults_path)
+            except Exception as exc:
+                self._safe_tk_call(messagebox.showerror, "Settings save failed", str(exc))
+                return False
+            self.defaults_profile = new_profile
+            self.status.temp("Defaults saved", 1500)
+            return True
+
+        def _apply_now(data: dict[str, Any]) -> None:
+            temp_profile = self._settings_from_dialog(data, base_profile)
+            self._apply_defaults_to_current(temp_profile)
+            self.status.temp("Defaults applied", 1500)
+
+        dlg = self._safe_tk_call(
+            SettingsDialog,
+            self,
+            "Default Project Settings",
+            schema,
+            values,
+            on_save=_save_defaults,
+            on_apply=_apply_now,
+        )
+        if dlg is None:
+            return
+
+    @staticmethod
+    def _settings_values_from_params(params: Params) -> dict[str, Any]:
+        default_icon_kind = params.default_icon.kind.value if params.default_icon else Icon_Type.builtin.value
+        default_icon_builtin = ""
+        default_icon_picture = ""
+        if params.default_icon:
+            if params.default_icon.kind == Icon_Type.builtin and params.default_icon.name:
+                default_icon_builtin = params.default_icon.name.value
+            elif params.default_icon.kind == Icon_Type.picture and params.default_icon.src:
+                default_icon_picture = str(params.default_icon.src)
+        return dict(
+            width=params.width,
+            height=params.height,
+            grid_size=params.grid_size,
+            grid_visible=params.grid_visible,
+            drag_to_draw=params.drag_to_draw,
+            cardinal_snap=params.cardinal_snap,
+            brush_width=params.brush_width,
+            line_style=params.line_style.value,
+            line_dash_offset=params.line_dash_offset,
+            label_size=params.label_size,
+            label_rotation=params.label_rotation,
+            label_anchor=params.label_anchor.value,
+            label_snap=params.label_snap,
+            icon_size=params.icon_size,
+            picture_size=params.picture_size,
+            icon_rotation=params.icon_rotation,
+            icon_anchor=params.icon_anchor.value,
+            icon_snap=params.icon_snap,
+            default_icon_kind=default_icon_kind,
+            default_icon_builtin=default_icon_builtin,
+            default_icon_picture=default_icon_picture,
+            brush_colour=params.brush_colour.hexah,
+            bg_colour=params.bg_colour.hexah,
+            label_colour=params.label_colour.hexah,
+            icon_colour=params.icon_colour.hexah,
+            grid_colour=params.grid_colour.hexah,
+        )
+
+    def _settings_from_dialog(self, data: dict[str, Any], base: Params) -> Params:
+        def _parse_colour(key: str, fallback: Colour) -> Colour:
+            raw = str(data.get(key, "")).strip()
+            if not raw:
+                return fallback
+            try:
+                return Colours.parse_colour(raw)
+            except Exception:
+                return fallback
+
+        try:
+            style = LineStyle(data.get("line_style", base.line_style.value))
+        except Exception:
+            style = base.line_style
+        try:
+            label_anchor = Anchor.parse(data.get("label_anchor", base.label_anchor))
+        except Exception:
+            label_anchor = base.label_anchor
+        try:
+            icon_anchor = Anchor.parse(data.get("icon_anchor", base.icon_anchor))
+        except Exception:
+            icon_anchor = base.icon_anchor
+        icon_kind = str(data.get("default_icon_kind", Icon_Type.builtin.value)).strip().lower()
+        default_icon = base.default_icon
+        if icon_kind == Icon_Type.picture.value:
+            pic = str(data.get("default_icon_picture", "")).strip()
+            if pic:
+                default_icon = Icon_Source.picture(pic)
+        else:
+            name = str(data.get("default_icon_builtin", "")).strip()
+            if name:
+                try:
+                    default_icon = Icon_Source.builtin(name)
+                except Exception:
+                    default_icon = base.default_icon
+
+        grid_size = max(0, int(data["grid_size"]))
+        width = self._snap_dim_to_grid(max(1, int(data["width"])), grid_size)
+        height = self._snap_dim_to_grid(max(1, int(data["height"])), grid_size)
+        updates = {
+            "width": width,
+            "height": height,
+            "grid_size": grid_size,
+            "grid_visible": bool(data.get("grid_visible")),
+            "drag_to_draw": bool(data.get("drag_to_draw")),
+            "cardinal_snap": bool(data.get("cardinal_snap")),
+            "brush_width": max(1, int(data["brush_width"])),
+            "line_style": style,
+            "line_dash_offset": max(0, int(data.get("line_dash_offset", 0))),
+            "label_size": max(1, int(data.get("label_size", base.label_size))),
+            "label_rotation": int(data.get("label_rotation", base.label_rotation)),
+            "label_anchor": label_anchor,
+            "label_snap": bool(data.get("label_snap", base.label_snap)),
+            "icon_size": max(1, int(data.get("icon_size", base.icon_size))),
+            "picture_size": max(1, int(data.get("picture_size", base.picture_size))),
+            "icon_rotation": int(data.get("icon_rotation", base.icon_rotation)),
+            "icon_anchor": icon_anchor,
+            "icon_snap": bool(data.get("icon_snap", base.icon_snap)),
+            "default_icon": default_icon,
+            "brush_colour": _parse_colour("brush_colour", base.brush_colour),
+            "bg_colour": _parse_colour("bg_colour", base.bg_colour),
+            "label_colour": _parse_colour("label_colour", base.label_colour),
+            "icon_colour": _parse_colour("icon_colour", base.icon_colour),
+            "grid_colour": _parse_colour("grid_colour", base.grid_colour),
+        }
+        return base.model_copy(update=updates)
+
+    def _apply_defaults_to_current(self, profile: Params):
+        self.params.apply_profile(profile, inplace_palette=True)
+        self._sync_vars_from_params()
+        self._apply_size_increments(self.params.grid_size)
+        self.canvas.config(width=self.params.width, height=self.params.height, bg=self.params.bg_colour.hexh)
+        if self.params.grid_visible:
+            self.layers.redraw(Layer_Type.grid, True)
+        else:
+            self.layers.clear(Layer_Type.grid, force=True)
+        self.canvas.cache.checker_bg = None
+        self.layers.redraw_all()
+        self.selection.update_bbox()
+        self.mark_dirty()
 
     def _apply_size_increments(self, g: int):
         step = max(1, g)
@@ -866,6 +1076,9 @@ class App:
             on = bool(int(v)) if not isinstance(v, bool) else v
         except Exception:
             on = bool(self.var_drag_to_draw.get())
+        if getattr(self.params, "drag_to_draw", on) != on:
+            self.params.drag_to_draw = on
+            self.mark_dirty()
         self.status.set_centre("Draw: drag to draw" if on else "Draw: click-click mode")
 
     def _on_cardinal_change(self, *_):
@@ -875,6 +1088,9 @@ class App:
             on = bool(int(v)) if not isinstance(v, bool) else v
         except Exception:
             on = bool(self.var_cardinal.get())
+        if getattr(self.params, "cardinal_snap", on) != on:
+            self.params.cardinal_snap = on
+            self.mark_dirty()
         self.status.set_centre("Draw: Cardinal Snap" if on else "Draw: Grid Snap")
 
     def _on_close(self):

@@ -40,6 +40,7 @@ class Icon_Tool(ToolBase):
             return
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
+        snap = bool(app.params.icon_snap) and not mods.alt
 
         if mods.ctrl:
             dlg = Icon_Gallery(app.root, app, app.params.recent_icons, at=Point(x=evt.x_root, y=evt.y_root))
@@ -58,9 +59,9 @@ class Icon_Tool(ToolBase):
         col = Colours.parse_colour(app.var_icon_colour.get()) if app.var_icon_colour else app.params.brush_colour
 
         if src.kind == Icon_Type.builtin and src.name:
-            ico = Builtin_Icon(p=p, col=col, name=src.name, size=48, snap=not mods.alt)
+            ico = Builtin_Icon(p=p, col=col, name=src.name, size=app.params.icon_size, snap=snap)
         elif src.kind == Icon_Type.picture and src.src:
-            ico = Picture_Icon(p=p, col=col, src=src.src, size=192, snap=not mods.alt)
+            ico = Picture_Icon(p=p, col=col, src=src.src, size=app.params.picture_size, snap=snap)
         else:
             return
         app.editors.apply_icon_defaults(ico)
@@ -89,6 +90,8 @@ class Icon_Tool(ToolBase):
             app.var_icon_label.set(_describe_icon(src))
         if src.kind == Icon_Type.builtin and src.name:
             app.var_icon.set(src.name.value)
+        if getattr(app.params, "default_icon", None) != src:
+            app.params.default_icon = src
 
     def on_motion(self, app: App, evt: MotionEvent | tk.Event):
         if self._drag:

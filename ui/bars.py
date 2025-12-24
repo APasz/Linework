@@ -350,6 +350,7 @@ class Bars:
         on_new,
         on_open,
         on_save_as,
+        on_settings,
         icon_label_var: tk.StringVar | None = None,
     ):
         """Builds the header strip and returns handles."""
@@ -365,6 +366,7 @@ class Bars:
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Open…", command=on_open))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Save", command=on_save))
         cls._add_labeled(frame, lambda p: ttk.Button(p, text="Save As…", command=on_save_as))
+        cls._add_labeled(frame, lambda p: ttk.Button(p, text="Settings…", command=on_settings))
 
         # Modes
         cls._add_labeled(frame, lambda p: ttk.Radiobutton(p, text="Select", value=Tool_Name.select, variable=mode_var))
