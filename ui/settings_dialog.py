@@ -343,9 +343,10 @@ class SettingsDialog(GenericEditDialog):
 
             if kind == "colour":
                 widget = self.widgets.get(name)
-                if widget is not None and hasattr(widget, "_update_highlight"):
+                update = getattr(widget, "_update_highlight", None)
+                if callable(update):
                     try:
-                        widget._update_highlight(str(var.get()))
+                        update(str(var.get()))
                     except Exception:
                         pass
 

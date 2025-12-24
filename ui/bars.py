@@ -4,12 +4,13 @@ import tkinter as tk
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
-from tkinter import colorchooser, ttk
+from tkinter import ttk
 
 from PIL import Image, ImageTk
 
 from models.geo import CanvasLW
 from models.styling import Colour, Colours, LineStyle
+from ui.colour_picker import ask_colour
 from ui.composite_spinbox import Composite_Spinbox
 
 
@@ -186,17 +187,19 @@ class Colour_Palette(ttk.Frame):
         self.bind_all("<Escape>", lambda _e: self._close_popup(), add="+")
         self.bind_all("<ButtonRelease-1>", self._maybe_close_on_click, add="+")
 
+    def _ask_custom_colour(self, initial: Colour | None) -> Colour | None:
+        return ask_colour(self, initial)
+
     def _edit_custom(self, idx: int, initial: Colour | None):
         self._close_popup()
         try:
-            _rgb, hx = colorchooser.askcolor(color=initial.hexh if initial else None, parent=self)
+            col = self._ask_custom_colour(initial)
         except tk.TclError as exc:
             if "application has been destroyed" in str(exc):
                 return
             raise
-        if not hx:
+        if not col:
             return
-        col = Colours.parse_colour(hx)
         self._custom[idx] = col
         if self._on_update_custom:
             self._on_update_custom(idx, col)
