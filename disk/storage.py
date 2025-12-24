@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from models.params import SCHEMA_VERSION, Params
+from models.version import get_app_version
 
 DEFAULT_SETTINGS_NAME = "linework.settings"
 
@@ -23,7 +24,8 @@ def dict_to_params(dic: dict[str, Any]) -> Params:
 class IO:
     @staticmethod
     def save_params(params: Params, path: Path):
-        path.write_text(params.model_dump_json(indent=4, exclude_none=True), encoding="utf-8")
+        payload = params.model_copy(update={"app_version": get_app_version()})
+        path.write_text(payload.model_dump_json(indent=4, exclude_none=True), encoding="utf-8")
 
     @staticmethod
     def load_params(path: Path) -> Params:

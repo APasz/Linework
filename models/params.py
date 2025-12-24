@@ -6,7 +6,7 @@ from models.geo import Icon_Source, Iconlike, Label, Line
 from models.styling import Anchor, Colour, Colours, LineStyle, Model
 
 SCHEMA_VERSION = 1
-PROFILE_EXCLUDE: set[str] = {"lines", "labels", "icons", "recent_icons"}
+PROFILE_EXCLUDE: set[str] = {"lines", "labels", "icons", "recent_icons", "app_version"}
 
 
 class Params(Model):
@@ -41,6 +41,7 @@ class Params(Model):
     icons: list[Iconlike] = Field(default_factory=list)
     recent_icons: list[Icon_Source] = Field(default_factory=list)
     version: int = Field(default=SCHEMA_VERSION)
+    app_version: str | None = None
 
     def profile_dict(self) -> dict:
         return self.model_dump(exclude=PROFILE_EXCLUDE, exclude_none=True)
@@ -49,7 +50,7 @@ class Params(Model):
         return self.model_dump_json(indent=indent, exclude=PROFILE_EXCLUDE, exclude_none=True)
 
     def apply_profile(self, profile: "Params", *, inplace_palette: bool = False) -> None:
-        for name in self.model_fields:
+        for name in type(self).model_fields:
             if name in PROFILE_EXCLUDE:
                 continue
             if name == "custom_palette":
