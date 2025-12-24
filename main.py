@@ -1,9 +1,14 @@
+import sys
 import tkinter as tk
 
 from controllers.app import App
 
+MIN_PYTHON = (3, 13)
+
 
 def main():
+    if sys.version_info < MIN_PYTHON:
+        raise RuntimeError("Linework requires Python 3.13+")
     root = tk.Tk()
     App(root)
     try:
