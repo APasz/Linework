@@ -17,3 +17,4 @@ assets/*
 *.svg
 build/*
 dist/*
+models/_version.py

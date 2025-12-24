@@ -7,6 +7,7 @@ from collections.abc import Callable
 from tkinter import ttk
 
 from models.geo import Icon_Type
+from models.version import get_app_version
 from ui.edit_dialog import GenericEditDialog
 
 
@@ -236,6 +237,7 @@ class SettingsDialog(GenericEditDialog):
 
         info_text = "\n".join(
             [
+                f"Version: {get_app_version()}",
                 f"Python: {sys.version.split()[0]}",
                 f"Tk: {tk_version}",
                 "Project files: .linework",
