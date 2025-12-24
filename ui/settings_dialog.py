@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import sys
 import tkinter as tk
+import tkinter.font as tkfont
 from collections import OrderedDict
 from collections.abc import Callable
-from tkinter import ttk
+from tkinter import messagebox, ttk
+from pathlib import Path
 
 from models.geo import Icon_Type
 from models.version import get_app_version
@@ -12,10 +14,27 @@ from ui.edit_dialog import GenericEditDialog
 
 
 class SettingsDialog(GenericEditDialog):
-    def __init__(self, app, title, schema, values, *, on_save: Callable[[dict], bool | None], on_apply=None):
+    def __init__(
+        self,
+        app,
+        title,
+        schema,
+        values,
+        *,
+        on_save: Callable[[dict], bool | None],
+        on_apply=None,
+        on_reset: Callable[[], dict | None] | None = None,
+        saved_values: dict | None = None,
+    ):
         self.apply_now = False
         self._on_save_cb = on_save
         self._on_apply_cb = on_apply
+        self._on_reset_cb = on_reset
+        self._saved_values = dict(saved_values or {})
+        self._field_labels: dict[str, ttk.Label] = {}
+        self._label_fonts: dict[ttk.Label, tuple[tkfont.Font, tkfont.Font]] = {}
+        self._default_icon_label: ttk.Label | None = None
+        self._diff_tracking_ready = False
         self._dim_widgets: dict[str, ttk.Entry] = {}
         self._num_widgets: dict[str, ttk.Entry] = {}
         self._entry_base_styles: dict[ttk.Entry, str] = {}
@@ -62,11 +81,16 @@ class SettingsDialog(GenericEditDialog):
                     continue
                 if name in ("default_icon_builtin", "default_icon_picture"):
                     if self._icon_picker_container is None:
-                        ttk.Label(tab, text="Default icon").grid(row=row, column=0, sticky="w", padx=6, pady=4)
+                        label = ttk.Label(tab, text="Default icon")
+                        label.grid(row=row, column=0, sticky="w", padx=6, pady=4)
+                        self._default_icon_label = label
+                        self._register_label(name, label)
                         self._icon_picker_container = ttk.Frame(tab)
                         self._icon_picker_container.grid(row=row, column=1, sticky="ew", padx=6, pady=4)
                         self._icon_picker_container.grid_columnconfigure(0, weight=1)
                         row += 1
+                    elif self._default_icon_label is not None:
+                        self._register_label(name, self._default_icon_label)
                     widget = self._build_widget(self._icon_picker_container, fld, self.values.get(name))
                     widget.grid(row=0, column=0, sticky="ew")
                     widget.grid_remove()
@@ -75,7 +99,9 @@ class SettingsDialog(GenericEditDialog):
                         first_widget = widget
                     continue
                 label = fld.get("label", name)
-                ttk.Label(tab, text=label).grid(row=row, column=0, sticky="w", padx=6, pady=4)
+                label_widget = ttk.Label(tab, text=label)
+                label_widget.grid(row=row, column=0, sticky="w", padx=6, pady=4)
+                self._register_label(name, label_widget)
                 widget = self._build_widget(tab, fld, self.values.get(name))
                 widget.grid(row=row, column=1, sticky="ew", padx=6, pady=4)
                 if first_widget is None:
@@ -102,15 +128,18 @@ class SettingsDialog(GenericEditDialog):
         if first_widget is None:
             first_widget = notebook
         self._setup_default_icon_picker()
+        self._setup_diff_tracking()
         return first_widget
 
     def buttonbox(self):
         box = ttk.Frame(self)
         btn_save = ttk.Button(box, text="Save Defaults", command=self._on_save)
         btn_apply = ttk.Button(box, text="Apply Now", command=self._on_apply)
+        btn_reset = ttk.Button(box, text="Reset", command=self._on_reset)
         btn_cancel = ttk.Button(box, text="Cancel", command=self.cancel)
         btn_save.pack(side="left", padx=5, pady=5)
         btn_apply.pack(side="left", padx=5, pady=5)
+        btn_reset.pack(side="left", padx=5, pady=5)
         btn_cancel.pack(side="left", padx=5, pady=5)
         box.pack(fill="x")
         self.bind("<Return>", lambda e: self._on_save())
@@ -145,6 +174,192 @@ class SettingsDialog(GenericEditDialog):
         self.apply()
         if self._on_apply_cb:
             self._on_apply_cb(getattr(self, "result", {}))
+
+    def _on_reset(self):
+        if not self._on_reset_cb:
+            return
+        ok = False
+        try:
+            ok = messagebox.askyesno(
+                "Reset Defaults",
+                "Delete the saved settings file and restore original defaults?\n"
+                "This only updates the fields until you apply or save.",
+                parent=self,
+            )
+        except tk.TclError as exc:
+            if "application has been destroyed" in str(exc):
+                return
+            raise
+        if not ok:
+            return
+        result = self._on_reset_cb()
+        if isinstance(result, dict):
+            self._saved_values = dict(result)
+            self._apply_values(result)
+
+    def _register_label(self, name: str, label: ttk.Label) -> None:
+        self._field_labels[name] = label
+        if label not in self._label_fonts:
+            base_font = tkfont.Font(root=label, font=label.cget("font") or "TkDefaultFont")
+            italic_font = tkfont.Font(root=label, font=base_font)
+            italic_font.configure(slant="italic")
+            self._label_fonts[label] = (base_font, italic_font)
+
+    def _setup_diff_tracking(self) -> None:
+        if self._diff_tracking_ready:
+            return
+        self._diff_tracking_ready = True
+
+        def _trigger(*_args):
+            self._update_diff_markers()
+
+        for meta in self._meta.values():
+            var = meta.get("var")
+            if var:
+                try:
+                    var.trace_add("write", _trigger)
+                except Exception:
+                    pass
+
+        for widget in self.widgets.values():
+            if isinstance(widget, tk.Text):
+                widget.bind("<<Modified>>", lambda _e, w=widget: self._on_text_modified(w), add="+")
+
+        self._update_diff_markers()
+
+    def _on_text_modified(self, widget: tk.Text) -> None:
+        try:
+            if widget.edit_modified():
+                widget.edit_modified(False)
+                self._update_diff_markers()
+        except Exception:
+            pass
+
+    def _update_diff_markers(self) -> None:
+        label_flags: dict[ttk.Label, bool] = {}
+        icon_kind = self._read_raw_value("default_icon_kind", "choice")
+        if not icon_kind:
+            icon_kind = Icon_Type.builtin.value
+
+        for fld in self.schema:
+            name = str(fld.get("name", ""))
+            if not name:
+                continue
+            kind = str(fld.get("kind", "str")).lower()
+
+            if name in ("default_icon_builtin", "default_icon_picture"):
+                if icon_kind == Icon_Type.builtin.value and name == "default_icon_picture":
+                    continue
+                if icon_kind == Icon_Type.picture.value and name == "default_icon_builtin":
+                    continue
+
+            current = self._normalize_for_compare(kind, self._read_raw_value(name, kind))
+            saved = self._normalize_for_compare(kind, self._saved_values.get(name))
+            diff = current != saved
+
+            label = self._field_labels.get(name)
+            if label is not None:
+                label_flags[label] = label_flags.get(label, False) or diff
+
+        for label, (base, italic) in self._label_fonts.items():
+            if label_flags.get(label, False):
+                try:
+                    label.configure(font=italic)
+                except Exception:
+                    pass
+            else:
+                try:
+                    label.configure(font=base)
+                except Exception:
+                    pass
+
+    def _read_raw_value(self, name: str, kind: str):
+        if kind == "text":
+            widget = self.widgets.get(name)
+            if isinstance(widget, tk.Text):
+                return widget.get("1.0", "end-1c")
+            return ""
+        meta = self._meta.get(name, {})
+        var = meta.get("var")
+        if not var:
+            return None
+        try:
+            return var.get()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _normalize_for_compare(kind: str, value):
+        def _as_int(val):
+            if val is None:
+                return None
+            try:
+                return int(float(str(val).strip()))
+            except Exception:
+                return None
+
+        def _as_float(val):
+            if val is None:
+                return None
+            try:
+                return float(str(val).strip())
+            except Exception:
+                return None
+
+        if kind == "bool":
+            return bool(value)
+        if kind == "int":
+            return _as_int(value)
+        if kind == "float":
+            return _as_float(value)
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    def _apply_values(self, values: dict) -> None:
+        self.values = dict(values)
+        for fld in self.schema:
+            name = str(fld.get("name", ""))
+            if not name:
+                continue
+            kind = str(fld.get("kind", "str")).lower()
+            raw = values.get(name)
+            if kind == "text":
+                widget = self.widgets.get(name)
+                if isinstance(widget, tk.Text):
+                    widget.delete("1.0", "end")
+                    widget.insert("1.0", "" if raw is None else str(raw))
+                continue
+
+            meta = self._meta.get(name, {})
+            var = meta.get("var")
+            if not var:
+                continue
+
+            if kind == "bool":
+                var.set(bool(raw))
+            else:
+                var.set("" if raw is None else str(raw))
+
+            if kind == "colour":
+                widget = self.widgets.get(name)
+                if widget is not None and hasattr(widget, "_update_highlight"):
+                    try:
+                        widget._update_highlight(str(var.get()))
+                    except Exception:
+                        pass
+
+            if kind in ("icon_builtin", "icon_picture"):
+                display_var = meta.get("display_var")
+                if display_var is not None:
+                    if kind == "icon_picture":
+                        display_val = Path(str(raw)).name if raw else ""
+                    else:
+                        display_val = "" if raw is None else str(raw)
+                    display_var.set(display_val)
+
+        self._clear_entry_styles()
+        self._update_diff_markers()
 
     def _setup_default_icon_picker(self) -> None:
         if not self._icon_picker_widgets:

@@ -891,6 +891,7 @@ class App:
     def open_settings(self):
         schema = settings_schema()
         values = self._settings_values_from_params(self.params)
+        saved_values = self._settings_values_from_params(self.defaults_profile)
         base_profile = self.params.model_copy()
 
         def _save_defaults(data: dict[str, Any]) -> bool:
@@ -909,6 +910,18 @@ class App:
             self._apply_defaults_to_current(temp_profile)
             self.status.temp("Defaults applied", 1500)
 
+        def _reset_defaults() -> dict[str, Any] | None:
+            nonlocal base_profile
+            try:
+                self.defaults_path.unlink(missing_ok=True)
+            except Exception as exc:
+                self._safe_tk_call(messagebox.showerror, "Settings reset failed", str(exc))
+                return None
+            self.defaults_profile = Params()
+            base_profile = self.defaults_profile.model_copy()
+            self.status.temp("Defaults reset", 1500)
+            return self._settings_values_from_params(self.defaults_profile)
+
         dlg = self._safe_tk_call(
             SettingsDialog,
             self,
@@ -917,6 +930,8 @@ class App:
             values,
             on_save=_save_defaults,
             on_apply=_apply_now,
+            on_reset=_reset_defaults,
+            saved_values=saved_values,
         )
         if dlg is None:
             return

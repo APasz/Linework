@@ -603,6 +603,7 @@ class GenericEditDialog(simpledialog.Dialog):
         var = tk.StringVar(value=self._stringify_init(init_val))
         self._meta[fld["name"]]["var"] = var
         shown = tk.StringVar(value=var.get())
+        self._meta[fld["name"]]["display_var"] = shown
         ttk.Label(frm, textvariable=shown).pack(side="left", padx=(0, 6))
 
         def _choose():
@@ -630,6 +631,7 @@ class GenericEditDialog(simpledialog.Dialog):
         var = tk.StringVar(value=init)
         self._meta[fld["name"]]["var"] = var
         shown = tk.StringVar(value=Path(init).name if init else "")
+        self._meta[fld["name"]]["display_var"] = shown
         ttk.Label(frm, textvariable=shown).pack(side="left", padx=(0, 6))
 
         def _choose():
