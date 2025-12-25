@@ -1,8 +1,11 @@
+"""Canvas painters for grid, lines, labels, and icons."""
+
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from canvas.layers import Layer_Type, Tag
-from models.geo import Label, Line, Point
+from models.geo import Iconlike, Label, Line, Point
 from models.params import Params
 from models.styling import CapStyle, Colour
 from PIL import Image, ImageTk
@@ -12,27 +15,44 @@ if TYPE_CHECKING:
 
 
 class Scene:
-    def __init__(self, params: Params):
+    """Lightweight view over Params for paint iteration."""
+
+    def __init__(self, params: Params) -> None:
+        """Create a scene for the given params.
+
+        Args;
+            params: The params to expose.
+        """
         self.params = params
 
-    def lines(self):
+    def lines(self) -> list[Line]:
+        """Return line items."""
         return self.params.lines
 
-    def labels(self):
+    def labels(self) -> list[Label]:
+        """Return label items."""
         return self.params.labels
 
-    def icons(self):
+    def icons(self) -> list[Iconlike]:
+        """Return icon items."""
         return self.params.icons
 
 
 class Painters:
-    def __init__(self, app: App):
+    """Canvas painter helpers."""
+
+    def __init__(self, app: App) -> None:
+        """Create painters for an application instance.
+
+        Args;
+            app: The application instance.
+        """
         self.app = app
         self.scene = app.scene
         self.canvas = app.canvas
 
     @staticmethod
-    def _checker(w, h, tile: int, a: Colour, b="#cccccc"):
+    def _checker(w: int, h: int, tile: int, a: Colour, b: str = "#cccccc") -> Image.Image:
         img = Image.new("RGB", (w, h), a.hexh)
         for y in range(0, h, tile):
             start = ((y // tile) % 2) * tile
@@ -41,7 +61,8 @@ class Painters:
         return img
 
     # ------- grid -------
-    def paint_grid(self):
+    def paint_grid(self) -> None:
+        """Paint the background grid."""
         params = self.app.params
         g = params.grid_size
         if not params.grid_visible or g <= 0:
@@ -85,27 +106,30 @@ class Painters:
             )
 
     # ------- lines -------
-    def paint_lines(self):
+    def paint_lines(self) -> None:
+        """Paint line layers."""
         for idx, lin in enumerate(self.scene.lines()):
             if (lin.a.x, lin.a.y) == (lin.b.x, lin.b.y):
                 continue
             self._paint_line(lin, idx)
 
-    def _paint_line(self, lin: Line, idx: int):
+    def _paint_line(self, lin: Line, idx: int) -> None:
         self.canvas.create_with_line(lin, idx=idx)
 
     # ------- labels -------
-    def paint_labels(self):
+    def paint_labels(self) -> None:
+        """Paint label layers."""
         for idx, lab in enumerate(self.scene.labels()):
             self._paint_label(lab, idx)
 
-    def _paint_label(self, lab: Label, idx: int):
+    def _paint_label(self, lab: Label, idx: int) -> None:
         self.canvas.create_with_label(lab, idx=idx)
 
     # ------- icons -------
-    def paint_icons(self):
+    def paint_icons(self) -> None:
+        """Paint icon layers."""
         for idx, ico in enumerate(self.scene.icons()):
             self._paint_icon(ico, idx)
 
-    def _paint_icon(self, ico, idx: int):
+    def _paint_icon(self, ico: Iconlike, idx: int) -> None:
         self.canvas.create_with_iconlike(ico, idx=idx)

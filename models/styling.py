@@ -1,3 +1,5 @@
+"""Styling primitives and colour utilities for Linework."""
+
 from __future__ import annotations
 
 import re
@@ -12,13 +14,25 @@ from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class Model(BaseModel):
+    """Base Pydantic model with shared configuration."""
+
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
     def replace(self, **updates) -> Self:
+        """Return a copy with the provided fields updated.
+
+        Args;
+            **updates: Field updates to apply.
+
+        Returns;
+            The updated model copy.
+        """
         return self.model_copy(update=updates)
 
 
 class Anchor(Enum):
+    """Anchor positions for text and icons."""
+
     NW = "nw"
     N = "n"
     NE = "ne"
@@ -32,6 +46,14 @@ class Anchor(Enum):
     # ---- parsing / normalisation ----
     @classmethod
     def parse(cls, value: str | Anchor | None) -> "Anchor":
+        """Parse an anchor value into a canonical Anchor.
+
+        Args;
+            value: The input value.
+
+        Returns;
+            The parsed anchor.
+        """
         if isinstance(value, Anchor):
             return value
         if not value:
@@ -44,16 +66,29 @@ class Anchor(Enum):
     # ---- targets ----
     @property
     def tk(self) -> TK_CARDINALS:
-        """Tkinter Canvas.create_text(anchor=...)"""
+        """Return the Tk anchor string.
+
+        Returns;
+            The Tk anchor string.
+        """
         return self.value
 
     @property
     def pil(self) -> PIL_CARDINALS | None:
-        """Pillow ImageDraw.text(anchor=...) — None means let Pillow default."""
+        """Return the Pillow anchor, or None to use the default.
+
+        Returns;
+            The Pillow anchor string or None.
+        """
         return _PIL[self]
 
     @property
     def svg(self) -> tuple[TextAnchor, DominantBaseline]:
+        """Return the SVG text-anchor and dominant-baseline pair.
+
+        Returns;
+            The SVG text-anchor and dominant-baseline.
+        """
         return _SVG[self]
 
     def _centre(self, px: int, py: int, w: int, h: int) -> tuple[int, int]:
@@ -73,6 +108,15 @@ class Anchor(Enum):
         return round(px + dx), round(py + dy)
 
     def offset(self, w: int, h: int) -> tuple[float, float]:
+        """Return the unrotated offset vector for this anchor.
+
+        Args;
+            w: The item width.
+            h: The item height.
+
+        Returns;
+            The offset vector.
+        """
         # vector from centre to this anchor in unrotated space
         ax = (
             -w / 2
@@ -87,6 +131,18 @@ class Anchor(Enum):
         return ax, ay
 
     def centre_for(self, px: int | float, py: int | float, w: int, h: int, rot_deg: int = 0) -> tuple[int, int]:
+        """Return the centre point for this anchor and rotation.
+
+        Args;
+            px: The anchor x coordinate.
+            py: The anchor y coordinate.
+            w: The item width.
+            h: The item height.
+            rot_deg: Rotation in degrees.
+
+        Returns;
+            The centre point.
+        """
         # apply rotated offset to find the item centre
         from math import cos, radians, sin
 
@@ -129,6 +185,8 @@ _SVG: Final[Mapping[Anchor, tuple[TextAnchor, DominantBaseline]]] = {
 
 
 class LineStyle(StrEnum):
+    """Line dash presets."""
+
     SOLID = "solid"
     DASH = "dash"
     LONG = "long"
@@ -139,12 +197,16 @@ class LineStyle(StrEnum):
 
 
 class CapStyle(StrEnum):
+    """Line cap styles."""
+
     ROUND = "round"
     BUTT = "butt"
     PROJECTING = "projecting"
 
 
 class JoinStyle(StrEnum):
+    """Line join styles."""
+
     MITER = "miter"
     ROUND = "round"
     BEVEL = "bevel"
@@ -173,6 +235,14 @@ _WINDOWS_DASH_STYLES: Final[set[LineStyle]] = {
 
 
 def use_manual_tk_dash(style: LineStyle | None) -> bool:
+    """Return True when manual dash rendering is needed for Tk on Windows.
+
+    Args;
+        style: The line style to test.
+
+    Returns;
+        True if the style should be rendered manually.
+    """
     return _IS_WINDOWS and style in _WINDOWS_DASH_STYLES
 
 
@@ -191,10 +261,14 @@ def _normalise_pairs(seq: Iterable[int]) -> tuple[int, ...]:
 
 @lru_cache(maxsize=64)
 def scaled_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
-    """
-    Return a pixel pattern (ints) scaled by stroke width.
-    - style: key into _BASE
-    - width_px: actual stroke width in pixels
+    """Return a pixel dash pattern scaled by stroke width.
+
+    Args;
+        style: The dash style.
+        width_px: The stroke width in pixels.
+
+    Returns;
+        The scaled dash pattern.
     """
     base = _BASE.get(style, _BASE[None])
     if not base:
@@ -204,7 +278,9 @@ def scaled_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
     return _normalise_pairs(scaled)
 
 
-def _boost_windows_dash(style: LineStyle | None, base: tuple[float, ...], scaled: tuple[int, ...], width_px: int):
+def _boost_windows_dash(
+    style: LineStyle | None, base: tuple[float, ...], scaled: tuple[int, ...], width_px: int
+) -> tuple[int, ...]:
     if not _IS_WINDOWS or style not in _WINDOWS_DASH_STYLES or width_px > _WINDOWS_DASH_BOOST_MAX_W:
         return scaled
     # Windows Tk can collapse short dashes into dots at small widths; stretch non-dot segments.
@@ -218,6 +294,15 @@ def _boost_windows_dash(style: LineStyle | None, base: tuple[float, ...], scaled
 
 
 def tk_dash_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
+    """Return a Tk-compatible dash pattern for the given style and width.
+
+    Args;
+        style: The line style to scale.
+        width_px: The line width in pixels.
+
+    Returns;
+        The dash pattern tuple.
+    """
     base = _BASE.get(style, _BASE[None])
     if not base:
         return ()
@@ -228,6 +313,15 @@ def tk_dash_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
 
 
 def dash_seq(dash: Sequence[int] | None, offset: int) -> tuple[list[int], bool]:
+    """Normalise a dash sequence and compute the starting state.
+
+    Args;
+        dash: The dash sequence.
+        offset: The dash offset.
+
+    Returns;
+        The normalised sequence and whether to start on a dash.
+    """
     if not dash:
         return ([], True)
 
@@ -260,6 +354,16 @@ def dash_seq(dash: Sequence[int] | None, offset: int) -> tuple[list[int], bool]:
 
 
 def iter_dash_spans(L: float, dash: Sequence[int] | None, offset: int) -> Iterator[tuple[float, float, bool]]:
+    """Yield dash spans along a line length.
+
+    Args;
+        L: The total length.
+        dash: The dash sequence.
+        offset: Dash offset.
+
+    Yields;
+        Dash span start, end, and on/off flag.
+    """
     if L <= 0:
         return
     seq, on = dash_seq(dash, offset)
@@ -284,8 +388,14 @@ def iter_dash_spans(L: float, dash: Sequence[int] | None, offset: int) -> Iterat
 
 
 def svg_dasharray(style: LineStyle | None, width_px: int) -> str | None:
-    """
-    SVG stroke-dasharray string scaled by width, or None for solid.
+    """Return an SVG stroke-dasharray string or None for solid.
+
+    Args;
+        style: The dash style.
+        width_px: The stroke width in pixels.
+
+    Returns;
+        The SVG dasharray string, or None for solid.
     """
     pat = scaled_pattern(style, width_px)
     if not pat:
@@ -294,6 +404,8 @@ def svg_dasharray(style: LineStyle | None, width_px: int) -> str | None:
 
 
 class Colour(Model):
+    """RGBA colour value."""
+
     red: int
     green: int
     blue: int
@@ -302,7 +414,7 @@ class Colour(Model):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
     @model_validator(mode="after")
-    def _clamp(self):
+    def _clamp(self) -> "Colour":
         def clamp(v: int) -> int:
             return 0 if v < 0 else 255 if v > 255 else v
 
@@ -314,33 +426,73 @@ class Colour(Model):
 
     @property
     def rgb(self) -> tuple[int, int, int]:
+        """Return the RGB tuple.
+
+        Returns;
+            The RGB tuple.
+        """
         return self.red, self.green, self.blue
 
     @property
     def rgba(self) -> tuple[int, int, int, int]:
+        """Return the RGBA tuple.
+
+        Returns;
+            The RGBA tuple.
+        """
         return self.red, self.green, self.blue, self.alpha
 
     @property
     def hex(self) -> str:
+        """Return the RGB hex string without the leading '#'.
+
+        Returns;
+            The RGB hex string.
+        """
         return self.hexh[1:]
 
     @property
     def hexa(self) -> str:
+        """Return the RGBA hex string without the leading '#'.
+
+        Returns;
+            The RGBA hex string.
+        """
         return self.hexah[1:]
 
     @property
     def hexh(self) -> str:
+        """Return the RGB hex string with the leading '#'.
+
+        Returns;
+            The RGB hex string.
+        """
         return f"#{self.red:02X}{self.green:02X}{self.blue:02X}"
 
     @property
     def hexah(self) -> str:
+        """Return the RGBA hex string with the leading '#'.
+
+        Returns;
+            The RGBA hex string.
+        """
         return f"#{self.red:02X}{self.green:02X}{self.blue:02X}{self.alpha:02X}"
 
     def with_alpha(self, a: int) -> "Colour":
+        """Return a copy with a new alpha value.
+
+        Args;
+            a: The new alpha channel value.
+
+        Returns;
+            The updated colour.
+        """
         return Colour(red=self.red, green=self.green, blue=self.blue, alpha=a)
 
 
 class Colours:
+    """Named palette of standard colours."""
+
     white: Colour = Colour(red=255, green=255, blue=255)
     black: Colour = Colour(red=0, green=0, blue=0)
     transparent: Colour = Colour(red=0, green=0, blue=0, alpha=0)
@@ -353,6 +505,8 @@ class Colours:
     gray: Colour = Colour(red=128, green=128, blue=128)
 
     class sys:
+        """System palette entries."""
+
         light_gray: Colour = Colour(red=200, green=200, blue=200)
         dark_gray: Colour = Colour(red=60, green=60, blue=60)
         sky: Colour = Colour(red=30, green=200, blue=255)
@@ -381,19 +535,51 @@ class Colours:
     # ---------- public helpers ----------
     @classmethod
     def names(cls, *, include_sys: bool = False, min_alpha: int = 0) -> list[str]:
+        """Return colour names in the palette.
+
+        Args;
+            include_sys: Include system colours.
+            min_alpha: Minimum alpha threshold.
+
+        Returns;
+            The colour names.
+        """
         return list(cls._map(include_sys=include_sys, min_alpha=min_alpha).keys())
 
     @classmethod
     def list(cls, *, include_sys: bool = False, min_alpha: int = 0) -> list[Colour]:
+        """Return colour values in the palette.
+
+        Args;
+            include_sys: Include system colours.
+            min_alpha: Minimum alpha threshold.
+
+        Returns;
+            The colours.
+        """
         return list(cls._map(include_sys=include_sys, min_alpha=min_alpha).values())
 
     @classmethod
     def items(cls, *, include_sys: bool = False, min_alpha: int = 0) -> list[tuple[str, Colour]]:
+        """Return name/colour pairs in the palette.
+
+        Args;
+            include_sys: Include system colours.
+            min_alpha: Minimum alpha threshold.
+
+        Returns;
+            The name/colour pairs.
+        """
         m = cls._map(include_sys=include_sys, min_alpha=min_alpha)
         return list(m.items())
 
     @property
     def all(self) -> Mapping[str, Colour]:  # read-only view
+        """Return a read-only view of the full palette.
+
+        Returns;
+            The palette mapping.
+        """
         return PALETTE
 
     # ---------- parsing ----------
@@ -401,6 +587,17 @@ class Colours:
 
     @classmethod
     def parse_colour(cls, value: str | tuple[int, int, int] | tuple[int, int, int, int] | Colour) -> Colour:
+        """Parse a colour from strings or tuples.
+
+        Args;
+            value: The input colour value.
+
+        Raises;
+            ValueError: If the value cannot be parsed.
+
+        Returns;
+            The parsed colour.
+        """
         if isinstance(value, Colour):
             return value
         if isinstance(value, tuple):
@@ -417,7 +614,7 @@ class Colours:
                 else:
                     r, g, b, a = (int(hx[i : i + 2], 16) for i in (0, 2, 4, 6))
                     return Colour(red=r, green=g, blue=b, alpha=a)
-        raise ValueError(f"Unrecognized colour: {value!r}")
+        raise ValueError(f"Unrecognised colour: {value!r}")
 
 
 Colours.custom_palette = [None] * len(Colours.list())
@@ -434,6 +631,8 @@ PALETTE: Final[Mapping[str, Colour]] = _collect_palette()
 
 
 class TkCursor(StrEnum):
+    """Available Tk cursor names."""
+
     X_CURSOR = "X_cursor"
     ARROW = "arrow"
     BASED_ARROW_DOWN = "based_arrow_down"

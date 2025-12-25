@@ -1,7 +1,10 @@
+"""Colour picker dialog helpers."""
+
 from __future__ import annotations
 
 import colorsys
 import tkinter as tk
+from dataclasses import dataclass
 from tkinter import ttk
 
 from PIL import Image, ImageTk
@@ -11,7 +14,25 @@ from models.styling import Colour, Colours
 from ui.composite_spinbox import Composite_Spinbox
 
 
-def _checker_photo(master, w=20, h=20, tile=4, a="#eeeeee", b="#cccccc") -> ImageTk.PhotoImage:
+@dataclass
+class _PickerState:
+    r: int
+    g: int
+    b: int
+    a: int
+    h: float
+    s: float
+    v: float
+
+
+def _checker_photo(
+    master: tk.Misc,
+    w: int = 20,
+    h: int = 20,
+    tile: int = 4,
+    a: str = "#eeeeee",
+    b: str = "#cccccc",
+) -> ImageTk.PhotoImage:
     img = Image.new("RGB", (w, h), a)
     for y in range(0, h, tile):
         start = ((y // tile) % 2) * tile
@@ -21,6 +42,15 @@ def _checker_photo(master, w=20, h=20, tile=4, a="#eeeeee", b="#cccccc") -> Imag
 
 
 def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
+    """Open the colour picker dialog.
+
+    Args;
+        master: The parent widget.
+        initial: Optional initial colour.
+
+    Returns;
+        The selected colour, or None if cancelled.
+    """
     top = tk.Toplevel(master)
     top.title("Custom Colour")
     top.resizable(False, False)
@@ -29,15 +59,15 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
     base = initial or Colours.white
     h0, s0, v0 = colorsys.rgb_to_hsv(base.red / 255.0, base.green / 255.0, base.blue / 255.0)
 
-    state = {
-        "r": base.red,
-        "g": base.green,
-        "b": base.blue,
-        "a": base.alpha,
-        "h": h0,
-        "s": s0,
-        "v": v0,
-    }
+    state = _PickerState(
+        r=base.red,
+        g=base.green,
+        b=base.blue,
+        a=base.alpha,
+        h=h0,
+        s=s0,
+        v=v0,
+    )
 
     updating = False
 
@@ -49,7 +79,7 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
 
     result: Colour | None = None
 
-    def _clamp_int(v, low=0, high=255) -> int:
+    def _clamp_int(v: int | float | str, low: int = 0, high: int = 255) -> int:
         try:
             iv = int(round(float(v)))
         except Exception:
@@ -60,7 +90,7 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
             return high
         return iv
 
-    def _clamp_float(v, low=0.0, high=1.0) -> float:
+    def _clamp_float(v: int | float | str, low: float = 0.0, high: float = 1.0) -> float:
         try:
             fv = float(v)
         except Exception:
@@ -88,10 +118,12 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
             return None
         hx = raw.removeprefix("#").replace(" ", "")
         if len(hx) == 6:
-            return col.with_alpha(state["a"])
+            return col.with_alpha(state.a)
         return col
 
-    def _set_state_from_rgb(r: int, g: int, b: int, a: int | None = None) -> None:
+    def _set_state_from_rgb(
+        r: int | float | str, g: int | float | str, b: int | float | str, a: int | float | str | None = None
+    ) -> None:
         nonlocal updating
         if updating:
             return
@@ -100,12 +132,18 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
         g = _clamp_int(g)
         b = _clamp_int(b)
         if a is None:
-            a = state["a"]
+            a = state.a
         a = _clamp_int(a)
-        old_h = state["h"]
-        old_rgb = (state["r"], state["g"], state["b"])
+        old_h = state.h
+        old_rgb = (state.r, state.g, state.b)
         h, s, v = _rgb_to_hsv(r, g, b)
-        state.update(r=r, g=g, b=b, a=a, h=h, s=s, v=v)
+        state.r = r
+        state.g = g
+        state.b = b
+        state.a = a
+        state.h = h
+        state.s = s
+        state.v = v
         _sync_ui(update_sv=abs(h - old_h) > 1e-6, update_alpha_strip=(r, g, b) != old_rgb)
         updating = False
 
@@ -117,10 +155,15 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
         h = _clamp_float(h)
         s = _clamp_float(s)
         v = _clamp_float(v)
-        old_h = state["h"]
-        old_rgb = (state["r"], state["g"], state["b"])
+        old_h = state.h
+        old_rgb = (state.r, state.g, state.b)
         r, g, b = _hsv_to_rgb(h, s, v)
-        state.update(r=r, g=g, b=b, h=h, s=s, v=v)
+        state.r = r
+        state.g = g
+        state.b = b
+        state.h = h
+        state.s = s
+        state.v = v
         _sync_ui(update_sv=abs(h - old_h) > 1e-6, update_alpha_strip=(r, g, b) != old_rgb)
         updating = False
 
@@ -129,14 +172,14 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
         if updating:
             return
         updating = True
-        state["a"] = _clamp_int(a)
+        state.a = _clamp_int(a)
         _sync_ui(update_sv=False, update_alpha_strip=False)
         updating = False
 
     def _on_rgba_change() -> None:
         _set_state_from_rgb(r_var.get(), g_var.get(), b_var.get(), a_var.get())
 
-    def _commit_hex(_e=None) -> None:
+    def _commit_hex(_e: tk.Event | None = None) -> None:
         col = _parse_hex()
         if not col:
             top.bell()
@@ -145,7 +188,7 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
 
     def _on_ok() -> None:
         nonlocal result
-        result = Colour(red=state["r"], green=state["g"], blue=state["b"], alpha=state["a"])
+        result = Colour(red=state.r, green=state.g, blue=state.b, alpha=state.a)
         top.destroy()
 
     def _on_cancel() -> None:
@@ -312,8 +355,6 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
     sv_photo: ImageTk.PhotoImage | None = None
     alpha_photo: ImageTk.PhotoImage | None = None
 
-    hue_photo = _hue_strip_photo()
-    hue_img_id = hue_canvas.create_image(0, 0, anchor="nw", image=hue_photo)
     hue_marker_outer = hue_canvas.create_line(0, 0, 0, STRIP_H, fill="white", width=3)
     hue_marker_inner = hue_canvas.create_line(0, 0, 0, STRIP_H, fill="black", width=1)
 
@@ -338,54 +379,54 @@ def ask_colour(master: tk.Misc, initial: Colour | None = None) -> Colour | None:
         alpha_canvas.itemconfigure(alpha_img_id, image=alpha_photo)
 
     def _move_sv_marker() -> None:
-        x = int(round(state["s"] * (SV_SIZE - 1))) if SV_SIZE > 1 else 0
-        y = int(round((1.0 - state["v"]) * (SV_SIZE - 1))) if SV_SIZE > 1 else 0
+        x = int(round(state.s * (SV_SIZE - 1))) if SV_SIZE > 1 else 0
+        y = int(round((1.0 - state.v) * (SV_SIZE - 1))) if SV_SIZE > 1 else 0
         x = max(0, min(SV_SIZE - 1, x))
         y = max(0, min(SV_SIZE - 1, y))
         sv_canvas.coords(sv_marker_outer, x - 5, y - 5, x + 5, y + 5)
         sv_canvas.coords(sv_marker_inner, x - 4, y - 4, x + 4, y + 4)
 
     def _move_hue_marker() -> None:
-        x = int(round(state["h"] * (STRIP_W - 1))) if STRIP_W > 1 else 0
+        x = int(round(state.h * (STRIP_W - 1))) if STRIP_W > 1 else 0
         x = max(0, min(STRIP_W - 1, x))
         hue_canvas.coords(hue_marker_outer, x, 0, x, STRIP_H)
         hue_canvas.coords(hue_marker_inner, x, 0, x, STRIP_H)
 
     def _move_alpha_marker() -> None:
-        x = int(round((state["a"] / 255.0) * (STRIP_W - 1))) if STRIP_W > 1 else 0
+        x = int(round((state.a / 255.0) * (STRIP_W - 1))) if STRIP_W > 1 else 0
         x = max(0, min(STRIP_W - 1, x))
         alpha_canvas.coords(alpha_marker_outer, x, 0, x, STRIP_H)
         alpha_canvas.coords(alpha_marker_inner, x, 0, x, STRIP_H)
 
     def _sync_ui(*, update_sv: bool, update_alpha_strip: bool) -> None:
-        col = Colour(red=state["r"], green=state["g"], blue=state["b"], alpha=state["a"])
+        col = Colour(red=state.r, green=state.g, blue=state.b, alpha=state.a)
         _update_preview(col)
         hex_var.set(col.hexah)
-        spin_r.set(state["r"])
-        spin_g.set(state["g"])
-        spin_b.set(state["b"])
-        spin_a.set(state["a"])
+        spin_r.set(state.r)
+        spin_g.set(state.g)
+        spin_b.set(state.b)
+        spin_a.set(state.a)
         _move_sv_marker()
         _move_hue_marker()
         _move_alpha_marker()
         if update_sv:
-            _update_sv_image(state["h"])
+            _update_sv_image(state.h)
         if update_alpha_strip:
             _update_alpha_strip(col)
 
-    def _on_sv_event(e) -> None:
+    def _on_sv_event(e: tk.Event) -> None:
         x = max(0, min(SV_SIZE - 1, e.x))
         y = max(0, min(SV_SIZE - 1, e.y))
         s = x / (SV_SIZE - 1) if SV_SIZE > 1 else 0.0
         v = 1.0 - (y / (SV_SIZE - 1) if SV_SIZE > 1 else 0.0)
-        _set_state_from_hsv(state["h"], s, v)
+        _set_state_from_hsv(state.h, s, v)
 
-    def _on_hue_event(e) -> None:
+    def _on_hue_event(e: tk.Event) -> None:
         x = max(0, min(STRIP_W - 1, e.x))
         h = x / (STRIP_W - 1) if STRIP_W > 1 else 0.0
-        _set_state_from_hsv(h, state["s"], state["v"])
+        _set_state_from_hsv(h, state.s, state.v)
 
-    def _on_alpha_event(e) -> None:
+    def _on_alpha_event(e: tk.Event) -> None:
         x = max(0, min(STRIP_W - 1, e.x))
         a = int(round(255 * (x / (STRIP_W - 1) if STRIP_W > 1 else 1.0)))
         _set_alpha(a)

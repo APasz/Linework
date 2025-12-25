@@ -1,3 +1,5 @@
+"""Editor plan definitions for model edit dialogs."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -18,6 +20,8 @@ M = TypeVar("M")
 
 
 class EKind(StrEnum):
+    """Field kinds for editor schema."""
+
     STR = "str"
     INT = "int"
     FLOAT = "float"
@@ -54,10 +58,18 @@ MASTER = [
 ]
 
 
-def make_order_key(names):
+def make_order_key(names: list[str]) -> Callable[["FieldSpec"], tuple[int, str] | tuple[int, int]]:
+    """Build a sorting key for field ordering.
+
+    Args;
+        names: Preferred field name order.
+
+    Returns;
+        A key function for FieldSpec instances.
+    """
     pos = {n: i for i, n in enumerate(names)}
 
-    def key(f):  # f: FieldSpec
+    def key(f: "FieldSpec") -> tuple[int, str] | tuple[int, int]:
         return (0, pos[f.name]) if f.name in pos else (1, f.label.lower())
 
     return key
@@ -68,6 +80,8 @@ _order_key = make_order_key(MASTER)
 
 @dataclass(frozen=True)
 class FieldSpec:
+    """Field specification for a dialog."""
+
     name: str
     label: str
     kind: EKind
@@ -80,13 +94,15 @@ class FieldSpec:
 
 @dataclass
 class EditPlan(Generic[M]):
+    """Edit plan for a model type."""
+
     title: str
     fields: list[FieldSpec]
     init: Callable[[M], dict[str, Any]]
     apply: Callable[[M, dict[str, Any]], None]
     override_sort: bool | Callable[[FieldSpec], Any] = True
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if not self.fields:
             raise ValueError("EditPlan must have at least one field")
         if not callable(self.init):
@@ -99,7 +115,9 @@ class EditPlan(Generic[M]):
 
 
 class Editors:
-    def __init__(self, app: App):
+    """Registry of edit plans for model types."""
+
+    def __init__(self, app: App) -> None:
         self.app = app
         self._registry: dict[type, Callable[[Any], EditPlan[Any]]] = {
             Label: self._plan_label,
@@ -112,13 +130,23 @@ class Editors:
         self._icon_defaults: dict[str, Any] | None = None
 
     # ---------- apply session defaults ----------
-    def apply_label_defaults(self, lab: Label):
+    def apply_label_defaults(self, lab: Label) -> None:
+        """Apply session defaults to a label.
+
+        Args;
+            lab: The label to update.
+        """
         d = self._label_defaults or {}
         lab.size = int(d.get("size", self.app.params.label_size))
         lab.rotation = int(d.get("rotation", self.app.params.label_rotation))
         lab.anchor = Anchor.parse(d.get("anchor", self.app.params.label_anchor)) or lab.anchor
 
-    def apply_icon_defaults(self, ico):
+    def apply_icon_defaults(self, ico: Builtin_Icon | Picture_Icon) -> None:
+        """Apply session defaults to an icon.
+
+        Args;
+            ico: The icon to update.
+        """
         d = self._icon_defaults or {}
         default_size = self.app.params.picture_size if isinstance(ico, Picture_Icon) else self.app.params.icon_size
         ico.size = int(d.get("size", default_size))
@@ -145,6 +173,15 @@ class Editors:
 
     # ---------- single public entry point ----------
     def edit(self, app: App, obj: Any) -> bool:
+        """Edit an object in-place using the appropriate plan.
+
+        Args;
+            app: The application instance.
+            obj: The object to edit.
+
+        Returns;
+            True if changes were applied.
+        """
         plan = self._resolve_plan(obj)
         schema = [self._field_to_schema(f) for f in plan.fields]
         dlg = app._safe_tk_call(GenericEditDialog, app, plan.title, schema, plan.init(obj))
@@ -206,7 +243,7 @@ class Editors:
                 remember_defaults=False,
             )
 
-        def apply(lab: Label, data: dict[str, Any]):
+        def apply(lab: Label, data: dict[str, Any]) -> None:
             p = Point(x=int(data["x"]), y=int(data["y"]))
             if data.get("snap_to_grid"):
                 p = self.app.snap(p)
@@ -255,7 +292,7 @@ class Editors:
                 dash_offset=lin.dash_offset,
             )
 
-        def apply(lin: Line, data: dict[str, Any]):
+        def apply(lin: Line, data: dict[str, Any]) -> None:
             a = Point(x=int(data["x1"]), y=int(data["y1"]))
             b = Point(x=int(data["x2"]), y=int(data["y2"]))
             if data.get("snap_to_grid"):
@@ -292,7 +329,7 @@ class Editors:
                 remember_defaults=False,
             )
 
-        def apply(ico: Builtin_Icon, data: dict[str, Any]):
+        def apply(ico: Builtin_Icon, data: dict[str, Any]) -> None:
             p = Point(x=int(data["x"]), y=int(data["y"]))
             if data.get("snap_to_grid"):
                 p = self.app.snap(p)
@@ -333,7 +370,7 @@ class Editors:
                 remember_defaults=False,
             )
 
-        def apply(pic: Picture_Icon, data: dict[str, Any]):
+        def apply(pic: Picture_Icon, data: dict[str, Any]) -> None:
             p = Point(x=int(data["x"]), y=int(data["y"]))
             if data.get("snap_to_grid"):
                 p = self.app.snap(p)

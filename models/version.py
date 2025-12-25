@@ -1,3 +1,5 @@
+"""Version lookup utilities for Linework."""
+
 from __future__ import annotations
 
 import os
@@ -8,6 +10,7 @@ _VERSION: str | None = None
 
 
 def get_app_version() -> str:
+    """Return the best available application version string."""
     global _VERSION
     if _VERSION is not None:
         return _VERSION

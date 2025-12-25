@@ -1,3 +1,5 @@
+"""Edit dialogs and icon picker widgets."""
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -6,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum, StrEnum
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from PIL import Image, ImageTk
 
@@ -23,23 +25,36 @@ ICON_PICKER_COLUMNS = 6
 
 
 class Icon_Gallery(tk.Toplevel):
+    """Popup gallery for selecting icons."""
+
     def __init__(
         self,
-        master,
+        master: tk.Misc,
         app: App,
         recent: Iterable[Icon_Source],
         at: Point,
         show_builtins: bool = True,
         show_pictures: bool = True,
         show_recent: bool = True,
-    ):
+    ) -> None:
+        """Create the icon picker dialog.
+
+        Args;
+            master: The parent widget.
+            app: The application instance.
+            recent: Recent icon sources.
+            at: Optional screen position.
+            show_builtins: Whether to show builtin icons.
+            show_pictures: Whether to show picture icons.
+            show_recent: Whether to show recent icons.
+        """
         super().__init__(master)
         self.withdraw()
         self._thumb_size = 40
         self.project_path = app.project_path
         self.app = app
         self.title("Choose icon")
-        self.transient(master)
+        self.transient(cast(tk.Wm, master.winfo_toplevel()))
         self.resizable(False, False)
         self.result: Icon_Source | None = None
         self._thumb_cache: dict[tuple, ImageTk.PhotoImage] = {}
@@ -77,7 +92,7 @@ class Icon_Gallery(tk.Toplevel):
             self._btn_import = ttk.Button(btns, text="Import…", command=self._import_images)
             self._btn_import.pack(side="left", padx=6, pady=6)
 
-        def _bump_cols(d: int):
+        def _bump_cols(d: int) -> None:
             n = ICON_PICKER_COLUMNS if self._cols is None else self._cols
             self._cols = max(1, n + d)
             for g in self._grids:
@@ -94,17 +109,17 @@ class Icon_Gallery(tk.Toplevel):
         if at:
             self.geometry(f"+{at.x}+{at.y}")
         else:
-            self.center()
+            self.centre()
         # now show without flicker
         self.deiconify()
         self.grab_set()
 
-    def _resize_to_req(self):
+    def _resize_to_req(self) -> None:
         self.update_idletasks()
         w, h = self.winfo_reqwidth(), self.winfo_reqheight()
         self.geometry(f"{w}x{h}")
 
-    def center(self):
+    def centre(self) -> None:
         self.update_idletasks()
         w = self.winfo_reqwidth()
         h = self.winfo_reqheight()
@@ -112,12 +127,12 @@ class Icon_Gallery(tk.Toplevel):
         sh = self.winfo_screenheight()
         self.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
 
-    def _choose(self, src: Icon_Source):
+    def _choose(self, src: Icon_Source) -> None:
         self.result = src
         self.destroy()
 
     # ---------- built-ins ----------
-    def _build_builtins(self, parent):
+    def _build_builtins(self, parent: tk.Widget) -> None:
         frame = _ScrollGrid(parent, columns=self._cols)
         for name in Icon_Name:
             thumb = self._thumb_for_builtin(name)
@@ -149,14 +164,14 @@ class Icon_Gallery(tk.Toplevel):
         return ph
 
     # ---------- pictures ----------
-    def _build_pictures(self, parent):
+    def _build_pictures(self, parent: tk.Widget) -> None:
         self._pics_frame = _ScrollGrid(parent, columns=self._cols)
         self._pics_frame.pack(fill="both", expand=True)
         self._refresh_pictures()
         self._pics_frame.force_layout()
         self._grids.append(self._pics_frame)
 
-    def _refresh_pictures(self):
+    def _refresh_pictures(self) -> None:
         self._pics_frame.clear()
         for p in self.app.asset_lib.list_pictures():
             thumb = self._thumb_for_picture(p)
@@ -181,7 +196,7 @@ class Icon_Gallery(tk.Toplevel):
         return ph
 
     # ---------- recent ----------
-    def _build_recent(self, parent, recent: list[Icon_Source]):
+    def _build_recent(self, parent: tk.Widget, recent: list[Icon_Source]) -> None:
         allowed = set()
         if self._tab_builtin is not None:
             allowed.add(Icon_Type.builtin)
@@ -206,7 +221,7 @@ class Icon_Gallery(tk.Toplevel):
         frame.force_layout()
         self._grids.append(frame)
 
-    def _import_images(self):
+    def _import_images(self) -> None:
         try:
             exts = ["*.png", "*.jpg", "*.jpeg", "*.webp", "*.bmp"]
             if SVG_SUPPORTED:
@@ -237,13 +252,13 @@ class Icon_Gallery(tk.Toplevel):
         self.app.asset_lib.import_files([Path(p) for p in paths])
         self._refresh_pictures()
 
-    def _cancel(self):
+    def _cancel(self) -> None:
         self.result = None
         self.destroy()
 
 
 class _ScrollGrid(ttk.Frame):
-    def __init__(self, master, columns: int | None = ICON_PICKER_COLUMNS, cell_pad: int = 8):
+    def __init__(self, master: tk.Misc, columns: int | None = ICON_PICKER_COLUMNS, cell_pad: int = 8) -> None:
         super().__init__(master)
         canvas = tk.Canvas(self, width=480, height=320, highlightthickness=0)
         vs = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
@@ -262,7 +277,7 @@ class _ScrollGrid(ttk.Frame):
         self._vs = vs
         self._layout_pending = False
 
-        def _on_wheel(ev):
+        def _on_wheel(ev: tk.Event) -> str | None:
             try:
                 x, y = ev.x_root, ev.y_root
                 rx, ry = canvas.winfo_rootx(), canvas.winfo_rooty()
@@ -287,7 +302,7 @@ class _ScrollGrid(ttk.Frame):
         self.rowconfigure(0, weight=1)
 
     # ---- layout helpers ----
-    def _measure(self):
+    def _measure(self) -> None:
         self.body.update_idletasks()
         if not self.widgets:
             self._cell_w = self._cell_h = 80
@@ -297,13 +312,13 @@ class _ScrollGrid(ttk.Frame):
         self._cell_w = maxw + self.pad * 2
         self._cell_h = maxh + self.pad * 2
 
-    def _compute_cols(self):
+    def _compute_cols(self) -> int:
         if self.columns and self.columns > 0:
             return self.columns
         avail = max(1, self.canvas.winfo_width())
         return max(1, avail // max(1, self._cell_w))
 
-    def _relayout(self):
+    def _relayout(self) -> None:
         self._layout_pending = False
         self._measure()
         cols = self._compute_cols()
@@ -327,17 +342,17 @@ class _ScrollGrid(ttk.Frame):
         self.body.update_idletasks()
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
-    def _on_canvas_resize(self, e):
+    def _on_canvas_resize(self, e: tk.Event) -> None:
         self.canvas.itemconfigure(self._win, width=e.width)
         if not self._layout_pending:
             self._layout_pending = True
             self.after_idle(self._relayout)
 
     # ---- public API ----
-    def add(self, widget):
+    def add(self, widget: tk.Widget) -> None:
         widget.grid(row=0, column=0)
 
-        def _forward_wheel(ev, c=self.canvas):
+        def _forward_wheel(ev: tk.Event, c=self.canvas) -> str:
             if hasattr(ev, "delta") and ev.delta:
                 c.event_generate("<MouseWheel>", delta=ev.delta)
             else:
@@ -354,7 +369,7 @@ class _ScrollGrid(ttk.Frame):
             self._layout_pending = True
             self.after_idle(self._relayout)
 
-    def clear(self):
+    def clear(self) -> None:
         for c in list(self.body.children.values()):
             c.destroy()
         self.widgets.clear()
@@ -362,17 +377,19 @@ class _ScrollGrid(ttk.Frame):
             self._layout_pending = True
             self.after_idle(self._relayout)
 
-    def set_columns(self, num: int | None):
+    def set_columns(self, num: int | None) -> None:
         self.columns = num
         if not self._layout_pending:
             self._layout_pending = True
             self.after_idle(self._relayout)
 
-    def force_layout(self):
+    def force_layout(self) -> None:
         self._relayout()
 
 
 class EKind(StrEnum):
+    """Field kinds for edit dialogs."""
+
     STR = "str"
     INT = "int"
     FLOAT = "float"
@@ -450,10 +467,7 @@ def _resolve_choices_map(val: Any) -> dict[str, Any]:
 
 
 class GenericEditDialog(simpledialog.Dialog):
-    """
-    Compatible with the old dict-based schema, but internally uses a
-    clean dispatch table instead of if/else forests. Also accepts typed _FieldSpec.
-    """
+    """Schema-driven edit dialog with typed field support."""
 
     def __init__(
         self,
@@ -461,7 +475,15 @@ class GenericEditDialog(simpledialog.Dialog):
         title: str,
         schema: Sequence[dict[str, Any] | _FieldSpec],
         values: dict[str, Any] | None,
-    ):
+    ) -> None:
+        """Create a generic edit dialog.
+
+        Args;
+            app: The application instance.
+            title: Dialog title.
+            schema: Field schema entries.
+            values: Initial values.
+        """
         self.app: App = app
         self.schema: list[dict[str, Any]] = [_coerce_schema_item(s) for s in list(schema)]
         self.values: dict[str, Any] = dict(values or {})
@@ -471,6 +493,14 @@ class GenericEditDialog(simpledialog.Dialog):
 
     # ---- Dialog hooks ----
     def body(self, master: tk.Frame) -> tk.Widget:
+        """Build the dialog body.
+
+        Args;
+            master: The parent frame.
+
+        Returns;
+            The initial focus widget.
+        """
         master.grid_columnconfigure(1, weight=1)
 
         for r, fld in enumerate(self.schema):
@@ -480,7 +510,8 @@ class GenericEditDialog(simpledialog.Dialog):
             w.grid(row=r, column=1, sticky="ew", padx=6, pady=4)
         return next(iter(self.widgets.values()), master)
 
-    def buttonbox(self):
+    def buttonbox(self) -> None:
+        """Build the dialog button box."""
         box = ttk.Frame(self)
         ok = ttk.Button(box, text="OK", command=self.ok)
         cancel = ttk.Button(box, text="Cancel", command=self.cancel)
@@ -491,6 +522,11 @@ class GenericEditDialog(simpledialog.Dialog):
         self.bind("<Escape>", lambda e: self.cancel())
 
     def validate(self) -> bool:
+        """Validate form inputs.
+
+        Returns;
+            True if inputs are valid.
+        """
         out: dict[str, Any] = {}
         try:
             for fld in self.schema:
@@ -514,7 +550,8 @@ class GenericEditDialog(simpledialog.Dialog):
         self._result = out
         return True
 
-    def apply(self):
+    def apply(self) -> None:
+        """Apply the dialog result."""
         self.result = getattr(self, "_result", None)
 
     # ---- builders (per kind) ----
@@ -606,7 +643,7 @@ class GenericEditDialog(simpledialog.Dialog):
         self._meta[fld["name"]]["display_var"] = shown
         ttk.Label(frm, textvariable=shown).pack(side="left", padx=(0, 6))
 
-        def _choose():
+        def _choose() -> None:
             dlg = Icon_Gallery(
                 self,
                 self.app,
@@ -634,7 +671,7 @@ class GenericEditDialog(simpledialog.Dialog):
         self._meta[fld["name"]]["display_var"] = shown
         ttk.Label(frm, textvariable=shown).pack(side="left", padx=(0, 6))
 
-        def _choose():
+        def _choose() -> None:
             dlg = Icon_Gallery(
                 self,
                 self.app,
@@ -712,7 +749,7 @@ class GenericEditDialog(simpledialog.Dialog):
             return v.name
         return "" if v is None else str(v)
 
-    def _close_popdowns(self):
+    def _close_popdowns(self) -> None:
         for w in self.widgets.values():
             if isinstance(w, ttk.Combobox):
                 try:
@@ -724,7 +761,7 @@ class GenericEditDialog(simpledialog.Dialog):
         except Exception:
             pass
 
-    def _hide_combobox_popdowns(self):
+    def _hide_combobox_popdowns(self) -> None:
         for w in self.widgets.values():
             if isinstance(w, ttk.Combobox):
                 try:
@@ -738,6 +775,7 @@ class GenericEditDialog(simpledialog.Dialog):
         except tk.TclError:
             pass
 
-    def destroy(self):
+    def destroy(self) -> None:
+        """Destroy the dialog, hiding any popdown windows first."""
         self._hide_combobox_popdowns()
         super().destroy()

@@ -1,3 +1,5 @@
+"""Selection tool behaviour."""
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -19,12 +21,14 @@ if TYPE_CHECKING:
 
 @dataclass
 class DragLineEndpoint(DragAction):
+    """Drag action for line endpoints."""
+
     idx: int
     which: str
     start_other: Point
     start: Point
 
-    def update(self, app: App, evt: MotionEvent | tk.Event):
+    def update(self, app: App, evt: MotionEvent | tk.Event) -> None:
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
         q = Draw_Tool._maybe_cardinal(app, self.start_other, p, invert=mods.ctrl)
@@ -44,7 +48,7 @@ class DragLineEndpoint(DragAction):
             x1, y1, x2, y2 = bb
             app.selection.set_outline_bbox(x1, y1, x2, y2)
 
-    def commit(self, app: App, evt: MotionEvent | tk.Event):
+    def commit(self, app: App, evt: MotionEvent | tk.Event) -> None:
         app.layers.clear_preview()
         mods = get_mods(evt)
         p = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=mods.alt)
@@ -64,13 +68,15 @@ class DragLineEndpoint(DragAction):
         app._set_selected(Hit_Kind.line, self.idx)
         app.mark_dirty()
 
-    def cancel(self, app: App):
+    def cancel(self, app: App) -> None:
         app.layers.clear_preview()
         app.selection.update_bbox()
 
 
 @dataclass
 class DragLine(DragAction):
+    """Drag action for moving lines."""
+
     idx: int
     start_mouse: Point
     start_a: Point
@@ -88,7 +94,7 @@ class DragLine(DragAction):
         b = app.snap(Point(x=self.start_b.x + dx, y=self.start_b.y + dy), ignore_grid=alt)
         return a, b
 
-    def update(self, app: App, evt: MotionEvent | tk.Event):
+    def update(self, app: App, evt: MotionEvent | tk.Event) -> None:
         a, b = self._points(app, evt)
         ln = app.params.lines[self.idx]
 
@@ -105,7 +111,7 @@ class DragLine(DragAction):
             x1, y1, x2, y2 = bb
             app.selection.set_outline_bbox(x1, y1, x2, y2)
 
-    def commit(self, app: App, evt: MotionEvent | tk.Event):
+    def commit(self, app: App, evt: MotionEvent | tk.Event) -> None:
         a, b = self._points(app, evt)
         app.layers.clear_preview()
         app.cmd.push_and_do(
@@ -123,22 +129,31 @@ class DragLine(DragAction):
         app._set_selected(Hit_Kind.line, self.idx)
         app.mark_dirty()
 
-    def cancel(self, app: App):
+    def cancel(self, app: App) -> None:
         app.layers.clear_preview()
         app.selection.update_bbox()
 
 
 class Select_Tool(ToolBase):
+    """Tool for selection and dragging."""
+
     name: Tool_Name = Tool_Name.select
     kind: Hit_Kind | None = None
     cursor: TkCursor = TkCursor.ARROW
     tool_hints: str = "Ctrl: Toggle / Add-Marquee  |  Alt: Ignore Grid"
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialise the selection tool."""
         super().__init__()
         self._drag: DragAction | None = None
 
-    def on_press(self, app: App, evt: MotionEvent | tk.Event):
+    def on_press(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle press events for selection and dragging.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         mods = get_mods(evt)
         hit = test_hit(app.canvas, evt.x, evt.y)
 
@@ -196,16 +211,33 @@ class Select_Tool(ToolBase):
 
         self._drag = None
 
-    def on_motion(self, app: App, evt: MotionEvent | tk.Event):
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle motion events for selection drags.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         if self._drag:
             self._drag.update(app, evt)
 
-    def on_release(self, app: App, evt: MotionEvent | tk.Event):
+    def on_release(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle release events for selection drags.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         if self._drag:
             self._drag.commit(app, evt)
             self._drag = None
 
-    def on_cancel(self, app):
+    def on_cancel(self, app: App) -> None:
+        """Cancel any active selection drag.
+
+        Args;
+            app: The application instance.
+        """
         if self._drag:
             self._drag.cancel(app)
             self._drag = None

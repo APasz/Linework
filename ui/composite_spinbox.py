@@ -1,10 +1,15 @@
+"""Composite spinbox widget with increment/decrement buttons."""
+
 import tkinter as tk
+from collections.abc import Callable
 from enum import StrEnum
 from tkinter import ttk
 from typing import Any
 
 
 class Justify(StrEnum):
+    """Text justification options for the entry widget."""
+
     left = "left"
     centre = "center"
     right = "right"
@@ -13,19 +18,34 @@ class Justify(StrEnum):
 class Composite_Spinbox(ttk.Frame):
     def __init__(
         self,
-        master,
+        master: tk.Misc,
         *,
-        from_=0,
-        to=100,
-        increment=1,
+        from_: int | float = 0,
+        to: int | float = 100,
+        increment: int | float = 1,
         textvariable: tk.Variable | None = None,
-        width=6,
-        command=None,
-        wrap=False,
+        width: int = 6,
+        command: Callable[[], None] | None = None,
+        wrap: bool = False,
         state: str = "normal",
         justify: Justify = Justify.right,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> None:
+        """Create a composite spinbox widget.
+
+        Args;
+            master: The parent widget.
+            from_: Minimum value.
+            to: Maximum value.
+            increment: Step size.
+            textvariable: Optional Tk variable for the entry.
+            width: Entry width in characters.
+            command: Optional callback for value changes.
+            wrap: Whether to wrap around at bounds.
+            state: Initial widget state.
+            justify: Entry text justification.
+            **kwargs: Additional ttk.Frame options.
+        """
         super().__init__(master, **kwargs)
         self._min = from_
         self._max = to
@@ -68,13 +88,28 @@ class Composite_Spinbox(ttk.Frame):
 
     # --- public-ish API parity ---
     def get(self) -> str:
+        """Return the current value as a string.
+
+        Returns;
+            The entry value.
+        """
         return self.var.get()
 
-    def set(self, value):
+    def set(self, value: int | float | str) -> None:
+        """Set the current value.
+
+        Args;
+            value: The new value.
+        """
         self.var.set(str(value))
         self._validate_and_clamp(call_command=False)
 
-    def set_justify(self, justify: Justify):
+    def set_justify(self, justify: Justify) -> None:
+        """Set the entry text justification.
+
+        Args;
+            justify: The justification to apply.
+        """
         self.entry.configure(justify=justify.value)
 
     def configure(
@@ -82,6 +117,15 @@ class Composite_Spinbox(ttk.Frame):
         cnf: str | dict[str, Any] | None = None,  # accept str/dict/None like ttk
         **kw: Any,
     ) -> Any:  # may return a tuple when querying a single option
+        """Configure or query options.
+
+        Args;
+            cnf: Optional query key or config dict.
+            **kw: Option values.
+
+        Returns;
+            The queried option tuple, or None.
+        """
         # Query form: spinbox.configure('option')
         if isinstance(cnf, str) and not kw:
             return super().configure(cnf)
@@ -111,10 +155,11 @@ class Composite_Spinbox(ttk.Frame):
 
     # Alias expected by Tk
     def config(self, cnf: str | dict[str, Any] | None = None, **kw: Any) -> Any:
+        """Alias for configure."""
         return self.configure(cnf, **kw)
 
     # --- internals ---
-    def _on_mousewheel(self, e):
+    def _on_mousewheel(self, e: tk.Event) -> str:
         delta = e.delta
         # Windows: +/-120 multiples, macOS: other values; invert if needed
         if delta > 0:
@@ -123,7 +168,7 @@ class Composite_Spinbox(ttk.Frame):
             self._bump_down()
         return "break"
 
-    def _parse(self):
+    def _parse(self) -> int | float:
         s = str(self.var.get()).strip()
         try:
             v = int(s)
@@ -134,12 +179,12 @@ class Composite_Spinbox(ttk.Frame):
                 v = self._min
         return v
 
-    def _format(self, v):
+    def _format(self, v: int | float) -> str:
         if isinstance(self._inc, int) or (isinstance(self._inc, float) and self._inc.is_integer()):
             return str(round(v))
         return f"{v:.6g}"
 
-    def _validate_and_clamp(self, call_command=True):
+    def _validate_and_clamp(self, call_command: bool = True) -> None:
         v = self._parse()
         if not self._wrap:
             v = min(max(v, self._min), self._max)
@@ -147,10 +192,10 @@ class Composite_Spinbox(ttk.Frame):
         if call_command and self._command:
             self._command()
 
-    def _validate_event(self, _e=None):
+    def _validate_event(self, _e: tk.Event | None = None) -> None:
         self._validate_and_clamp(call_command=True)
 
-    def _bump(self, direction: int):
+    def _bump(self, direction: int) -> None:
         v = self._parse()
         step = self._inc * direction
         v_next = v + step
@@ -166,13 +211,21 @@ class Composite_Spinbox(ttk.Frame):
         if self._command:
             self._command()
 
-    def _bump_up(self):
+    def _bump_up(self) -> None:
         self._bump(+1)
 
-    def _bump_down(self):
+    def _bump_down(self) -> None:
         self._bump(-1)
 
-    def state(self, statespec: str | None = None):
+    def state(self, statespec: str | None = None) -> str | None:
+        """Get or set the entry state.
+
+        Args;
+            statespec: Optional state name.
+
+        Returns;
+            The current state when queried.
+        """
         if statespec is None:
             return self.entry.cget("state")
         if statespec == "readonly":

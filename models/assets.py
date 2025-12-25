@@ -1,7 +1,10 @@
+"""Asset formats, builtin icons, and image helpers."""
+
 from __future__ import annotations
 
 import io
 import re
+import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -9,7 +12,6 @@ from functools import lru_cache
 from pathlib import Path
 from shutil import copy2
 from typing import Any, Literal
-import xml.etree.ElementTree as ET
 
 try:
     import cairosvg
@@ -19,9 +21,11 @@ from PIL import Image, ImageDraw
 
 from models.styling import CapStyle, JoinStyle
 
-SVG_SUPPORTED = cairosvg is not None
+SVG_SUPPORTED: bool = cairosvg is not None
 
 class Formats(StrEnum):
+    """Supported file formats for icons and exports."""
+
     webp = "webp"
     png = "png"
     svg = "svg"
@@ -31,6 +35,14 @@ class Formats(StrEnum):
 
     @classmethod
     def check(cls, path: Path) -> "Formats | None":
+        """Return the Formats value for a path, if supported.
+
+        Args;
+            path: The file path to check.
+
+        Returns;
+            The matching Formats value, or None.
+        """
         suf = path.suffix[1:].lower()
         try:
             return Formats(suf)
@@ -39,6 +51,11 @@ class Formats(StrEnum):
 
     @property
     def mime(self) -> str:
+        """Return the MIME type for this format.
+
+        Returns;
+            The MIME type string.
+        """
         return "image/svg+xml" if self is Formats.svg else f"image/{self.value}"
 
 
@@ -47,6 +64,15 @@ NUM = re.compile(r"^\s*(\d+(\.\d+)?)(px|pt|em|ex|in|cm|mm|pc|%)?\s*$")
 
 @lru_cache(maxsize=512)
 def probe_wh(path: Path, fmt: str | None = None) -> tuple[int, int]:
+    """Probe a file for its width and height.
+
+    Args;
+        path: The file path to probe.
+        fmt: Optional format override.
+
+    Returns;
+        The width and height in pixels, or (0, 0) on failure.
+    """
     p = Path(path)
     ext = (fmt or p.suffix[1:]).lower()
     if ext == "svg":
@@ -57,7 +83,7 @@ def probe_wh(path: Path, fmt: str | None = None) -> tuple[int, int]:
             h = root.get("height")
             vb = root.get("viewBox")
 
-            def _num(s):
+            def _num(s: str | None) -> float | None:
                 m = NUM.match(s) if s else None
                 return float(m.group(1)) if m else None
 
@@ -80,12 +106,24 @@ def probe_wh(path: Path, fmt: str | None = None) -> tuple[int, int]:
 
 
 class Asset_Library:
-    def __init__(self, root: Path):
+    """Project-scoped asset library."""
+
+    def __init__(self, root: Path) -> None:
+        """Create an asset library rooted at a project path.
+
+        Args;
+            root: The project root path.
+        """
         self.root = root
         self.icons_dir = root.parent.absolute() / "assets" / "icons"
         self.icons_dir.mkdir(parents=True, exist_ok=True)
 
     def list_pictures(self) -> list[Path]:
+        """List available picture icons.
+
+        Returns;
+            The picture paths.
+        """
         pics = []
         for p in self.icons_dir.iterdir():
             if Formats.check(p):
@@ -94,6 +132,14 @@ class Asset_Library:
         return pics
 
     def import_files(self, paths: list[Path]) -> list[Path]:
+        """Import picture files into the asset library.
+
+        Args;
+            paths: Source file paths to import.
+
+        Returns;
+            The imported file paths.
+        """
         out = []
         for p in paths:
             if not Formats.check(p):
@@ -112,7 +158,14 @@ _ICON_LIB: Asset_Library | None = None
 
 
 def get_asset_library(project_root: Path) -> Asset_Library:
-    """Given a .linework project path, return a cached Asset_Library rooted to it"""
+    """Return a cached Asset_Library rooted to a project path.
+
+    Args;
+        project_root: The .linework project path.
+
+    Returns;
+        The asset library.
+    """
     global _ICON_LIB
     if _ICON_LIB is None or _ICON_LIB.root != project_root:
         _ICON_LIB = Asset_Library(project_root)
@@ -156,6 +209,7 @@ def _open_rgba(src: Path, w: int, h: int) -> Image.Image:
 
 # === Names ===========================================================
 class Icon_Name(StrEnum):
+    """Names for builtin icon definitions."""
     # ---- generic ----
     PLUS = "plus"
     MINUS = "minus"
@@ -192,6 +246,8 @@ class Icon_Name(StrEnum):
 # === Styles ==========================================================
 @dataclass(frozen=True, slots=True)
 class Style:
+    """Visual style for primitives."""
+
     fill: bool = True
     stroke: bool = False
     stroke_width: float = 80.0
@@ -206,13 +262,19 @@ STROKE_THIN = Style(fill=False, stroke=True, stroke_width=60.0)
 
 
 class Primitive:
+    """Base class for drawable primitives."""
+
     style: Style
 
 
 class Primitives:
+    """Namespace for primitive shape definitions."""
+
     # === Primitives (vector) ============================================
     @dataclass(frozen=True, slots=True)
     class Circle(Primitive):
+        """Circle primitive."""
+
         cx: float
         cy: float
         r: float
@@ -220,6 +282,8 @@ class Primitives:
 
     @dataclass(frozen=True, slots=True)
     class Rect(Primitive):
+        """Rectangle primitive."""
+
         x: float
         y: float
         w: float
@@ -230,6 +294,8 @@ class Primitives:
 
     @dataclass(frozen=True, slots=True)
     class Line(Primitive):
+        """Line primitive."""
+
         x1: float
         y1: float
         x2: float
@@ -238,23 +304,31 @@ class Primitives:
 
     @dataclass(frozen=True, slots=True)
     class Polyline(Primitive):
+        """Polyline primitive."""
+
         points: tuple[tuple[float, float], ...]
         closed: bool = False
         style: Style = STROKE
 
     @dataclass(frozen=True, slots=True)
     class Path:
+        """SVG path primitive."""
+
         d: str
         style: Style = STROKE
 
 
 @dataclass(frozen=True, slots=True)
 class IconDef:
+    """Icon definition consisting of primitives and a viewbox."""
+
     viewbox: tuple[float, float, float, float]  # (minx, miny, width, height)
     prims: Sequence[Primitive]
 
 
 class Builtins:
+    """Factory for builtin icon definitions."""
+
     @classmethod
     def _plus(cls) -> IconDef:
         vb = (-500.0, -500.0, 1000.0, 1000.0)
@@ -533,6 +607,14 @@ class Builtins:
 
     @classmethod
     def icon_def(cls, name: Icon_Name) -> IconDef:
+        """Return the builtin icon definition for a name.
+
+        Args;
+            name: The builtin icon name.
+
+        Returns;
+            The icon definition.
+        """
         ICONS: dict[Icon_Name, IconDef] = {
             # --- generic ---
             Icon_Name.PLUS: cls._plus(),
@@ -570,10 +652,15 @@ class Builtins:
 
 
 def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[str, dict[str, Any]]]:
-    """
-    Build a device-agnostic drawing plan for a builtin icon using the single
-    source of truth in Builtins.icon_def. Coordinates are expressed around
-    the origin and scaled to `size` so renderers can translate/rotate.
+    """Build a device-agnostic drawing plan for a builtin icon.
+
+    Args;
+        name: The builtin icon name.
+        size: Target size in pixels.
+        col_svg: The stroke/fill colour in SVG hex.
+
+    Returns;
+        The drawing plan operations.
     """
     idef = Builtins.icon_def(name)
     minx, miny, vbw, vbh = idef.viewbox
@@ -582,7 +669,7 @@ def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[s
     cy = miny + vbh / 2.0
 
     def T(px: float, py: float) -> tuple[int, int]:
-        """Transform idef-space to origin-centered, scaled icon-space."""
+        """Transform idef-space to origin-centred, scaled icon-space."""
         return round((px - cx) * s), round((py - cy) * s)
 
     plan: list[tuple[str, dict[str, Any]]] = []

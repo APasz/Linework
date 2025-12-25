@@ -1,7 +1,9 @@
+"""Draw tool behaviour."""
+
 from __future__ import annotations
 
 import tkinter as tk
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from canvas.layers import Hit_Kind, Layer_Type
 from controllers.commands import Add_Line
@@ -16,12 +18,25 @@ if TYPE_CHECKING:
 
 
 class Draw_Tool(ToolBase):
+    """Tool for drawing lines."""
+
     name: Tool_Name = Tool_Name.draw
     kind: Hit_Kind | None = Hit_Kind.line
     cursor: TkCursor = TkCursor.CROSSHAIR
     tool_hints: str = "Ctrl: Invert Cardinal  |  Shift: Editor  |  Alt: Ignore Grid"
 
-    def preview_line(self, app: App, a: Point, b: Point, **opts) -> int:
+    def preview_line(self, app: App, a: Point, b: Point, **opts: Any) -> int:
+        """Render a preview line on the canvas.
+
+        Args;
+            app: The application instance.
+            a: Start point.
+            b: End point.
+            **opts: Canvas line options.
+
+        Returns;
+            The preview item ID.
+        """
         if use_manual_tk_dash(opts.get("style")):
             self.clear_preview(app)
             app.canvas.create_with_points(
@@ -43,11 +58,22 @@ class Draw_Tool(ToolBase):
             self._preview_ids.append(lid)
         return self._preview_ids[0]
 
-    def on_deactivate(self, app: App):
+    def on_deactivate(self, app: App) -> None:
+        """Handle tool deactivation.
+
+        Args;
+            app: The application instance.
+        """
         super().on_deactivate(app)
         self._start = None
 
-    def on_press(self, app: App, evt: MotionEvent | tk.Event):
+    def on_press(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle press events for line drawing.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         mods = get_mods(evt)
         p0 = app.snap(Point(x=evt.x, y=evt.y), ignore_grid=get_mods(evt).alt)
 
@@ -81,7 +107,13 @@ class Draw_Tool(ToolBase):
 
         self._start = p0
 
-    def on_motion(self, app: App, evt: MotionEvent | tk.Event):
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle motion events for line drawing.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         if not self._start:
             return
         mods = get_mods(evt)
@@ -99,7 +131,13 @@ class Draw_Tool(ToolBase):
             dash_offset=app.params.line_dash_offset,
         )
 
-    def on_release(self, app: App, evt: MotionEvent | tk.Event):
+    def on_release(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle release events for line drawing.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         if not bool(app.var_drag_to_draw.get()):
             return
 
@@ -126,7 +164,12 @@ class Draw_Tool(ToolBase):
 
         self._start = None
 
-    def on_cancel(self, app: App):
+    def on_cancel(self, app: App) -> None:
+        """Cancel the current draw action.
+
+        Args;
+            app: The application instance.
+        """
         self.clear_preview(app)
         self._start = None
 

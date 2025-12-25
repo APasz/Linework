@@ -1,4 +1,5 @@
-# selection.py
+"""Selection overlay rendering and marquee helpers."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -38,7 +39,14 @@ class _SelIds:
 
 
 class SelectionOverlay:
-    def __init__(self, app: App):
+    """Selection overlay drawing and state."""
+
+    def __init__(self, app: App) -> None:
+        """Create a selection overlay manager.
+
+        Args;
+            app: The application instance.
+        """
         self.app = app
         self.canvas: CanvasLW = app.canvas
         self.ids = _SelIds()
@@ -51,10 +59,22 @@ class SelectionOverlay:
 
     # ---------- public API used by App / Select_Tool ----------
 
-    def show(self, kind: Hit_Kind, idx: int):
+    def show(self, kind: Hit_Kind, idx: int) -> None:
+        """Show selection for a single item.
+
+        Args;
+            kind: The hit kind.
+            idx: The item index.
+        """
         self.show_many([(kind, idx)], primary=(kind, idx))
 
-    def show_many(self, items: list[tuple[Hit_Kind, int]], primary: tuple[Hit_Kind, int] | None = None):
+    def show_many(self, items: list[tuple[Hit_Kind, int]], primary: tuple[Hit_Kind, int] | None = None) -> None:
+        """Show selection for multiple items.
+
+        Args;
+            items: The selected items.
+            primary: Optional primary selection.
+        """
         self.kind, self.idx = primary if primary else (None, None)
         self.clear(keep_marquee=True)
 
@@ -88,7 +108,12 @@ class SelectionOverlay:
 
         self.canvas.tag_raise_l(Layer_Type.selection)
 
-    def clear(self, keep_marquee: bool = False):
+    def clear(self, keep_marquee: bool = False) -> None:
+        """Clear selection overlays.
+
+        Args;
+            keep_marquee: Whether to keep marquee selection.
+        """
         try:
             for name in ("outline", "hilite", "handle_a", "handle_b"):
                 iid = getattr(self.ids, name)
@@ -114,12 +139,20 @@ class SelectionOverlay:
         except Exception as xcp:
             print(f"SelectionOverlay.clear;\n{xcp}")
 
-    def update_bbox(self):
+    def update_bbox(self) -> None:
+        """Update selection bounding boxes."""
         items = getattr(self.app, "multi_sel", [])
         primary = (self.kind, self.idx) if (self.kind and self.idx is not None) else None
         self.show_many(list(items), primary=primary)
 
-    def update_line_handles(self, idx: int, a: Point, b: Point):
+    def update_line_handles(self, idx: int, a: Point, b: Point) -> None:
+        """Update line handle positions.
+
+        Args;
+            idx: The line index.
+            a: Endpoint A.
+            b: Endpoint B.
+        """
         try:
             if self.kind != Hit_Kind.line or self.idx != idx:
                 return
@@ -134,7 +167,12 @@ class SelectionOverlay:
 
     # ----- marquee helpers (for Select_Tool to manage drag-select) -----
 
-    def show_marquee(self, a: Point):
+    def show_marquee(self, a: Point) -> None:
+        """Show a marquee selection.
+
+        Args;
+            a: The start point.
+        """
         try:
             if self.ids.marquee is not None and self.canvas.type(self.ids.marquee):
                 self.canvas.delete_lw(self.ids.marquee)
@@ -147,7 +185,13 @@ class SelectionOverlay:
         except Exception as xcp:
             print(f"SelectionOverlay.show_marquee;\n{xcp}")
 
-    def update_marquee(self, a: Point, b: Point):
+    def update_marquee(self, a: Point, b: Point) -> None:
+        """Update marquee selection bounds.
+
+        Args;
+            a: The start point.
+            b: The end point.
+        """
         try:
             if not self.ids.marquee or not self.canvas.type(self.ids.marquee):
                 self.show_marquee(a)
@@ -158,7 +202,8 @@ class SelectionOverlay:
         except Exception as xcp:
             print(f"SelectionOverlay.update_marquee;\n{xcp}")
 
-    def clear_marquee(self):
+    def clear_marquee(self) -> None:
+        """Clear marquee selection."""
         try:
             if self.ids.marquee is not None and self.canvas.type(self.ids.marquee):
                 self.canvas.delete_lw(self.ids.marquee)
@@ -273,12 +318,12 @@ class SelectionOverlay:
             width=1,
         )
 
-    def _move_handle(self, iid: int, cx: float, cy: float):
+    def _move_handle(self, iid: int, cx: float, cy: float) -> None:
         r = HANDLE_R
         self.canvas.coords(iid, cx - r, cy - r, cx + r, cy + r)
 
     # ---------- marching ants internals ----------
-    def _ensure_ants(self):
+    def _ensure_ants(self) -> None:
         """Kick the animation loop if at least one dashed item exists."""
         if self._ants_after_id:
             return
@@ -286,7 +331,7 @@ class SelectionOverlay:
         self._ants_after_id = self.app.root.after(ANTS_MS, self._tick_ants)
         self.canvas.tag_raise_l(Layer_Type.selection)
 
-    def _maybe_stop_ants(self):
+    def _maybe_stop_ants(self) -> None:
         for tag, meta in self._edge_meta.items():
             for iid, _base in meta:
                 if iid and self.canvas.type(iid):
@@ -301,7 +346,7 @@ class SelectionOverlay:
                 pass
             self._ants_after_id = None
 
-    def _tick_ants(self):
+    def _tick_ants(self) -> None:
         self._ants_after_id = None
 
         # Fast path: if nothing dashed exists, bail out
@@ -407,7 +452,7 @@ class SelectionOverlay:
 
         return first_iid or 0
 
-    def set_outline_bbox(self, x1: float, y1: float, x2: float, y2: float):
+    def set_outline_bbox(self, x1: float, y1: float, x2: float, y2: float) -> None:
         if self.ids.outline and self.canvas.type(self.ids.outline):
             self.canvas.coords(self.ids.outline, x1, y1, x2, y2)
         self.ids.outline_bevel = self._make_bevel_segments(x1, y1, x2, y2, _TAG_OUTLINE)

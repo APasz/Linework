@@ -1,15 +1,20 @@
+"""Persistent application parameters and profiles."""
+
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field
 
 from models.geo import Icon_Source, Iconlike, Label, Line
 from models.styling import Anchor, Colour, Colours, LineStyle, Model
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION: int = 1
 PROFILE_EXCLUDE: set[str] = {"lines", "labels", "icons", "recent_icons", "app_version"}
 
 
 class Params(Model):
+    """Pydantic model for all persisted Linework parameters."""
+
     width: int = 1200
     height: int = 600
     grid_colour: Colour = Colours.gray
@@ -43,13 +48,16 @@ class Params(Model):
     version: int = Field(default=SCHEMA_VERSION)
     app_version: str | None = None
 
-    def profile_dict(self) -> dict:
+    def profile_dict(self) -> dict[str, Any]:
+        """Return a dict of profile-safe fields."""
         return self.model_dump(exclude=PROFILE_EXCLUDE, exclude_none=True)
 
     def profile_dump_json(self, *, indent: int = 4) -> str:
+        """Return a JSON string of profile-safe fields."""
         return self.model_dump_json(indent=indent, exclude=PROFILE_EXCLUDE, exclude_none=True)
 
     def apply_profile(self, profile: "Params", *, inplace_palette: bool = False) -> None:
+        """Apply a profile's values to this params instance."""
         for name in type(self).model_fields:
             if name in PROFILE_EXCLUDE:
                 continue

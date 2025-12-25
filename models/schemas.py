@@ -1,8 +1,13 @@
+"""Schema helpers for settings dialogs."""
+
+from typing import Any
+
 from models.geo import Icon_Type
 from models.styling import Anchor, LineStyle
 
 
-def settings_schema() -> list[dict]:
+def settings_schema() -> list[dict[str, Any]]:
+    """Return the settings schema for the UI dialog."""
     styles = [s.value for s in LineStyle]
     anchors = [a.value for a in Anchor]
     return [

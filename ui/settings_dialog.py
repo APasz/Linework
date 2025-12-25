@@ -1,31 +1,51 @@
+"""Settings dialog with diff tracking and validation."""
+
 from __future__ import annotations
 
 import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from collections import OrderedDict
-from collections.abc import Callable
-from tkinter import messagebox, ttk
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from tkinter import messagebox, ttk
+from typing import TYPE_CHECKING, Any
 
 from models.geo import Icon_Type
 from models.version import get_app_version
 from ui.edit_dialog import GenericEditDialog
 
+if TYPE_CHECKING:
+    from controllers.app import App
+
 
 class SettingsDialog(GenericEditDialog):
+    """Settings dialog with save/apply/reset helpers."""
+
     def __init__(
         self,
-        app,
-        title,
-        schema,
-        values,
+        app: App,
+        title: str,
+        schema: Sequence[dict[str, Any]],
+        values: dict[str, Any] | None,
         *,
-        on_save: Callable[[dict], bool | None],
-        on_apply=None,
-        on_reset: Callable[[], dict | None] | None = None,
-        saved_values: dict | None = None,
-    ):
+        on_save: Callable[[dict[str, Any]], bool | None],
+        on_apply: Callable[[dict[str, Any]], bool | None] | None = None,
+        on_reset: Callable[[], dict[str, Any] | None] | None = None,
+        saved_values: dict[str, Any] | None = None,
+    ) -> None:
+        """Create a settings dialog.
+
+        Args;
+            app: The application instance.
+            title: Dialog title.
+            schema: Settings schema fields.
+            values: Initial values.
+            on_save: Callback for saving defaults.
+            on_apply: Callback for applying changes.
+            on_reset: Callback for reset.
+            saved_values: Previously saved values for diff tracking.
+        """
         self.apply_now = False
         self._on_save_cb = on_save
         self._on_apply_cb = on_apply
@@ -48,7 +68,15 @@ class SettingsDialog(GenericEditDialog):
         self._icon_kind_var = None
         super().__init__(app, title, schema, values)
 
-    def body(self, master):
+    def body(self, master: tk.Frame) -> tk.Widget:
+        """Build the dialog body.
+
+        Args;
+            master: The parent frame.
+
+        Returns;
+            The initial focus widget.
+        """
         master.grid_columnconfigure(0, weight=1)
         # header = ttk.Label(master, text="")
         # header.grid(row=0, column=0, sticky="w", padx=6, pady=(6, 6))
@@ -71,7 +99,7 @@ class SettingsDialog(GenericEditDialog):
 
         first_widget = None
 
-        def _add_fields(tab: ttk.Frame, fields: list[dict]) -> None:
+        def _add_fields(tab: ttk.Frame, fields: list[dict[str, Any]]) -> None:
             nonlocal first_widget
             tab.grid_columnconfigure(1, weight=1)
             row = 0
@@ -131,7 +159,8 @@ class SettingsDialog(GenericEditDialog):
         self._setup_diff_tracking()
         return first_widget
 
-    def buttonbox(self):
+    def buttonbox(self) -> None:
+        """Build the dialog button box."""
         box = ttk.Frame(self)
         btn_save = ttk.Button(box, text="Save Defaults", command=self._on_save)
         btn_apply = ttk.Button(box, text="Apply Now", command=self._on_apply)
@@ -145,7 +174,7 @@ class SettingsDialog(GenericEditDialog):
         self.bind("<Return>", lambda e: self._on_save())
         self.bind("<Escape>", lambda e: self.cancel())
 
-    def _on_save(self):
+    def _on_save(self) -> None:
         self.apply_now = False
         if not self._validate_on_submit():
             return
@@ -164,7 +193,7 @@ class SettingsDialog(GenericEditDialog):
                 pass
             self.cancel()
 
-    def _on_apply(self):
+    def _on_apply(self) -> None:
         self.apply_now = True
         if not self._validate_on_submit():
             return
@@ -175,7 +204,7 @@ class SettingsDialog(GenericEditDialog):
         if self._on_apply_cb:
             self._on_apply_cb(getattr(self, "result", {}))
 
-    def _on_reset(self):
+    def _on_reset(self) -> None:
         if not self._on_reset_cb:
             return
         ok = False
@@ -210,7 +239,7 @@ class SettingsDialog(GenericEditDialog):
             return
         self._diff_tracking_ready = True
 
-        def _trigger(*_args):
+        def _trigger(*_args: object) -> None:
             self._update_diff_markers()
 
         for meta in self._meta.values():
@@ -273,7 +302,7 @@ class SettingsDialog(GenericEditDialog):
                 except Exception:
                     pass
 
-    def _read_raw_value(self, name: str, kind: str):
+    def _read_raw_value(self, name: str, kind: str) -> Any | None:
         if kind == "text":
             widget = self.widgets.get(name)
             if isinstance(widget, tk.Text):
@@ -289,8 +318,8 @@ class SettingsDialog(GenericEditDialog):
             return None
 
     @staticmethod
-    def _normalize_for_compare(kind: str, value):
-        def _as_int(val):
+    def _normalize_for_compare(kind: str, value: Any) -> bool | int | float | str | None:
+        def _as_int(val: Any) -> int | None:
             if val is None:
                 return None
             try:
@@ -298,7 +327,7 @@ class SettingsDialog(GenericEditDialog):
             except Exception:
                 return None
 
-        def _as_float(val):
+        def _as_float(val: Any) -> float | None:
             if val is None:
                 return None
             try:
@@ -463,7 +492,8 @@ class SettingsDialog(GenericEditDialog):
         info_label = ttk.Label(tab, text=info_text, justify="left", wraplength=wraplength)
         info_label.grid(row=3, column=0, sticky="w", padx=10, pady=(0, 10))
 
-    def destroy(self):
+    def destroy(self) -> None:
+        """Destroy the dialog and hint popups."""
         self._hide_icon_hint()
         super().destroy()
 
@@ -577,7 +607,7 @@ class SettingsDialog(GenericEditDialog):
         normal = self._entry_base_styles.get(entry) or entry.cget("style") or "TEntry"
         self._entry_base_styles.setdefault(entry, normal)
 
-        def _toggle(on: bool):
+        def _toggle(on: bool) -> None:
             try:
                 entry.configure(style=warn_style if on else normal)
             except Exception:

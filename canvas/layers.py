@@ -1,3 +1,5 @@
+"""Canvas layer tagging and hit testing utilities."""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -8,9 +10,11 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from controllers.app import App
+    from models.geo import CanvasLW
 
 
 class TagNS(StrEnum):
+    """Namespace prefixes for canvas tags."""
     layer = "layer"
     ants = "ants"
     hit = "hit"
@@ -18,12 +22,14 @@ class TagNS(StrEnum):
 
 
 class Hit_Kind(StrEnum):
+    """Kinds of hittable items."""
     line = "line"
     label = "label"
     icon = "icon"
 
 
 class Layer_Type(StrEnum):
+    """Canvas layer identifiers."""
     lines = "lines"
     labels = "labels"
     icons = "icons"
@@ -35,9 +41,11 @@ class Layer_Type(StrEnum):
     handle = TagNS.handle.value
 
     def is_protected(self) -> bool:
+        """Return True if this layer is protected from clearing."""
         return self in {Layer_Type.grid}
 
     def tagns(self) -> TagNS:
+        """Return the namespace for this layer."""
         if self == Layer_Type.handle:
             return TagNS.handle
         if self in {Layer_Type.lines, Layer_Type.labels, Layer_Type.icons}:
@@ -49,6 +57,7 @@ class Layer_Type(StrEnum):
 
 @dataclass(frozen=True)
 class Tag:
+    """Structured tag helper for canvas items."""
     ns: TagNS
     kind: Layer_Type | Hit_Kind | None = None
     idx: int | None = None
@@ -57,18 +66,50 @@ class Tag:
     # --- factories ---
     @staticmethod
     def layer(layer: Layer_Type) -> "Tag":
+        """Create a layer tag.
+
+        Args;
+            layer: The layer type.
+
+        Returns;
+            The tag.
+        """
         return Tag(TagNS.layer, layer)
 
     @staticmethod
     def hit(kind: Hit_Kind, idx: int) -> "Tag":
+        """Create a hit tag.
+
+        Args;
+            kind: The hit kind.
+            idx: The item index.
+
+        Returns;
+            The tag.
+        """
         return Tag(TagNS.hit, kind, idx)
 
     @staticmethod
     def handle(which: str, idx: int, *, parent: Hit_Kind = Hit_Kind.line) -> "Tag":
+        """Create a handle tag.
+
+        Args;
+            which: The handle identifier.
+            idx: The item index.
+            parent: The parent hit kind.
+
+        Returns;
+            The tag.
+        """
         return Tag(TagNS.handle, parent, idx, which)
 
     # --- emission ---
     def to_strings(self) -> tuple[str, ...]:
+        """Return string tags for this Tag.
+
+        Returns;
+            The tag strings.
+        """
         ns = self.ns
         k = self.kind
         i = self.idx
@@ -104,6 +145,14 @@ class Tag:
 
 
 def tags(*parts: Iterable[str | Tag] | Tag) -> tuple[str, ...]:
+    """Combine tags into a deduplicated tuple.
+
+    Args;
+        *parts: Tag parts, strings, or iterables.
+
+    Returns;
+        The unique tag strings.
+    """
     out, seen = [], set()
     for p in parts:
         if isinstance(p, Tag):
@@ -126,6 +175,14 @@ HIT_KINDS = {hk.value: hk for hk in Hit_Kind}
 
 
 def tag_parse(string: str) -> Tag | None:
+    """Parse a single tag string.
+
+    Args;
+        string: The tag string.
+
+    Returns;
+        The parsed Tag, or None.
+    """
     # layer:<name>
     if string.startswith(f"{TagNS.layer.value}:"):
         name = string.split(":", 1)[1]
@@ -152,6 +209,14 @@ def tag_parse(string: str) -> Tag | None:
 
 
 def tag_parse_multi(strings: Iterable[str]) -> list[Tag]:
+    """Parse multiple tag strings.
+
+    Args;
+        strings: Tag strings.
+
+    Returns;
+        Parsed tags.
+    """
     tags = []
     for string in strings:
         if tag := tag_parse(string):
@@ -161,14 +226,26 @@ def tag_parse_multi(strings: Iterable[str]) -> list[Tag]:
 
 @dataclass
 class Hit:
+    """Hit-test result for canvas items."""
+
     kind: Hit_Kind
     tag_idx: int | None = None
     point: str | None = None
 
 
-def test_hit(canvas, x, y):
-    """Pick the nearest valid hit in a small window around (x, y).
-    Bias: if a handle is directly under the pointer, take it immediately."""
+def test_hit(canvas: "CanvasLW", x: int, y: int) -> Hit | None:
+    """Pick the nearest valid hit around a coordinate.
+
+    Bias: if a handle is directly under the pointer, take it immediately.
+
+    Args;
+        canvas: The canvas to test.
+        x: The x coordinate.
+        y: The y coordinate.
+
+    Returns;
+        The hit result, or None.
+    """
     over = list(canvas.find_overlapping(x - 3, y - 3, x + 3, y + 3))
     best: Hit | None = None
     best_key: tuple[int, int] | None = None
@@ -199,12 +276,14 @@ def test_hit(canvas, x, y):
 
 
 class Layer_Manager:
-    def __init__(self, app: App):
+    """Maintain canvas layer ordering and redraws."""
+
+    def __init__(self, app: App) -> None:
         self.canvas = app.canvas
         self.painters = app.painters
         self.canvas.tag_raise_l(Layer_Type.selection)
 
-    def _enforce_z(self):
+    def _enforce_z(self) -> None:
         self.canvas.tag_lower_l(Layer_Type.grid)
         self.canvas.tag_raise_l(Layer_Type.lines)
         self.canvas.tag_raise_l(Layer_Type.icons)
@@ -215,18 +294,18 @@ class Layer_Manager:
         self.canvas.tag_raise_l(Layer_Type.marquee)
 
     # --- clears ---
-    def clear(self, layer: Layer_Type, force: bool = False):
+    def clear(self, layer: Layer_Type, force: bool = False) -> None:
         if not layer:
             return
         if layer.is_protected() and not force:
             return
         self.canvas.delete_lw(layer)
 
-    def clear_many(self, layers: Iterable[Layer_Type]):
+    def clear_many(self, layers: Iterable[Layer_Type]) -> None:
         for layer in layers:
             self.clear(layer)
 
-    def clear_all(self):
+    def clear_all(self) -> None:
         for layer in Layer_Type:
             self.clear(layer, force=True)
         known = {lt.value for lt in Layer_Type}
@@ -235,30 +314,30 @@ class Layer_Manager:
             if not tags.intersection(known):
                 self.canvas.delete_lw(iid)
 
-    def clear_preview(self):
+    def clear_preview(self) -> None:
         self.clear(Layer_Type.preview)
         self._enforce_z()
 
     # --- redraws ---
-    def redraw(self, layer: Layer_Type, /, force: bool = False):
+    def redraw(self, layer: Layer_Type, /, force: bool = False) -> None:
         if not layer:
             return
         self.clear(layer, force)
         self._paint(layer)
         self._enforce_z()
 
-    def redraw_many(self, layers: Iterable[Layer_Type]):
+    def redraw_many(self, layers: Iterable[Layer_Type]) -> None:
         for layer in layers:
             self.redraw(layer)
 
-    def redraw_all(self):
+    def redraw_all(self) -> None:
         self.clear_all()
         for layer in Layer_Type:
             self._paint(layer)
         self._enforce_z()
 
     # --- internals ---
-    def _paint(self, layer: Layer_Type):
+    def _paint(self, layer: Layer_Type) -> None:
         if layer == Layer_Type.lines:
             self.painters.paint_lines()
         elif layer == Layer_Type.labels:

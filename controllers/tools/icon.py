@@ -1,3 +1,5 @@
+"""Icon tool behaviour."""
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -26,16 +28,25 @@ def _describe_icon(src: Icon_Source) -> str:
 
 
 class Icon_Tool(ToolBase):
+    """Tool for placing and editing icons."""
+
     name: Tool_Name = Tool_Name.icon
     kind: Hit_Kind | None = Hit_Kind.icon
     cursor: TkCursor = TkCursor.CROSSHAIR
     tool_hints: str = "Ctrl: Picker  |  Shift: Editor  |  Alt: Ignore Grid"
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialise the icon tool."""
         super().__init__()
         self._drag: DragAction | None = None
 
-    def on_press(self, app: App, evt: MotionEvent | tk.Event):
+    def on_press(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle press events for icon placement.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         if not isinstance(evt, tk.Event):
             return
         mods = get_mods(evt)
@@ -73,7 +84,7 @@ class Icon_Tool(ToolBase):
         app.cmd.push_and_do(Add_Icon(app.params, ico, on_after=lambda: app.layers.redraw(Layer_Type.icons)))
         app.mark_dirty()
 
-        def _src_key(s):
+        def _src_key(s: Icon_Source) -> tuple[str, Icon_Name | None, str]:
             return (s.kind.value, getattr(s, "name", None), str(getattr(s, "src", "")))
 
         rec = []
@@ -93,16 +104,33 @@ class Icon_Tool(ToolBase):
         if getattr(app.params, "default_icon", None) != src:
             app.params.default_icon = src
 
-    def on_motion(self, app: App, evt: MotionEvent | tk.Event):
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle motion events for icon dragging.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         if self._drag:
             self._drag.update(app, evt)
 
-    def on_release(self, app: App, evt: MotionEvent | tk.Event):
+    def on_release(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle release events for icon dragging.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         if self._drag:
             self._drag.commit(app, evt)
             self._drag = None
 
-    def on_cancel(self, app: App):
+    def on_cancel(self, app: App) -> None:
+        """Cancel any active icon drag.
+
+        Args;
+            app: The application instance.
+        """
         if self._drag:
             self._drag.cancel(app)
             self._drag = None

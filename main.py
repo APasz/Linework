@@ -1,12 +1,15 @@
+"""Application entry point for Linework"""
+
 import sys
 import tkinter as tk
 
 from controllers.app import App
 
-MIN_PYTHON = (3, 13)
+MIN_PYTHON: tuple[int, int] = (3, 13)
 
 
-def main():
+def main() -> None:
+    """Run Linework"""
     if sys.version_info < MIN_PYTHON:
         raise RuntimeError("Linework requires Python 3.13+")
     root = tk.Tk()

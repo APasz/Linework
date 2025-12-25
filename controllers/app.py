@@ -1,6 +1,9 @@
+"""Main application controller."""
+
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
@@ -39,7 +42,15 @@ from ui.settings_dialog import SettingsDialog
 
 
 class App:
-    def __init__(self, root: tk.Tk, project_path: Path | None = None):
+    """Linework application controller and UI glue."""
+
+    def __init__(self, root: tk.Tk, project_path: Path | None = None) -> None:
+        """Create the application controller.
+
+        Args;
+            root: The Tk root window.
+            project_path: Optional project path to load.
+        """
         self.root = root
         self.root.title("Linework")
 
@@ -48,9 +59,9 @@ class App:
         self.defaults_path = default_settings_path()
         try:
             self.defaults_profile = IO.load_defaults(self.defaults_path)
-        except Exception as exc:
+        except Exception as xcp:
             self.defaults_profile = Params()
-            self._safe_tk_call(messagebox.showwarning, "Settings load failed", str(exc))
+            self._safe_tk_call(messagebox.showwarning, "Settings load failed", str(xcp))
 
         if self.project_path.exists():
             self.params = IO.load_params(self.project_path)
@@ -160,20 +171,20 @@ class App:
         }
         self.tool_mgr = Tool_Manager(self, self.tools)
         # event routing (single source of truth)
-        self.canvas.bind("<ButtonPress-1>", lambda e: (self.tool_mgr.on_press(e), "break")[-1])
-        self.canvas.bind("<B1-Motion>", lambda e: (self.tool_mgr.on_motion(e), "break")[-1])
+        self.canvas.bind("<ButtonPress-1>", lambda event: (self.tool_mgr.on_press(event), "break")[-1])
+        self.canvas.bind("<B1-Motion>", lambda event: (self.tool_mgr.on_motion(event), "break")[-1])
         self.canvas.bind(
             "<Motion>",
-            lambda e: (
-                self.tool_mgr.on_motion(e),
-                self.status.hold("pos", f"({e.x},{e.y})", priority=-100, side=Side.centre),
+            lambda event: (
+                self.tool_mgr.on_motion(event),
+                self.status.hold("pos", f"({event.x},{event.y})", priority=-100, side=Side.centre),
                 "break",
             )[-1],
         )
-        self.canvas.bind("<ButtonRelease-1>", lambda e: (self.tool_mgr.on_release(e), "break")[-1])
-        self.canvas.bind("<Double-Button-1>", lambda e: (self.on_double_click(e), "break")[-1])
-        self.canvas.bind("<Leave>", lambda e: self.status.clear_centre())
-        self.root.bind("<Escape>", lambda e: self.tool_mgr.cancel())
+        self.canvas.bind("<ButtonRelease-1>", lambda event: (self.tool_mgr.on_release(event), "break")[-1])
+        self.canvas.bind("<Double-Button-1>", lambda event: (self.on_double_click(event), "break")[-1])
+        self.canvas.bind("<Leave>", lambda _event: self.status.clear_centre())
+        self.root.bind("<Escape>", lambda _event: self.tool_mgr.cancel())
         self.root.bind("<Control-a>", self._on_select_all)
         self.root.bind("<Command-a>", self._on_select_all)
 
@@ -197,7 +208,7 @@ class App:
         self.root.bind("<KeyRelease>", self._on_any_key)
         self.root.bind("<KeyPress>", input_mod.handle_key_event, add="+")
         self.root.bind("<KeyRelease>", input_mod.handle_key_event, add="+")
-        self.root.bind("<FocusOut>", lambda _e: input_mod.reset_mods(), add="+")
+        self.root.bind("<FocusOut>", lambda _event: input_mod.reset_mods(), add="+")
 
         # mode activation
         self.mode.trace_add("write", self._on_mode_change)
@@ -231,7 +242,7 @@ class App:
 
     # ========= small app API used by tools =========
     @staticmethod
-    def _safe_tk_call(func, *args, **kwargs):
+    def _safe_tk_call(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         try:
             return func(*args, **kwargs)
         except tk.TclError as exc:
@@ -240,51 +251,90 @@ class App:
             raise
 
     def prompt_text(self, title: str, prompt: str) -> str | None:
+        """Prompt the user for a text value.
+
+        Args;
+            title: Dialog title.
+            prompt: Prompt label.
+
+        Returns;
+            The entered text, or None if cancelled.
+        """
         import tkinter.simpledialog as sd
 
         return self._safe_tk_call(sd.askstring, title, prompt, parent=self.root)
 
-    def layers_redraw(self, *names: Layer_Type):
-        if names:
-            for n in names:
-                self.layers.redraw(n)
+    def layers_redraw(self, *layer_names: Layer_Type) -> None:
+        """Redraw one or more layers.
+
+        Args;
+            *layer_names: Layers to redraw, or none for all.
+        """
+        if layer_names:
+            for layer_name in layer_names:
+                self.layers.redraw(layer_name)
         else:
             self.layers.redraw_all()
 
-    def snap(self, p: Point, *, ignore_grid: bool = False) -> Point:
-        W, H = self.params.width, self.params.height
+    def snap(self, point: Point, *, ignore_grid: bool = False) -> Point:
+        """Clamp or snap a point to grid and bounds.
+
+        Args;
+            point: The input point.
+            ignore_grid: If true, only clamp to bounds.
+
+        Returns;
+            The snapped or clamped point.
+        """
+        width, height = self.params.width, self.params.height
         if ignore_grid or self.params.grid_size <= 0:
-            x = 0 if p.x < 0 else min(p.x, W)
-            y = 0 if p.y < 0 else min(p.y, H)
-            return Point(x=x, y=y)
-        g = self.params.grid_size
-        sx, sy = round(p.x / g) * g, round(p.y / g) * g
-        sx = 0 if sx < 0 else min(sx, (W // g) * g)
-        sy = 0 if sy < 0 else min(sy, (H // g) * g)
-        return Point(x=sx, y=sy)
+            clamped_x = 0 if point.x < 0 else min(point.x, width)
+            clamped_y = 0 if point.y < 0 else min(point.y, height)
+            return Point(x=clamped_x, y=clamped_y)
+        grid_size = self.params.grid_size
+        snapped_x = round(point.x / grid_size) * grid_size
+        snapped_y = round(point.y / grid_size) * grid_size
+        snapped_x = 0 if snapped_x < 0 else min(snapped_x, (width // grid_size) * grid_size)
+        snapped_y = 0 if snapped_y < 0 else min(snapped_y, (height // grid_size) * grid_size)
+        return Point(x=snapped_x, y=snapped_y)
 
     # ========= selection =========
     def _selected(self) -> tuple[Hit_Kind | None, int | None]:
         return self.selection_kind, self.selection_index
 
     def is_selected(self, kind: Hit_Kind, idx: int) -> bool:
+        """Return True if an item is selected.
+
+        Args;
+            kind: The hit kind.
+            idx: The item index.
+
+        Returns;
+            True if selected.
+        """
         return (kind, idx) in self.multi_sel
 
-    def select_clear(self):
+    def select_clear(self) -> None:
+        """Clear the current selection."""
         self.multi_sel.clear()
         self._set_selected(None, None)
         self.selection.clear()
 
-    def select_set(self, items: list[tuple[Hit_Kind, int]]):
-        items = [(k, i) for k, i in items if k and i is not None]
+    def select_set(self, items: list[tuple[Hit_Kind, int]]) -> None:
+        """Replace the selection with the given items.
+
+        Args;
+            items: Selected items.
+        """
+        filtered_items = [(hit_kind, index) for hit_kind, index in items if hit_kind and index is not None]
         self.multi_sel = []
         # make the first item primary if any
-        if items:
-            k0, i0 = items[0]
-            self._set_selected(k0, i0)
-            for k, i in items:
-                if (k, i) not in self.multi_sel:
-                    self.multi_sel.append((k, i))
+        if filtered_items:
+            primary_kind, primary_index = filtered_items[0]
+            self._set_selected(primary_kind, primary_index)
+            for hit_kind, index in filtered_items:
+                if (hit_kind, index) not in self.multi_sel:
+                    self.multi_sel.append((hit_kind, index))
         else:
             self._set_selected(None, None)
         primary = (
@@ -295,11 +345,16 @@ class App:
         self.selection.show_many(self.multi_sel, primary=primary)
         self._status_selected_hint()
 
-    def select_merge(self, items: list[tuple[Hit_Kind, int]]):
+    def select_merge(self, items: list[tuple[Hit_Kind, int]]) -> None:
+        """Merge items into the current selection.
+
+        Args;
+            items: Items to merge.
+        """
         changed = False
-        for k, i in items:
-            if (k, i) not in self.multi_sel:
-                self.multi_sel.append((k, i))
+        for hit_kind, index in items:
+            if (hit_kind, index) not in self.multi_sel:
+                self.multi_sel.append((hit_kind, index))
                 changed = True
         if changed:
             if self.selection_kind and self.multi_sel:
@@ -312,7 +367,14 @@ class App:
             self.selection.show_many(self.multi_sel, primary=primary)
             self._status_selected_hint()
 
-    def select_add(self, kind: Hit_Kind, idx: int, make_primary: bool = False):
+    def select_add(self, kind: Hit_Kind, idx: int, make_primary: bool = False) -> None:
+        """Add an item to the selection.
+
+        Args;
+            kind: The hit kind.
+            idx: The item index.
+            make_primary: Whether to make it primary.
+        """
         if (kind, idx) not in self.multi_sel:
             self.multi_sel.append((kind, idx))
         if make_primary:
@@ -325,7 +387,13 @@ class App:
         self.selection.show_many(self.multi_sel, primary=primary)
         self._status_selected_hint()
 
-    def select_remove(self, kind: Hit_Kind, idx: int):
+    def select_remove(self, kind: Hit_Kind, idx: int) -> None:
+        """Remove an item from the selection.
+
+        Args;
+            kind: The hit kind.
+            idx: The item index.
+        """
         try:
             self.multi_sel.remove((kind, idx))
         except ValueError:
@@ -344,34 +412,34 @@ class App:
         self.selection.show_many(self.multi_sel, primary=primary)
         self._status_selected_hint()
 
-    def _set_selected(self, kind: Hit_Kind | None, idx: int | None):
-        self.selection_kind, self.selection_index = kind, idx
-        if kind and kind and idx is not None:
-            self.multi_sel = [(kind, idx)]
-            self.selection.show_many(self.multi_sel, primary=(kind, idx))
-            if kind == Hit_Kind.line and idx is not None:
-                lin = self.params.lines[idx]
-                _, _, L = lin.unit()
+    def _set_selected(self, hit_kind: Hit_Kind | None, index: int | None) -> None:
+        self.selection_kind, self.selection_index = hit_kind, index
+        if hit_kind and hit_kind and index is not None:
+            self.multi_sel = [(hit_kind, index)]
+            self.selection.show_many(self.multi_sel, primary=(hit_kind, index))
+            if hit_kind == Hit_Kind.line and index is not None:
+                line = self.params.lines[index]
+                _, _, line_length = line.unit()
                 self.status.hold(
                     "sel",
-                    f"Line {idx}: {int(L)}px | width {lin.width} | {lin.style.value}",
+                    f"Line {index}: {int(line_length)}px | width {line.width} | {line.style.value}",
                     priority=10,
                     side=Side.centre,
                 )
-            elif kind == Hit_Kind.label and idx is not None:
-                lab = self.params.labels[idx]
-                preview = (lab.text[:20] + "…") if len(lab.text) > 20 else lab.text
+            elif hit_kind == Hit_Kind.label and index is not None:
+                label = self.params.labels[index]
+                preview = (label.text[:20] + "…") if len(label.text) > 20 else label.text
                 self.status.hold(
                     "sel",
-                    f'Label {idx}: "{preview}"  |  size {lab.size} | rot {lab.rotation}°',
+                    f'Label {index}: "{preview}"  |  size {label.size} | rot {label.rotation}°',
                     priority=10,
                     side=Side.centre,
                 )
-            elif kind == Hit_Kind.icon and idx is not None:
-                ico = self.params.icons[idx]
+            elif hit_kind == Hit_Kind.icon and index is not None:
+                icon = self.params.icons[index]
                 self.status.hold(
                     "sel",
-                    f"Icon {idx}: size {ico.size} | rot {ico.rotation}°",
+                    f"Icon {index}: size {icon.size} | rot {icon.rotation}°",
                     priority=10,
                     side=Side.centre,
                 )
@@ -384,28 +452,57 @@ class App:
             self.selection.clear()
 
     # ========= UI callbacks =========
-    def on_delete(self, _evt=None):
+    def on_delete(self, event: tk.Event | None = None) -> None:
+        """Delete the current selection.
+
+        Args;
+            event: Optional triggering event.
+        """
         self.tool_mgr.cancel()
-        kind, idx = self._selected()
-        targets = list(self.multi_sel) if self.multi_sel else ([(kind, idx)] if kind and idx is not None else [])
+        hit_kind, hit_index = self._selected()
+        if self.multi_sel:
+            targets = list(self.multi_sel)
+        elif hit_kind and hit_index is not None:
+            targets = [(hit_kind, hit_index)]
+        else:
+            targets = []
         if not targets:
             self.status.temp("Nothing selected to delete", 1500)
             return
 
-        subs = []
-        for k, i in sorted(targets, key=lambda t: (t[0].value, -t[1])):
-            if k == Hit_Kind.line:
-                subs.append(Delete_Line(self.params, i, on_after=lambda: self.layers_redraw(Layer_Type.lines)))
-            elif k == Hit_Kind.label:
-                subs.append(Delete_Label(self.params, i, on_after=lambda: self.layers_redraw(Layer_Type.labels)))
-            elif k == Hit_Kind.icon:
-                subs.append(Delete_Icon(self.params, i, on_after=lambda: self.layers_redraw(Layer_Type.icons)))
-        self.cmd.push_and_do(Multi(subs))
-        self.status.temp(f"Deleted {len(subs)} item(s)")
+        subcommands = []
+        for target_kind, target_index in sorted(targets, key=lambda target: (target[0].value, -target[1])):
+            if target_kind == Hit_Kind.line:
+                subcommands.append(
+                    Delete_Line(
+                        self.params,
+                        target_index,
+                        on_after=lambda: self.layers_redraw(Layer_Type.lines),
+                    )
+                )
+            elif target_kind == Hit_Kind.label:
+                subcommands.append(
+                    Delete_Label(
+                        self.params,
+                        target_index,
+                        on_after=lambda: self.layers_redraw(Layer_Type.labels),
+                    )
+                )
+            elif target_kind == Hit_Kind.icon:
+                subcommands.append(
+                    Delete_Icon(
+                        self.params,
+                        target_index,
+                        on_after=lambda: self.layers_redraw(Layer_Type.icons),
+                    )
+                )
+        self.cmd.push_and_do(Multi(subcommands))
+        self.status.temp(f"Deleted {len(subcommands)} item(s)")
         self.select_clear()
         self.mark_dirty()
 
-    def on_style_change(self, *_):
+    def on_style_change(self, *_: Any) -> None:
+        """Apply changes to line style."""
         try:
             self.params.line_style = LineStyle(self.var_line_style.get())
         except Exception:
@@ -413,7 +510,7 @@ class App:
         self.layers_redraw(Layer_Type.lines)
         self.status.temp(f"Line style: {self.params.line_style.value}")
 
-    def _on_mode_change(self, *_):
+    def _on_mode_change(self, *_: Any) -> None:
         name = Tool_Name(self.mode.get())
         self.status.clear_centre()
         self.tool_mgr.activate(name)
@@ -430,49 +527,50 @@ class App:
             return True
         return widget.winfo_class() in {"Entry", "Text", "Spinbox", "TEntry", "TSpinbox", "TCombobox"}
 
-    def _should_handle_global_key(self, evt: tk.Event | None) -> bool:
-        if evt is None:
+    def _should_handle_global_key(self, event: tk.Event | None) -> bool:
+        if event is None:
             return True
-        return not self._is_text_input_widget(getattr(evt, "widget", None))
+        return not self._is_text_input_widget(getattr(event, "widget", None))
 
-    def _on_any_key(self, evt):
-        if not self._should_handle_global_key(evt):
+    def _on_any_key(self, event: tk.Event) -> None:
+        if not self._should_handle_global_key(event):
             return
-        self.tool_mgr.on_key(evt)
+        self.tool_mgr.on_key(event)
 
-    def _on_delete_key(self, evt=None):
-        if not self._should_handle_global_key(evt):
+    def _on_delete_key(self, event: tk.Event | None = None) -> None:
+        if not self._should_handle_global_key(event):
             return
-        self.on_delete(evt)
+        self.on_delete(event)
 
-    def _on_undo_key(self, evt=None):
-        if not self._should_handle_global_key(evt):
+    def _on_undo_key(self, event: tk.Event | None = None) -> None:
+        if not self._should_handle_global_key(event):
             return
-        self.on_undo(evt)
+        self.on_undo(event)
 
-    def _on_redo_key(self, evt=None):
-        if not self._should_handle_global_key(evt):
+    def _on_redo_key(self, event: tk.Event | None = None) -> None:
+        if not self._should_handle_global_key(event):
             return
-        self.on_redo(evt)
+        self.on_redo(event)
 
-    def _on_toggle_grid_key(self, evt=None):
-        if not self._should_handle_global_key(evt):
+    def _on_toggle_grid_key(self, event: tk.Event | None = None) -> None:
+        if not self._should_handle_global_key(event):
             return
-        self.toggle_grid(evt)
+        self.toggle_grid(event)
 
-    def _on_save_key(self, evt=None):
-        if not self._should_handle_global_key(evt):
+    def _on_save_key(self, event: tk.Event | None = None) -> None:
+        if not self._should_handle_global_key(event):
             return
-        if evt is not None and input_mod.get_mods(evt).shift:
+        if event is not None and input_mod.get_mods(event).shift:
             return
         self.save_project()
 
-    def _on_save_as_key(self, evt=None):
-        if not self._should_handle_global_key(evt):
+    def _on_save_as_key(self, event: tk.Event | None = None) -> None:
+        if not self._should_handle_global_key(event):
             return
         self.save_project_as()
 
-    def toggle_grid(self, *_):
+    def toggle_grid(self, *_: Any) -> None:
+        """Toggle grid visibility."""
         self.params.grid_visible = not self.params.grid_visible
         if self.params.grid_visible:
             self.layers.redraw(Layer_Type.grid, True)
@@ -481,7 +579,8 @@ class App:
         self.status.temp("Grid ON" if self.params.grid_visible else "Grid OFF")
         self.mark_dirty()
 
-    def on_grid_change(self, *_):
+    def on_grid_change(self, *_: Any) -> None:
+        """Apply changes to the grid size."""
         try:
             self.params.grid_size = max(0, int(self.var_grid.get()))
         except ValueError:
@@ -492,7 +591,8 @@ class App:
         self.canvas.cache.checker_bg = None
         self.mark_dirty()
 
-    def on_brush_change(self, *_):
+    def on_brush_change(self, *_: Any) -> None:
+        """Apply changes to brush width."""
         try:
             self.params.brush_width = max(1, int(self.var_brush_w.get()))
         except ValueError:
@@ -500,85 +600,95 @@ class App:
         self.status.temp(f"Line width: {self.params.brush_width}")
         self.mark_dirty()
 
-    def on_canvas_size_change(self, *_):
+    def on_canvas_size_change(self, *_: Any) -> None:
+        """Apply changes to the canvas size."""
         try:
-            g = self.params.grid_size
-            w = int(self.var_width_px.get())
-            h = int(self.var_height_px.get())
+            grid_size = self.params.grid_size
+            width = int(self.var_width_px.get())
+            height = int(self.var_height_px.get())
         except ValueError:
             return
-        w = self._snap_dim_to_grid(max(1, w), g)
-        h = self._snap_dim_to_grid(max(1, h), g)
-        self.var_width_px.set(w)
-        self.var_height_px.set(h)
-        self.params.width, self.params.height = w, h
-        self.canvas.config(width=w, height=h)
+        width = self._snap_dim_to_grid(max(1, width), grid_size)
+        height = self._snap_dim_to_grid(max(1, height), grid_size)
+        self.var_width_px.set(width)
+        self.var_height_px.set(height)
+        self.params.width, self.params.height = width, height
+        self.canvas.config(width=width, height=height)
         self.layers.redraw(Layer_Type.grid, True)
-        self.status.temp(f"Canvas {w}×{h}")
+        self.status.temp(f"Canvas {width}×{height}")
         self.mark_dirty()
 
-    def apply_brush_colour(self, *_):
+    def apply_brush_colour(self, *_: Any) -> None:
+        """Apply the current brush colour."""
         raw = (self.var_brush_colour.get().strip() if self.var_brush_colour else "") or "black"
         try:
-            col = Colours.parse_colour(raw)
+            colour = Colours.parse_colour(raw)
         except ValueError:
-            col = Colours.black
-        self.params.brush_colour = col
+            colour = Colours.black
+        self.params.brush_colour = colour
         self.mark_dirty()
         try:
-            self.tbar.palette_brush.set_selected(col.hexah)
+            self.tbar.palette_brush.set_selected(colour.hexah)
         except Exception:
             pass
 
-    def apply_bg_colour(self, *_):
+    def apply_bg_colour(self, *_: Any) -> None:
+        """Apply the current background colour."""
         raw = (self.var_bg_colour.get().strip() if self.var_bg_colour else "") or "white"
         try:
-            col = Colours.parse_colour(raw)
+            colour = Colours.parse_colour(raw)
         except ValueError:
-            col = Colours.white
-        self.params.bg_colour = col
+            colour = Colours.white
+        self.params.bg_colour = colour
         self.mark_dirty()
-        self.canvas.config(bg=(col.hexh if col.alpha else Colours.white.hexh))
+        self.canvas.config(bg=(colour.hexh if colour.alpha else Colours.white.hexh))
         try:
-            self.tbar.palette_bg.set_selected(col.hexah)
+            self.tbar.palette_bg.set_selected(colour.hexah)
         except Exception:
             pass
         self.layers.redraw(Layer_Type.grid, force=True)
 
-    def apply_label_colour(self, *_):
+    def apply_label_colour(self, *_: Any) -> None:
+        """Apply the current label colour."""
         raw = (self.var_label_colour.get().strip() if self.var_label_colour else "") or self.var_brush_colour.get()
         try:
-            col = Colours.parse_colour(raw)
+            colour = Colours.parse_colour(raw)
         except ValueError:
-            col = self.params.brush_colour
-        self.params.label_colour = col
+            colour = self.params.brush_colour
+        self.params.label_colour = colour
         self.mark_dirty()
         try:
-            self.tbar.palette_label.set_selected(col.hexah)
+            self.tbar.palette_label.set_selected(colour.hexah)
         except Exception:
             pass
 
-    def apply_icon_colour(self, *_):
+    def apply_icon_colour(self, *_: Any) -> None:
+        """Apply the current icon colour."""
         raw = (self.var_icon_colour.get().strip() if self.var_icon_colour else "") or self.var_brush_colour.get()
         try:
-            col = Colours.parse_colour(raw)
+            colour = Colours.parse_colour(raw)
         except ValueError:
-            col = self.params.brush_colour
-        self.params.icon_colour = col
+            colour = self.params.brush_colour
+        self.params.icon_colour = colour
         self.mark_dirty()
         try:
-            self.tbar.palette_icon.set_selected(col.hexah)
+            self.tbar.palette_icon.set_selected(colour.hexah)
         except Exception:
             pass
 
-    def _set_custom_colour(self, idx: int, col: Colour | None):
-        self.params.custom_palette[idx] = col
+    def _set_custom_colour(self, index: int, colour: Colour | None) -> None:
+        self.params.custom_palette[index] = colour
         self.mark_dirty()
 
-    def on_double_click(self, evt):
+    def on_double_click(self, event: tk.Event) -> None:
+        """Handle a double-click to edit an item.
+
+        Args;
+            event: The triggering event.
+        """
         self.tool_mgr.cancel()
 
-        hit = test_hit(self.canvas, int(evt.x), int(evt.y))
+        hit = test_hit(self.canvas, int(event.x), int(event.y))
         if not hit or hit.tag_idx is None or not hit.kind:
             return
 
@@ -605,11 +715,17 @@ class App:
     # ========= undo/redo/clear =========
     @property
     def cmd(self) -> Command_Stack:
+        """Return the command stack."""
         if not hasattr(self, "_cmd"):
             self._cmd = Command_Stack()
         return self._cmd
 
-    def on_undo(self, _evt=None):
+    def on_undo(self, event: tk.Event | None = None) -> None:
+        """Undo the last command.
+
+        Args;
+            event: Optional triggering event.
+        """
         self.tool_mgr.cancel()
         self.cmd.undo()
         self.repair_snap_flags(self.params)
@@ -619,7 +735,12 @@ class App:
         self.status.temp("Undo")
         self._set_selected(self.selection_kind, self.selection_index)
 
-    def on_redo(self, _evt=None):
+    def on_redo(self, event: tk.Event | None = None) -> None:
+        """Redo the last undone command.
+
+        Args;
+            event: Optional triggering event.
+        """
         self.tool_mgr.cancel()
         self.cmd.redo()
         self.repair_snap_flags(self.params)
@@ -629,7 +750,12 @@ class App:
         self.status.temp("Redo")
         self._set_selected(self.selection_kind, self.selection_index)
 
-    def on_clear(self, _evt=None):  # unwired but kept just in case
+    def on_clear(self, event: tk.Event | None = None) -> None:  # unwired but kept just in case
+        """Clear all items.
+
+        Args;
+            event: Optional triggering event.
+        """
         self.tool_mgr.cancel()
         self.params.lines.clear()
         self.params.labels.clear()
@@ -639,46 +765,79 @@ class App:
         self.mark_dirty()
         self.status.temp("Cleared")
 
-    def on_file_opened(self, path: Path):
+    def on_file_opened(self, path: Path) -> None:
+        """Update status after opening a file.
+
+        Args;
+            path: The opened file path.
+        """
         self.status.set(f"Opened: {path.name}")
 
-    def on_file_saved(self, path: Path):
+    def on_file_saved(self, path: Path) -> None:
+        """Update status after saving a file.
+
+        Args;
+            path: The saved file path.
+        """
         self.status.set(f"Saved: {path.name}")
 
-    def on_ready(self):
+    def on_ready(self) -> None:
+        """Set status to ready."""
         self.status.set("Ready")
 
-    def on_hover_xy(self, x: int, y: int):
-        self.status.set_centre(f"({x}, {y})")
+    def on_hover_xy(self, pos_x: int, pos_y: int) -> None:
+        """Update hover status with coordinates.
 
-    def on_move_element(self, old_xy: tuple[int, int], new_xy: tuple[int, int]):
-        ox, oy = old_xy
-        nx, ny = new_xy
-        self.status.temp(f"({ox},{oy}) → ({nx},{ny})", ms=2000)
+        Args;
+            pos_x: X coordinate.
+            pos_y: Y coordinate.
+        """
+        self.status.set_centre(f"({pos_x}, {pos_y})")
 
-    def _status_hints_set(self):
+    def on_move_element(self, old_xy: tuple[int, int], new_xy: tuple[int, int]) -> None:
+        """Report a move from one point to another.
+
+        Args;
+            old_xy: Original coordinates.
+            new_xy: New coordinates.
+        """
+        old_x, old_y = old_xy
+        new_x, new_y = new_xy
+        self.status.temp(f"({old_x},{old_y}) → ({new_x},{new_y})", ms=2000)
+
+    def _status_hints_set(self) -> None:
         # use a stable key so you update instead of stacking
         self.status.hold("hints", self.tool_mgr.current.tool_hints, side=Side.right, priority=0)
         self._status_selected_hint()
 
-    def _status_selected_hint(self):
-        n = len(self.multi_sel)
-        if n <= 1:
+    def _status_selected_hint(self) -> None:
+        selection_count = len(self.multi_sel)
+        if selection_count <= 1:
             self.status.release("sel_count")
         else:
-            self.status.hold("sel_count", f"{n} selected", side=Side.centre, priority=5)
+            self.status.hold(
+                "sel_count",
+                f"{selection_count} selected",
+                side=Side.centre,
+                priority=5,
+            )
 
-    def on_icon_selected(self, icon_name: str):
+    def on_icon_selected(self, icon_name: str) -> None:
+        """Update status when an icon is selected.
+
+        Args;
+            icon_name: The icon name.
+        """
         self.status.temp(f"Icon: {icon_name}", ms=1500)
 
     # ---- keys ----
-    def _on_select_all(self, _evt=None):
-        if not self._should_handle_global_key(_evt):
+    def _on_select_all(self, event: tk.Event | None = None) -> None:
+        if not self._should_handle_global_key(event):
             return
         items: list[tuple[Hit_Kind, int]] = []
-        items += [(Hit_Kind.line, i) for i in range(len(self.params.lines))]
-        items += [(Hit_Kind.label, i) for i in range(len(self.params.labels))]
-        items += [(Hit_Kind.icon, i) for i in range(len(self.params.icons))]
+        items += [(Hit_Kind.line, index) for index in range(len(self.params.lines))]
+        items += [(Hit_Kind.label, index) for index in range(len(self.params.labels))]
+        items += [(Hit_Kind.icon, index) for index in range(len(self.params.icons))]
         self.select_set(items)
 
     # ========= export / persistence =========
@@ -686,7 +845,7 @@ class App:
     def _autosave_path(self) -> Path:
         return self.project_path.with_suffix(f"{self.project_path.suffix}.autosave")
 
-    def _maybe_autosave(self):
+    def _maybe_autosave(self) -> None:
         if self.project_path.name.startswith("untitled"):
             return
         if self.autosave_every <= 0:
@@ -699,22 +858,23 @@ class App:
             except Exception:
                 pass
 
-    def export_image(self):
-        initialfile = self.params.output_file.name
+    def export_image(self) -> None:
+        """Export the current project to an image."""
+        initial_file = self.params.output_file.name
         path = self._safe_tk_call(
             filedialog.asksaveasfilename,
             parent=self.root,
             title="Export",
             defaultextension=self.params.output_file.suffix,
-            filetypes=[(t.upper(), f"*.{t.lower()}") for t in Formats],
+            filetypes=[(fmt.upper(), f"*.{fmt.lower()}") for fmt in Formats],
             initialdir=self.params.output_file.parent,
-            initialfile=initialfile,
+            initialfile=initial_file,
         )
         if not path:
             return
 
-        out = Path(path)
-        if not Formats.check(out):
+        output_path = Path(path)
+        if not Formats.check(output_path):
             self._safe_tk_call(
                 messagebox.showerror,
                 "Invalid filetype",
@@ -722,26 +882,31 @@ class App:
             )
             return
 
-        self.params.output_file = out
+        self.params.output_file = output_path
         try:
             Exporter.output(self.params)
-        except Exception as e:
-            self._safe_tk_call(messagebox.showerror, "Export failed", str(e))
+        except Exception as xcp:
+            self._safe_tk_call(messagebox.showerror, "Export failed", str(xcp))
             return
 
         try:
             IO.save_params(self.params, self.project_path)
         except Exception:
             pass
-        self.status.set(f"Exported: {out}")
+        self.status.set(f"Exported: {output_path}")
 
     def save_project(self) -> bool:
+        """Save the current project.
+
+        Returns;
+            True on success.
+        """
         if not self.project_path or self.project_path.name.startswith("untitled"):
             return self.save_project_as()
         try:
             IO.save_params(self.params, self.project_path)
-        except Exception as e:
-            self._safe_tk_call(messagebox.showerror, "Save failed", str(e))
+        except Exception as xcp:
+            self._safe_tk_call(messagebox.showerror, "Save failed", str(xcp))
             return False
         self.mark_clean()
         self.on_file_saved(self.project_path)
@@ -750,6 +915,11 @@ class App:
         return True
 
     def save_project_as(self) -> bool:
+        """Save the current project to a new path.
+
+        Returns;
+            True on success.
+        """
         previous_path = self.project_path
         path = self._safe_tk_call(
             filedialog.asksaveasfilename,
@@ -770,7 +940,8 @@ class App:
                 previous_path.with_suffix(f"{previous_path.suffix}.autosave").unlink(missing_ok=True)
         return ok
 
-    def new_project(self):
+    def new_project(self) -> None:
+        """Create a new project, discarding current changes if allowed."""
         if not self._maybe_proceed():
             return
         self.project_path = Path("untitled.linework")
@@ -791,7 +962,8 @@ class App:
         self.mark_clean()
         self.status.set("New Project")
 
-    def open_project(self):
+    def open_project(self) -> None:
+        """Open an existing project, discarding current changes if allowed."""
         if not self._maybe_proceed():
             return
         path = self._safe_tk_call(
@@ -804,8 +976,8 @@ class App:
             return
         try:
             params = IO.load_params(Path(path))
-        except Exception as e:
-            self._safe_tk_call(messagebox.showerror, "Open failed", str(e))
+        except Exception as xcp:
+            self._safe_tk_call(messagebox.showerror, "Open failed", str(xcp))
             return
         self.project_path = Path(path)
         self.params = params
@@ -825,7 +997,7 @@ class App:
 
     # ========= helpers =========
 
-    def _reset_canvas_caches(self):
+    def _reset_canvas_caches(self) -> None:
         self.canvas.cache.checker_bg = None
         self.canvas.cache.checker_ref = None
         self.canvas.cache.imgs.clear()
@@ -834,22 +1006,22 @@ class App:
         if hasattr(self.canvas, "_item_images"):
             self.canvas._item_images.clear()
 
-    def _snap_dim_to_grid(self, var: int, grid: int) -> int:
+    def _snap_dim_to_grid(self, value: int, grid: int) -> int:
         if grid <= 0:
-            return max(1, var)
-        return max(grid, round(var / grid) * grid)
+            return max(1, value)
+        return max(grid, round(value / grid) * grid)
 
     @staticmethod
-    def repair_snap_flags(params):
-        g = params.grid_size
-        for lb in params.labels:
-            if g > 0 and ((lb.p.x % g) or (lb.p.y % g)):
-                lb.snap = False
-        for ic in params.icons:
-            if g > 0 and ((ic.p.x % g) or (ic.p.y % g)):
-                ic.snap = False
+    def repair_snap_flags(params: Params) -> None:
+        grid_size = params.grid_size
+        for label in params.labels:
+            if grid_size > 0 and ((label.p.x % grid_size) or (label.p.y % grid_size)):
+                label.snap = False
+        for icon in params.icons:
+            if grid_size > 0 and ((icon.p.x % grid_size) or (icon.p.y % grid_size)):
+                icon.snap = False
 
-    def _sync_icon_from_combo(self, *_):
+    def _sync_icon_from_combo(self, *_: Any) -> None:
         try:
             src = Icon_Source.builtin(Icon_Name(self.var_icon.get()))
         except Exception:
@@ -860,7 +1032,7 @@ class App:
             self.params.default_icon = src
             self.mark_dirty()
 
-    def _apply_default_icon_source(self, src: Icon_Source | None):
+    def _apply_default_icon_source(self, src: Icon_Source | None) -> None:
         if not src:
             src = Icon_Source.builtin(Icon_Name.SIGNAL)
         self.current_icon = src
@@ -872,7 +1044,7 @@ class App:
         else:
             self.var_icon_label.set("Unknown")
 
-    def _sync_vars_from_params(self):
+    def _sync_vars_from_params(self) -> None:
         self.repair_snap_flags(self.params)
         self.var_grid.set(self.params.grid_size)
         self.var_width_px.set(self.params.width)
@@ -888,7 +1060,8 @@ class App:
         self._apply_default_icon_source(self.params.default_icon)
         self.canvas.config(width=self.params.width, height=self.params.height, bg=self.params.bg_colour.hexh)
 
-    def open_settings(self):
+    def open_settings(self) -> None:
+        """Open the settings dialog."""
         schema = settings_schema()
         values = self._settings_values_from_params(self.params)
         saved_values = self._settings_values_from_params(self.defaults_profile)
@@ -898,8 +1071,8 @@ class App:
             new_profile = self._settings_from_dialog(data, base_profile)
             try:
                 IO.save_defaults(new_profile, self.defaults_path)
-            except Exception as exc:
-                self._safe_tk_call(messagebox.showerror, "Settings save failed", str(exc))
+            except Exception as xcp:
+                self._safe_tk_call(messagebox.showerror, "Settings save failed", str(xcp))
                 return False
             self.defaults_profile = new_profile
             self.status.temp("Defaults saved", 1500)
@@ -914,8 +1087,8 @@ class App:
             nonlocal base_profile
             try:
                 self.defaults_path.unlink(missing_ok=True)
-            except Exception as exc:
-                self._safe_tk_call(messagebox.showerror, "Settings reset failed", str(exc))
+            except Exception as xcp:
+                self._safe_tk_call(messagebox.showerror, "Settings reset failed", str(xcp))
                 return None
             self.defaults_profile = Params()
             base_profile = self.defaults_profile.model_copy()
@@ -1042,7 +1215,7 @@ class App:
         }
         return base.model_copy(update=updates)
 
-    def _apply_defaults_to_current(self, profile: Params):
+    def _apply_defaults_to_current(self, profile: Params) -> None:
         self.params.apply_profile(profile, inplace_palette=True)
         self._sync_vars_from_params()
         self._apply_size_increments(self.params.grid_size)
@@ -1056,18 +1229,18 @@ class App:
         self.selection.update_bbox()
         self.mark_dirty()
 
-    def _apply_size_increments(self, g: int):
-        step = max(1, g)
+    def _apply_size_increments(self, grid_size: int) -> None:
+        step = max(1, grid_size)
         self.tbar.spin_w.configure(increment=step, from_=step)
         self.tbar.spin_h.configure(increment=step, from_=step)
 
-        w = self._snap_dim_to_grid(self.params.width, g)
-        h = self._snap_dim_to_grid(self.params.height, g)
-        if (w, h) != (self.params.width, self.params.height):
-            self.params.width, self.params.height = w, h
-            self.var_width_px.set(w)
-            self.var_height_px.set(h)
-            self.canvas.config(width=w, height=h)
+        width = self._snap_dim_to_grid(self.params.width, grid_size)
+        height = self._snap_dim_to_grid(self.params.height, grid_size)
+        if (width, height) != (self.params.width, self.params.height):
+            self.params.width, self.params.height = width, height
+            self.var_width_px.set(width)
+            self.var_height_px.set(height)
+            self.canvas.config(width=width, height=height)
             self.layers.redraw(Layer_Type.grid, True)
 
     def _maybe_proceed(self) -> bool:
@@ -1084,11 +1257,11 @@ class App:
             return self.save_project()
         return True
 
-    def _on_drag_to_draw_change(self, *_):
+    def _on_drag_to_draw_change(self, *_: Any) -> None:
         self.tool_mgr.cancel()
         try:
-            v = self.var_drag_to_draw.get()
-            on = bool(int(v)) if not isinstance(v, bool) else v
+            value = self.var_drag_to_draw.get()
+            on = bool(int(value)) if not isinstance(value, bool) else value
         except Exception:
             on = bool(self.var_drag_to_draw.get())
         if getattr(self.params, "drag_to_draw", on) != on:
@@ -1096,11 +1269,11 @@ class App:
             self.mark_dirty()
         self.status.set_centre("Draw: drag to draw" if on else "Draw: click-click mode")
 
-    def _on_cardinal_change(self, *_):
+    def _on_cardinal_change(self, *_: Any) -> None:
         self.tool_mgr.cancel()
         try:
-            v = self.var_cardinal.get()
-            on = bool(int(v)) if not isinstance(v, bool) else v
+            value = self.var_cardinal.get()
+            on = bool(int(value)) if not isinstance(value, bool) else value
         except Exception:
             on = bool(self.var_cardinal.get())
         if getattr(self.params, "cardinal_snap", on) != on:
@@ -1108,20 +1281,26 @@ class App:
             self.mark_dirty()
         self.status.set_centre("Draw: Cardinal Snap" if on else "Draw: Grid Snap")
 
-    def _on_close(self):
+    def _on_close(self) -> None:
         if self._maybe_proceed():
             self.root.destroy()
 
-    def _update_title(self):
+    def _update_title(self) -> None:
         name = self.project_path.name if self.project_path else "Untitled"
         star = " *" if self.dirty else ""
         self.root.title(f"Linework — {name}{star}")
 
-    def mark_dirty(self, _reason: str = ""):
+    def mark_dirty(self, _reason: str = "") -> None:
+        """Mark the project as dirty.
+
+        Args;
+            _reason: Optional reason for the change.
+        """
         self.dirty = True
         self._update_title()
         self._maybe_autosave()
 
-    def mark_clean(self):
+    def mark_clean(self) -> None:
+        """Mark the project as clean."""
         self.dirty = False
         self._update_title()

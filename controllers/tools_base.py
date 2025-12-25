@@ -1,3 +1,5 @@
+"""Base tool behaviours and drag actions."""
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -12,15 +14,15 @@ from models.geo import CanvasLW, Point
 from models.params import Params
 from models.styling import TkCursor
 from ui.bars import Bars, Tool_Name
-from ui.input import MotionEvent, get_mods
+from ui.input import Modifiers, MotionEvent, get_mods
 
 if TYPE_CHECKING:
     from controllers.app import App
 
-CLAMP_DRAG_BBOX = True
+CLAMP_DRAG_BBOX: bool = True
 
 
-def _visible_viewport_bbox(canvas) -> tuple[int, int, int, int] | None:
+def _visible_viewport_bbox(canvas: tk.Canvas) -> tuple[int, int, int, int] | None:
     try:
         x1 = int(canvas.canvasx(0))
         y1 = int(canvas.canvasy(0))
@@ -33,7 +35,7 @@ def _visible_viewport_bbox(canvas) -> tuple[int, int, int, int] | None:
 
 @dataclass(slots=True)
 class ToolContext:
-    """Narrow interface Tools actually need. Pass your App if you want, but this keeps coupling sane."""
+    """Narrow interface tools actually need."""
 
     canvas: CanvasLW
     params: Params
@@ -47,19 +49,21 @@ class ToolContext:
 
 @runtime_checkable
 class Tool(Protocol):
+    """Protocol for tool implementations."""
+
     name: Tool_Name
     cursor: TkCursor
     kind: Hit_Kind | None
     tool_hints: str
 
-    def on_activate(self, app: App): ...
-    def on_deactivate(self, app: App): ...
+    def on_activate(self, app: App) -> None: ...
+    def on_deactivate(self, app: App) -> None: ...
 
-    def on_press(self, app: App, evt: MotionEvent | tk.Event): ...
-    def on_motion(self, app: App, evt: MotionEvent | tk.Event): ...
-    def on_release(self, app: App, evt: MotionEvent | tk.Event): ...
-    def on_key(self, app: App, evt: MotionEvent | tk.Event): ...
-    def on_cancel(self, app: App): ...
+    def on_press(self, app: App, evt: MotionEvent | tk.Event) -> None: ...
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event) -> None: ...
+    def on_release(self, app: App, evt: MotionEvent | tk.Event) -> None: ...
+    def on_key(self, app: App, evt: MotionEvent | tk.Event) -> None: ...
+    def on_cancel(self, app: App) -> None: ...
 
 
 class ToolBase:
@@ -70,61 +74,126 @@ class ToolBase:
     kind: Hit_Kind | None = None
     tool_hints: str
 
-    def __init__(self):
+    def __init__(self) -> None:
+        """Initialise tool base state."""
         self._preview_ids: list[int] = []
         self._start: Point | None = None
 
-    def on_activate(self, app: App):
+    def on_activate(self, app: App) -> None:
+        """Handle tool activation.
+
+        Args;
+            app: The application instance.
+        """
         pass
 
-    def on_deactivate(self, app: App):
+    def on_deactivate(self, app: App) -> None:
+        """Handle tool deactivation.
+
+        Args;
+            app: The application instance.
+        """
         self.clear_preview(app)
 
     def moved_enough(self, a: Point, b: Point, tol: int = 1) -> bool:
+        """Return True if the distance exceeds the tolerance.
+
+        Args;
+            a: First point.
+            b: Second point.
+            tol: Pixel tolerance.
+
+        Returns;
+            True if the move exceeds the tolerance.
+        """
         dx, dy = a.x - b.x, a.y - b.y
         return (dx * dx + dy * dy) >= (tol * tol)
 
-    def clear_preview(self, app: App):
+    def clear_preview(self, app: App) -> None:
+        """Clear preview drawings for this tool.
+
+        Args;
+            app: The application instance.
+        """
         app.layers.clear_preview()
         self._preview_ids.clear()
 
-    def on_press(self, app: App, evt: MotionEvent | tk.Event):
+    def on_press(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle press events.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         pass
 
-    def on_motion(self, app: App, evt: MotionEvent | tk.Event):
+    def on_motion(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle motion events.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         pass
 
-    def on_release(self, app: App, evt: MotionEvent | tk.Event):
+    def on_release(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle release events.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         pass
 
-    def on_key(self, app: App, evt: MotionEvent | tk.Event):
+    def on_key(self, app: App, evt: MotionEvent | tk.Event) -> None:
+        """Handle key events.
+
+        Args;
+            app: The application instance.
+            evt: The event.
+        """
         pass
 
-    def on_cancel(self, app: App):
+    def on_cancel(self, app: App) -> None:
+        """Handle tool cancellation.
+
+        Args;
+            app: The application instance.
+        """
         pass
 
 
 class DragAction(Protocol):
     """Tiny state objects for Select_Tool drags: update/commit/cancel."""
 
-    def update(self, app: App, evt: MotionEvent | tk.Event): ...
-    def commit(self, app: App, evt: MotionEvent | tk.Event): ...
-    def cancel(self, app: App): ...
+    def update(self, app: App, evt: MotionEvent | tk.Event) -> None: ...
+    def commit(self, app: App, evt: MotionEvent | tk.Event) -> None: ...
+    def cancel(self, app: App) -> None: ...
 
     @staticmethod
-    def ignore_grid_for(snap_enabled: bool, mods) -> bool:
-        """True if grid should be ignored for this move."""
+    def ignore_grid_for(snap_enabled: bool, mods: Modifiers) -> bool:
+        """Return True if grid should be ignored for this move.
+
+        Args;
+            snap_enabled: Whether snapping is enabled.
+            mods: The modifier state.
+
+        Returns;
+            True if the grid should be ignored.
+        """
         return mods.alt or not snap_enabled
 
 
 @dataclass(slots=True)
 class DragLabel(DragAction):
+    """Drag action for moving a label."""
+
     idx: int
     start: Point
     offset_dx: int
     offset_dy: int
 
-    def update(self, app, evt: MotionEvent | tk.Event):
+    def update(self, app: App, evt: MotionEvent | tk.Event) -> None:
         mods = get_mods(evt)
         lab = app.params.labels[self.idx]
         p = app.snap(
@@ -158,7 +227,7 @@ class DragLabel(DragAction):
                 ox1, oy1, ox2, oy2 = app.canvas.coords(sel.ids.outline)
                 app.selection.set_outline_bbox(ox1 + dx, oy1 + dy, ox2 + dx, oy2 + dy)
 
-    def commit(self, app: App, evt: MotionEvent | tk.Event):
+    def commit(self, app: App, evt: MotionEvent | tk.Event) -> None:
         mods = get_mods(evt)
         lab = app.params.labels[self.idx]
         p = app.snap(
@@ -185,19 +254,21 @@ class DragLabel(DragAction):
         app._set_selected(Hit_Kind.label, self.idx)
         app.mark_dirty()
 
-    def cancel(self, app):
+    def cancel(self, app: App) -> None:
         app.layers.clear_preview()
         app.selection.update_bbox()
 
 
 @dataclass(slots=True)
 class DragIcon(DragAction):
+    """Drag action for moving an icon."""
+
     idx: int
     start: Point
     offset_dx: int
     offset_dy: int
 
-    def update(self, app: App, evt: MotionEvent | tk.Event):
+    def update(self, app: App, evt: MotionEvent | tk.Event) -> None:
         mods = get_mods(evt)
         ico = app.params.icons[self.idx]
         p = app.snap(
@@ -227,7 +298,7 @@ class DragIcon(DragAction):
         except Exception:
             pass
 
-    def commit(self, app: App, evt: MotionEvent | tk.Event):
+    def commit(self, app: App, evt: MotionEvent | tk.Event) -> None:
         mods = get_mods(evt)
         ico = app.params.icons[self.idx]
         p = app.snap(
@@ -254,21 +325,23 @@ class DragIcon(DragAction):
         app._set_selected(Hit_Kind.icon, self.idx)
         app.mark_dirty()
 
-    def cancel(self, app):
+    def cancel(self, app: App) -> None:
         app.layers.clear_preview()
         app.selection.update_bbox()
 
 
 @dataclass(slots=True)
 class DragMarquee(DragAction):
+    """Drag action for selection marquees."""
+
     a: Point
     add: bool = False
 
-    def update(self, app, evt: MotionEvent | tk.Event):
+    def update(self, app: App, evt: MotionEvent | tk.Event) -> None:
         b = app.snap(Point(x=evt.x, y=evt.y))
         app.selection.update_marquee(self.a, b)
 
-    def commit(self, app, evt: MotionEvent | tk.Event):
+    def commit(self, app: App, evt: MotionEvent | tk.Event) -> None:
         b = app.snap(Point(x=evt.x, y=evt.y))
         x1, y1 = min(self.a.x, b.x), min(self.a.y, b.y)
         x2, y2 = max(self.a.x, b.x), max(self.a.y, b.y)
@@ -292,7 +365,7 @@ class DragMarquee(DragAction):
         else:
             app.select_set(hits)
 
-    def cancel(self, app):
+    def cancel(self, app: App) -> None:
         app.selection.clear_marquee()
 
 
@@ -311,7 +384,7 @@ class DragGroup(DragAction):
         mods = get_mods(evt)
         return (evt.x - self.start_mouse.x, evt.y - self.start_mouse.y, mods.alt)
 
-    def update(self, app: App, evt: MotionEvent | tk.Event):
+    def update(self, app: App, evt: MotionEvent | tk.Event) -> None:
         dx, dy, alt = self._delta(app, evt)
         app.layers.clear_preview()
 
@@ -387,7 +460,7 @@ class DragGroup(DragAction):
     #    app.selection.update_bbox()
     #    app.mark_dirty()
 
-    def commit(self, app, evt):
+    def commit(self, app: App, evt: MotionEvent | tk.Event) -> None:
         dx, dy, alt = self._delta(app, evt)
         app.layers.clear_preview()
         subs = []
@@ -431,7 +504,7 @@ class DragGroup(DragAction):
         app.selection.update_bbox()
         app.mark_dirty()
 
-    def cancel(self, app):
+    def cancel(self, app: App) -> None:
         app.layers.clear_preview()
         app.selection.update_bbox()
 
@@ -439,14 +512,25 @@ class DragGroup(DragAction):
 class Tool_Manager:
     """Owns the current tool, routes events, handles activation/deactivation."""
 
-    def __init__(self, app: App, tools: dict[Tool_Name, Tool]):
+    def __init__(self, app: App, tools: dict[Tool_Name, Tool]) -> None:
+        """Create a tool manager.
+
+        Args;
+            app: The application instance.
+            tools: Available tools by name.
+        """
         self.app = app
         self.tools = tools
         self.current: Tool = next(iter(tools.values()))
         self._motion_pending: bool = False
         self._last_motion: MotionEvent | None = None
 
-    def activate(self, name: Tool_Name):
+    def activate(self, name: Tool_Name) -> None:
+        """Activate a tool by name.
+
+        Args;
+            name: The tool name to activate.
+        """
         if hasattr(self.current, "on_deactivate"):
             self.current.on_deactivate(self.app)
 
@@ -461,17 +545,27 @@ class Tool_Manager:
         self.app.canvas.config(cursor=cur.value if isinstance(cur, TkCursor) else "")
         self.app.canvas.tag_raise_l(Layer_Type.selection)
 
-    def on_press(self, evt: MotionEvent | tk.Event):
+    def on_press(self, evt: MotionEvent | tk.Event) -> None:
+        """Dispatch a press event to the active tool.
+
+        Args;
+            evt: The event.
+        """
         setattr(evt, "mods", get_mods(evt))
         self.current.on_press(self.app, evt)
 
-    def on_motion(self, evt: MotionEvent | tk.Event):
+    def on_motion(self, evt: MotionEvent | tk.Event) -> None:
+        """Dispatch a motion event to the active tool.
+
+        Args;
+            evt: The event.
+        """
         self._last_motion = MotionEvent(evt.x, evt.y, getattr(evt, "state", 0))
         if self._motion_pending:
             return
         self._motion_pending = True
 
-        def _dispatch():
+        def _dispatch() -> None:
             self._motion_pending = False
             if self._last_motion is None:
                 return
@@ -481,13 +575,24 @@ class Tool_Manager:
 
         self.app.canvas.after_idle(_dispatch)
 
-    def on_release(self, evt: MotionEvent | tk.Event):
+    def on_release(self, evt: MotionEvent | tk.Event) -> None:
+        """Dispatch a release event to the active tool.
+
+        Args;
+            evt: The event.
+        """
         setattr(evt, "mods", get_mods(evt))
         self.current.on_release(self.app, evt)
 
-    def on_key(self, evt: MotionEvent | tk.Event):
+    def on_key(self, evt: MotionEvent | tk.Event) -> None:
+        """Dispatch a key event to the active tool.
+
+        Args;
+            evt: The event.
+        """
         setattr(evt, "mods", get_mods(evt))
         self.current.on_key(self.app, evt)
 
-    def cancel(self):
+    def cancel(self) -> None:
+        """Cancel the active tool."""
         self.current.on_cancel(self.app)

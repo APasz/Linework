@@ -1,3 +1,5 @@
+"""Input helpers for modifier tracking and motion events."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -19,6 +21,8 @@ _ALT_MASK_WIN32 = 0x20000
 
 
 class ModifierTracker:
+    """Track modifier key state across events."""
+
     def __init__(self) -> None:
         self.shift = False
         self.ctrl = False
@@ -27,6 +31,11 @@ class ModifierTracker:
         self.windowing: str | None = None
 
     def update(self, evt: tk.Event) -> None:
+        """Update modifier state from a key event.
+
+        Args;
+            evt: The Tk event.
+        """
         evt_type = str(getattr(evt, "type", ""))
         if evt_type in _KEYPRESS_EVENT_TYPES:
             down = True
@@ -45,6 +54,14 @@ class ModifierTracker:
             self.meta = down
 
     def snapshot(self, state: int = 0) -> "Modifiers":
+        """Return a Modifiers snapshot for a given state mask.
+
+        Args;
+            state: The event state bitmask.
+
+        Returns;
+            The modifier snapshot.
+        """
         # Prefer tracked keys for cross-platform correctness; masks are fallback for mouse events.
         shift = bool(state & _SHIFT_MASK) or self.shift
         ctrl = bool(state & _CTRL_MASK) or self.ctrl
@@ -54,6 +71,7 @@ class ModifierTracker:
         return Modifiers(shift=shift, ctrl=ctrl, alt=alt)
 
     def reset(self) -> None:
+        """Reset tracked modifier state."""
         self.shift = False
         self.ctrl = False
         self.alt = False
@@ -65,6 +83,8 @@ _mods = ModifierTracker()
 
 @dataclass(frozen=True, slots=True)
 class Modifiers:
+    """Frozen snapshot of modifier states."""
+
     shift: bool
     ctrl: bool
     alt: bool
@@ -72,6 +92,8 @@ class Modifiers:
 
 @dataclass(slots=True)
 class MotionEvent:
+    """Simplified motion event container."""
+
     x: int
     y: int
     state: int
@@ -79,6 +101,14 @@ class MotionEvent:
 
 
 def get_mods(evt: tk.Event | MotionEvent | int | None) -> Modifiers:
+    """Return modifiers for an event or state value.
+
+    Args;
+        evt: The event, motion event, state mask, or None.
+
+    Returns;
+        The modifier snapshot.
+    """
     if isinstance(evt, tk.Event):
         if _mods.windowing is None and getattr(evt, "widget", None) is not None:
             try:
@@ -99,6 +129,11 @@ def get_mods(evt: tk.Event | MotionEvent | int | None) -> Modifiers:
 
 
 def handle_key_event(evt: tk.Event) -> None:
+    """Process a key event to update modifier tracking.
+
+    Args;
+        evt: The Tk key event.
+    """
     if _mods.windowing is None and getattr(evt, "widget", None) is not None:
         try:
             _mods.windowing = evt.widget.tk.call("tk", "windowingsystem")
@@ -108,4 +143,5 @@ def handle_key_event(evt: tk.Event) -> None:
 
 
 def reset_mods() -> None:
+    """Reset the global modifier tracker."""
     _mods.reset()

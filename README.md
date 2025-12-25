@@ -6,7 +6,7 @@ Linework is a small Tkinter app for drawing simple track diagrams and line drawi
 
 ## Features
 - Draw lines with grid and cardinal snapping, multiple line styles, and adjustable widths
-- Labels with size, rotation, color, and anchor controls
+- Labels with size, rotation, colour, and anchor controls
 - Built-in icon library (railway and electrical), plus importable picture icons
 - Select, move, resize, and multi-select items with undo/redo
 - Export to SVG, PNG, WEBP, JPG, and BMP
@@ -43,4 +43,4 @@ python main.py
 - Imported icons are copied into `assets/icons` next to the project
 
 ## Optional dependencies
-- `cairosvg` enables SVG icon import and SVG-based rasterization. On Linux it requires Cairo/Pango system libraries.
+- `cairosvg` enables SVG icon import and SVG-based rasterisation. On Linux it requires Cairo/Pango system libraries.

@@ -1,3 +1,5 @@
+"""Toolbar, header, and status bar widgets."""
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -5,6 +7,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from tkinter import ttk
+from typing import TypeVar
 
 from PIL import Image, ImageTk
 
@@ -15,20 +18,34 @@ from ui.composite_spinbox import Composite_Spinbox
 
 
 class Tool_Name(StrEnum):
+    """Tool mode identifiers."""
+
     draw = "draw"
     label = "label"
     icon = "icon"
     select = "select"
 
 
+TWidget = TypeVar("TWidget", bound=tk.Widget)
+
+
 @dataclass
 class Palette_Handles:
+    """Handles for a colour palette widget."""
+
     frame: ttk.Frame
     set_selected: Callable[[str], None]
     "call with colour hexa"
 
 
-def _checker_photo(master, w=20, h=20, tile=4, a="#eeeeee", b="#cccccc") -> ImageTk.PhotoImage:
+def _checker_photo(
+    master: tk.Misc,
+    w: int = 20,
+    h: int = 20,
+    tile: int = 4,
+    a: str = "#eeeeee",
+    b: str = "#cccccc",
+) -> ImageTk.PhotoImage:
     img = Image.new("RGB", (w, h), a)
     for y in range(0, h, tile):
         start = ((y // tile) % 2) * tile
@@ -56,16 +73,27 @@ def _draw_swatch(canvas: CanvasLW, col: Colour, *, outline: str) -> int:
 
 
 class Colour_Palette(ttk.Frame):
+    """Palette button with a popup grid of colours."""
+
     _open_owner: "Colour_Palette | None" = None
 
     def __init__(
         self,
-        master,
+        master: tk.Misc,
         colours: Iterable[Colour],
         on_select: Callable[[str], None],
         custom: list[Colour | None] | None = None,
         on_update_custom: Callable[[int, Colour | None], None] | None = None,
-    ):
+    ) -> None:
+        """Create a colour palette widget.
+
+        Args;
+            master: The parent widget.
+            colours: The palette colours.
+            on_select: Callback when a colour is selected.
+            custom: Optional custom colours.
+            on_update_custom: Optional callback when custom colours change.
+        """
         super().__init__(master)
         self._on_select = on_select
         self._colours = list(colours)
@@ -85,7 +113,7 @@ class Colour_Palette(ttk.Frame):
         self._btn.bind("<Button-1>", self._toggle_popup)
 
     # ------- popup -------
-    def _toggle_popup(self, _evt=None):
+    def _toggle_popup(self, _evt: tk.Event | None = None) -> None:
         if self._popup:
             self._close_popup()
         else:
@@ -96,7 +124,7 @@ class Colour_Palette(ttk.Frame):
                     pass
             self._open_popup()
 
-    def _open_popup(self, _evt=None):
+    def _open_popup(self, _evt: tk.Event | None = None) -> None:
         self._close_popup()
         Colour_Palette._open_owner = self
         top = tk.Toplevel(self)
@@ -152,7 +180,7 @@ class Colour_Palette(ttk.Frame):
         top.bind("<Destroy>", self._on_popup_destroy, add="+")
         top.after_idle(self._arm_outside_handlers)
 
-    def _on_popup_destroy(self, _e=None):
+    def _on_popup_destroy(self, _e: tk.Event | None = None) -> None:
         try:
             self.unbind_all("<Escape>")
             self.unbind_all("<ButtonRelease-1>")
@@ -163,7 +191,7 @@ class Colour_Palette(ttk.Frame):
         if Colour_Palette._open_owner is self:
             Colour_Palette._open_owner = None
 
-    def _close_popup(self):
+    def _close_popup(self) -> None:
         if self._popup is not None:
             try:
                 self.unbind_all("<Escape>")
@@ -180,17 +208,17 @@ class Colour_Palette(ttk.Frame):
             if Colour_Palette._open_owner is self:
                 Colour_Palette._open_owner = None
 
-    def _arm_outside_handlers(self):
+    def _arm_outside_handlers(self) -> None:
         if not self._popup:
             return
         self._popup.update_idletasks()
-        self.bind_all("<Escape>", lambda _e: self._close_popup(), add="+")
+        self.bind_all("<Escape>", lambda _evt: self._close_popup(), add="+")
         self.bind_all("<ButtonRelease-1>", self._maybe_close_on_click, add="+")
 
     def _ask_custom_colour(self, initial: Colour | None) -> Colour | None:
         return ask_colour(self, initial)
 
-    def _edit_custom(self, idx: int, initial: Colour | None):
+    def _edit_custom(self, idx: int, initial: Colour | None) -> None:
         self._close_popup()
         try:
             col = self._ask_custom_colour(initial)
@@ -205,17 +233,17 @@ class Colour_Palette(ttk.Frame):
             self._on_update_custom(idx, col)
         self._select(col.hexah)
 
-    def _clear_custom(self, idx: int):
+    def _clear_custom(self, idx: int) -> None:
         self._custom[idx] = None
         if self._on_update_custom:
             self._on_update_custom(idx, None)
         self._close_popup()
 
-    def _maybe_close_on_click(self, e):
+    def _maybe_close_on_click(self, evt: tk.Event) -> None:
         if not self._popup or not self._popup.winfo_exists():
             self._popup = None
             return
-        x, y = e.x_root, e.y_root
+        x, y = evt.x_root, evt.y_root
         px, py = self._popup.winfo_rootx(), self._popup.winfo_rooty()
         pw, ph = self._popup.winfo_width(), self._popup.winfo_height()
         inside = (px <= x < px + pw) and (py <= y < py + ph)
@@ -231,11 +259,11 @@ class Colour_Palette(ttk.Frame):
         self._close_popup()
 
     # ------- selection -------
-    def _select(self, name: str):
+    def _select(self, name: str) -> None:
         self._on_select(name)
         self._update_highlight(name)
 
-    def _update_highlight(self, selected: str):
+    def _update_highlight(self, selected: str) -> None:
         try:
             col = next((c for c in self._colours if c.hexah == selected), None) or Colours.parse_colour(selected)
             if col.alpha == 0:
@@ -252,11 +280,15 @@ class Colour_Palette(ttk.Frame):
 
 @dataclass
 class Header_Handles:
+    """Handles for the header bar widgets."""
+
     frame: ttk.Frame
 
 
 @dataclass
 class Toolbar_Handles:
+    """Handles for the toolbar widgets."""
+
     frame: ttk.Frame
     spin_grid: Composite_Spinbox
     spin_brush: Composite_Spinbox
@@ -272,6 +304,8 @@ class Toolbar_Handles:
 
 
 class Side(StrEnum):
+    """Status bar sides."""
+
     left = "left"
     centre = "centre"
     right = "right"
@@ -279,6 +313,8 @@ class Side(StrEnum):
 
 @dataclass(order=True)
 class _Overlay:
+    """Overlay entry for the status bar."""
+
     sort_key: tuple[int, int] = field(init=False, repr=False)
     key: str
     text: str
@@ -286,12 +322,14 @@ class _Overlay:
     side: Side = Side.left
     seq: int = 0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.sort_key = (-self.priority, self.seq)
 
 
 class Status_Handles(ttk.Frame):
-    def __init__(self, master, status: "Bars.Status"):
+    """Status bar widget container."""
+
+    def __init__(self, master: tk.Misc, status: "Bars.Status") -> None:
         super().__init__(master)
         self.frame = self
 
@@ -311,14 +349,30 @@ class Status_Handles(ttk.Frame):
 
 
 class Bars:
+    """Factory helpers for UI bars."""
+
     @classmethod
-    def create_status(cls, master, status: "Bars.Status") -> Status_Handles:
+    def create_status(cls, master: tk.Misc, status: "Bars.Status") -> Status_Handles:
+        """Create and pack the status bar.
+
+        Args;
+            master: The parent widget.
+            status: The status state container.
+
+        Returns;
+            The status bar handles.
+        """
         strip = Status_Handles(master, status)
         strip.pack(fill="x", side="bottom")
         return strip
 
     @staticmethod
-    def _add_labeled(master: ttk.Frame, make_widget, text: str = "", right_label: bool = False):
+    def _add_labeled(
+        master: ttk.Frame,
+        make_widget: Callable[[ttk.Frame], TWidget],
+        text: str = "",
+        right_label: bool = False,
+    ) -> TWidget:
         f = ttk.Frame(master)
         if not right_label and text:
             ttk.Label(f, text=text).pack(side="left")
@@ -332,10 +386,20 @@ class Bars:
     @classmethod
     def create_palette(
         cls,
-        master,
+        master: tk.Misc,
         colours: Iterable[Colour],
         on_select: Callable[[str], None],
     ) -> Palette_Handles:
+        """Create a palette button and return its handles.
+
+        Args;
+            master: The parent widget.
+            colours: The palette colours.
+            on_select: Callback on selection.
+
+        Returns;
+            The palette handles.
+        """
         pal = Colour_Palette(master, colours, on_select)
         pal.pack(side="right", padx=8)
         return Palette_Handles(frame=pal, set_selected=pal._update_highlight)
@@ -343,20 +407,38 @@ class Bars:
     @classmethod
     def create_header(
         cls,
-        master,
+        master: tk.Misc,
         mode_var: tk.StringVar,
-        on_toggle_grid,
-        on_undo,
-        on_redo,
-        on_save,
-        on_export,
-        on_new,
-        on_open,
-        on_save_as,
-        on_settings,
+        on_toggle_grid: Callable[[], None],
+        on_undo: Callable[[], None],
+        on_redo: Callable[[], None],
+        on_save: Callable[[], bool | None],
+        on_export: Callable[[], None],
+        on_new: Callable[[], None],
+        on_open: Callable[[], None],
+        on_save_as: Callable[[], bool | None],
+        on_settings: Callable[[], None],
         icon_label_var: tk.StringVar | None = None,
-    ):
-        """Builds the header strip and returns handles."""
+    ) -> Header_Handles:
+        """Build the header strip and return handles.
+
+        Args;
+            master: The parent widget.
+            mode_var: The tool mode variable.
+            on_toggle_grid: Grid toggle callback.
+            on_undo: Undo callback.
+            on_redo: Redo callback.
+            on_save: Save callback.
+            on_export: Export callback.
+            on_new: New project callback.
+            on_open: Open callback.
+            on_save_as: Save-as callback.
+            on_settings: Settings callback.
+            icon_label_var: Optional icon label variable.
+
+        Returns;
+            The header handles.
+        """
         frame = ttk.Frame(master)
         frame.pack(fill="x", side="top")
 
@@ -385,7 +467,7 @@ class Bars:
     @classmethod
     def create_toolbar(
         cls,
-        master,
+        master: tk.Misc,
         grid_var: tk.IntVar,
         brush_var: tk.IntVar,
         width_var: tk.IntVar,
@@ -393,18 +475,42 @@ class Bars:
         drag_to_draw_var: tk.BooleanVar,
         cardinal_var: tk.BooleanVar,
         style_var: tk.StringVar,
-        on_grid_change,
-        on_brush_change,
-        on_canvas_size_change,
-        on_style_change,
-        on_palette_select_brush,
-        on_palette_select_bg,
-        on_palette_select_label,
-        on_palette_select_icon,
+        on_grid_change: Callable[[], None],
+        on_brush_change: Callable[[], None],
+        on_canvas_size_change: Callable[[], None],
+        on_style_change: Callable[[], None],
+        on_palette_select_brush: Callable[[str], None],
+        on_palette_select_bg: Callable[[str], None],
+        on_palette_select_label: Callable[[str], None],
+        on_palette_select_icon: Callable[[str], None],
         custom_palette: list[Colour | None] | None = None,
         on_update_custom: Callable[[int, Colour | None], None] | None = None,
-    ):
-        """Builds the toolbar strip and returns widget handles."""
+    ) -> Toolbar_Handles:
+        """Build the toolbar strip and return widget handles.
+
+        Args;
+            master: The parent widget.
+            grid_var: Grid size variable.
+            brush_var: Brush width variable.
+            width_var: Canvas width variable.
+            height_var: Canvas height variable.
+            drag_to_draw_var: Drag-to-draw toggle variable.
+            cardinal_var: Cardinal snap toggle variable.
+            style_var: Line style variable.
+            on_grid_change: Grid change callback.
+            on_brush_change: Brush change callback.
+            on_canvas_size_change: Canvas size callback.
+            on_style_change: Style change callback.
+            on_palette_select_brush: Brush colour selection callback.
+            on_palette_select_bg: Background colour selection callback.
+            on_palette_select_label: Label colour selection callback.
+            on_palette_select_icon: Icon colour selection callback.
+            custom_palette: Optional custom palette.
+            on_update_custom: Optional custom palette update callback.
+
+        Returns;
+            The toolbar handles.
+        """
         frame = ttk.Frame(master)
         frame.pack(fill="x", side="top")
 
@@ -492,7 +598,7 @@ class Bars:
         )
         style_var.trace_add("write", lambda *_: on_style_change())
 
-        def _make_brush(p):
+        def _make_brush(p: ttk.Frame) -> Colour_Palette:
             return Colour_Palette(
                 p,
                 Colours.list(min_alpha=25),
@@ -504,7 +610,7 @@ class Bars:
         brush_widget = cls._add_labeled(frame, _make_brush, "Brush:")
         pal_brush = Palette_Handles(frame=brush_widget, set_selected=brush_widget._update_highlight)
 
-        def _make_bg(p):
+        def _make_bg(p: ttk.Frame) -> Colour_Palette:
             return Colour_Palette(
                 p,
                 Colours.list(),
@@ -516,7 +622,7 @@ class Bars:
         bg_widget = cls._add_labeled(frame, _make_bg, "BG:")
         pal_bg = Palette_Handles(frame=bg_widget, set_selected=bg_widget._update_highlight)
 
-        def _make_label(p):
+        def _make_label(p: ttk.Frame) -> Colour_Palette:
             return Colour_Palette(
                 p,
                 Colours.list(min_alpha=25),
@@ -528,7 +634,7 @@ class Bars:
         lb_widget = cls._add_labeled(frame, _make_label, "Label:")
         pal_label = Palette_Handles(frame=lb_widget, set_selected=lb_widget._update_highlight)
 
-        def _make_icon(p):
+        def _make_icon(p: ttk.Frame) -> Colour_Palette:
             return Colour_Palette(
                 p,
                 Colours.list(min_alpha=25),
@@ -561,7 +667,14 @@ class Bars:
         )
 
     class Status:
-        def __init__(self, root: tk.Misc):
+        """Status bar state and overlay management."""
+
+        def __init__(self, root: tk.Misc) -> None:
+            """Create a status manager bound to a Tk root.
+
+            Args;
+                root: The Tk root for scheduling callbacks.
+            """
             self.var_left = tk.StringVar(value="Ready")
             self.var_centre = tk.StringVar(value="")
             self.var_right = tk.StringVar(value="")
@@ -577,27 +690,51 @@ class Bars:
             self._centre_key = "__centre__"
 
         # ---- base ----
-        def set(self, text: str):
+        def set(self, text: str) -> None:
+            """Set the base left status text.
+
+            Args;
+                text: The status text.
+            """
             self._base_left = text
             self._render()
 
         # ---- centre sugar ----
-        def set_centre(self, text: str):
+        def set_centre(self, text: str) -> None:
+            """Set or clear the centre status text.
+
+            Args;
+                text: The centre text.
+            """
             if text:
                 self.hold(self._centre_key, text, priority=-10, side=Side.centre)
             else:
                 self.release(self._centre_key)
 
-        def clear_centre(self):
+        def clear_centre(self) -> None:
+            """Clear the centre status text."""
             self.release(self._centre_key)
 
         # ---- held overlays (persistent until release) ----
-        def hold(self, key: str, text: str, *, priority: int = 0, side: Side = Side.left):
+        def hold(self, key: str, text: str, *, priority: int = 0, side: Side = Side.left) -> None:
+            """Hold an overlay until released.
+
+            Args;
+                key: Overlay identifier.
+                text: Overlay text.
+                priority: Higher values win.
+                side: Which side to display on.
+            """
             self._seq += 1
             self._held[key] = _Overlay(key=key, text=text, priority=priority, side=side, seq=self._seq)
             self._render()
 
-        def release(self, key: str):
+        def release(self, key: str) -> None:
+            """Release a held overlay.
+
+            Args;
+                key: Overlay identifier.
+            """
             if key in self._held:
                 del self._held[key]
                 if self._temp_key == key:
@@ -605,7 +742,15 @@ class Bars:
                 self._render()
 
         # ---- temporary overlays (auto-clear) ----
-        def temp(self, text: str, ms: int = 1500, *, priority: int = 50, side: Side = Side.centre):
+        def temp(self, text: str, ms: int = 1500, *, priority: int = 50, side: Side = Side.centre) -> None:
+            """Show a temporary overlay.
+
+            Args;
+                text: Overlay text.
+                ms: Duration in milliseconds.
+                priority: Priority of the overlay.
+                side: Which side to display on.
+            """
             # cancel previous timer
             if self._temp_after:
                 try:
@@ -620,13 +765,14 @@ class Bars:
             self._temp_key = key
             self._temp_after = self._root.after(ms, self._clear_temp)
 
-        def _clear_temp(self):
+        def _clear_temp(self) -> None:
             if self._temp_key:
                 self.release(self._temp_key)
             self._temp_after = None
 
         # ---- clear all ----
-        def clear(self):
+        def clear(self) -> None:
+            """Clear all status text and overlays."""
             self._base_left = ""
             self._held.clear()
             if self._temp_after:
@@ -639,7 +785,7 @@ class Bars:
             self._render()
 
         # ---- render ----
-        def _render(self):
+        def _render(self) -> None:
             self.var_left.set(self._pick_side(Side.left) or self._base_left)
             self.var_centre.set(self._pick_side(Side.centre) or "")
             self.var_right.set(self._pick_side(Side.right) or "")

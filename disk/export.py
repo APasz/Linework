@@ -1,3 +1,5 @@
+"""Export helpers for rendering Linework to files."""
+
 from __future__ import annotations
 
 import base64
@@ -21,6 +23,8 @@ SVG_STRICT_PARITY = False
 
 
 class RASTERISERS(StrEnum):
+    """Supported rasterisation backends."""
+
     pil = "pil"
     cairosvg = "cairosvg"
     resvg = "resvg"
@@ -48,6 +52,17 @@ def _col_and_opacity(col: Colour) -> tuple[str, str]:
 
 
 def extend_span_for_projecting(a: float, b: float, r: float, L: float) -> tuple[float, float]:
+    """Extend a dash span for projecting caps.
+
+    Args;
+        a: Span start.
+        b: Span end.
+        r: Cap radius.
+        L: Total length.
+
+    Returns;
+        The extended span.
+    """
     return max(0.0, a - r), min(L, b + r)
 
 
@@ -103,7 +118,7 @@ def _svg_line_fast(line: Line) -> str:
     )
 
 
-def _svg_line_strict(lin) -> list[str]:
+def _svg_line_strict(lin: Line) -> list[str]:
     ux, uy, L = lin.unit()
     if L <= 0 or int(lin.width) <= 0:
         return []
@@ -155,7 +170,7 @@ def _svg_line_strict(lin) -> list[str]:
 # SVG render of plan
 
 
-def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]):
+def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]) -> None:
     def _dash_attrs(kw: dict[str, Any]) -> str:
         width = int(kw.get("width", 1) or 1)
         style = kw.get("style", None)
@@ -269,7 +284,9 @@ def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]):
 # PIL render of plan
 
 
-def _emit_pil_plan(img: Image.Image, plan: list[tuple[str, dict[str, Any]]], cx: int, cy: int, rot_deg: int):
+def _emit_pil_plan(
+    img: Image.Image, plan: list[tuple[str, dict[str, Any]]], cx: int, cy: int, rot_deg: int
+) -> None:
     needs_rot = (rot_deg % 360) != 0
     if needs_rot:
         box = max(
@@ -387,7 +404,7 @@ def _rgba(svg_hex: str) -> tuple[int, int, int, int]:
 # PIL dashed stroker for Lines
 
 
-def _stroke_dashed_line(draw: ImageDraw.ImageDraw, line: Line):
+def _stroke_dashed_line(draw: ImageDraw.ImageDraw, line: Line) -> None:
     ux, uy, L = line.unit()
     if L <= 0 or int(line.width) <= 0:
         return
@@ -435,10 +452,23 @@ def _stroke_dashed_line(draw: ImageDraw.ImageDraw, line: Line):
 
 
 class Exporter:
+    """Export Linework params to supported formats."""
+
     supported: dict[Formats, Callable[[Params], Path]] = {}
 
     @classmethod
     def output(cls, params: Params) -> Path:
+        """Route export to the appropriate handler based on params.
+
+        Args;
+            params: The export parameters.
+
+        Returns;
+            The output path.
+
+        Raises;
+            ValueError: If the output format is unsupported.
+        """
         fmt = Formats.check(params.output_file)
         func = cls.supported.get(fmt) if fmt else None
         if not fmt or not func:
@@ -447,6 +477,11 @@ class Exporter:
 
     @classmethod
     def match_supported(cls) -> dict[Formats, Callable[[Params], Path]]:
+        """Populate and return the supported format handlers.
+
+        Returns;
+            The format handler mapping.
+        """
         sups: dict[Formats, Callable[[Params], Path]] = {}
         for fmt in Formats:
             handler = getattr(cls, fmt.name, None)
@@ -557,7 +592,7 @@ class Exporter:
         if RASTER_BACKEND is RASTERISERS.pil:
             frame = Exporter._draw(params)
         else:
-            png_bytes = _rasterize_via_svg(params, Formats.png, Exporter._svg_string(params))
+            png_bytes = _rasterise_via_svg(params, Formats.png, Exporter._svg_string(params))
             if png_bytes is None:
                 raise RuntimeError("Failed to rasterise to PNG for RGB export")
             frame = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
@@ -570,48 +605,96 @@ class Exporter:
     # Public handlers
     @staticmethod
     def svg(params: Params) -> Path:
+        """Export as SVG.
+
+        Args;
+            params: The export parameters.
+
+        Returns;
+            The output path.
+        """
         params.output_file.write_text(Exporter._svg_string(params), encoding="utf-8")
         return params.output_file
 
     @classmethod
     def webp(cls, params: Params) -> Path:
+        """Export as WebP.
+
+        Args;
+            params: The export parameters.
+
+        Returns;
+            The output path.
+        """
         if RASTER_BACKEND is RASTERISERS.pil:
             frame = cls._draw(params)
             frame.save(params.output_file, format=Formats.webp.upper(), lossless=True, method=6)
         else:
-            raster = _rasterize_via_svg(params, Formats.webp, cls._svg_string(params))
+            raster = _rasterise_via_svg(params, Formats.webp, cls._svg_string(params))
             if raster is not None:
                 params.output_file.write_bytes(raster)
         return params.output_file
 
     @classmethod
     def png(cls, params: Params) -> Path:
+        """Export as PNG.
+
+        Args;
+            params: The export parameters.
+
+        Returns;
+            The output path.
+        """
         if RASTER_BACKEND is RASTERISERS.pil:
             frame = cls._draw(params)
             frame.save(params.output_file, format=Formats.png.upper())
         else:
-            raster = _rasterize_via_svg(params, Formats.png, cls._svg_string(params))
+            raster = _rasterise_via_svg(params, Formats.png, cls._svg_string(params))
             if raster is not None:
                 params.output_file.write_bytes(raster)
         return params.output_file
 
     @classmethod
     def jpg(cls, params: Params) -> Path:
+        """Export as JPG.
+
+        Args;
+            params: The export parameters.
+
+        Returns;
+            The output path.
+        """
         return cls._save_via_pil_rgb(params, Formats.jpg)
 
     @classmethod
     def jpeg(cls, params: Params) -> Path:
+        """Export as JPEG.
+
+        Args;
+            params: The export parameters.
+
+        Returns;
+            The output path.
+        """
         return cls._save_via_pil_rgb(params, Formats.jpeg)
 
     @classmethod
     def bmp(cls, params: Params) -> Path:
+        """Export as BMP.
+
+        Args;
+            params: The export parameters.
+
+        Returns;
+            The output path.
+        """
         return cls._save_via_pil_rgb(params, Formats.bmp)
 
 
 # Raster sub-painters (PIL)
 
 
-def _draw_grid(draw: ImageDraw.ImageDraw, params: Params):
+def _draw_grid(draw: ImageDraw.ImageDraw, params: Params) -> None:
     if not (params.grid_visible and params.grid_size > 0):
         return
     for x in range(0, params.width + 1, params.grid_size):
@@ -620,7 +703,7 @@ def _draw_grid(draw: ImageDraw.ImageDraw, params: Params):
         draw.line([(0, y), (params.width, y)], fill=params.grid_colour.rgba, width=1)
 
 
-def _draw_lines(draw: ImageDraw.ImageDraw, params: Params):
+def _draw_lines(draw: ImageDraw.ImageDraw, params: Params) -> None:
     for lin in params.lines:
         _stroke_dashed_line(draw, lin)
 
@@ -629,7 +712,7 @@ def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.
     _TTF_CANDIDATES = ("DejaVuSans.ttf", "DejaVuSansMono.ttf")
     cache: dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont | None] = {}
 
-    def _font(sz: int):
+    def _font(sz: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont | None:
         f = cache.get(sz)
         if f is not None:
             return f
@@ -655,7 +738,7 @@ def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.
 _FONT_CACHE, _font = _font_cache_factory()
 
 
-def _draw_labels(img: Image.Image, params: Params):
+def _draw_labels(img: Image.Image, params: Params) -> None:
     for lab in params.labels:
         if not lab.text:
             continue
@@ -679,7 +762,7 @@ def _draw_labels(img: Image.Image, params: Params):
 # SVG → raster backends
 
 
-def _rasterize_via_svg(params: Params, fmt: Formats, svg_text: str) -> bytes | None:
+def _rasterise_via_svg(params: Params, fmt: Formats, svg_text: str) -> bytes | None:
     svg_bytes = svg_text.encode("utf-8")
 
     if RASTER_BACKEND is RASTERISERS.cairosvg and cairosvg is not None:
