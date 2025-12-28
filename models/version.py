@@ -20,6 +20,11 @@ def get_app_version() -> str:
         _VERSION = env_version
         return _VERSION
 
+    git_version = _version_from_git()
+    if git_version:
+        _VERSION = git_version
+        return _VERSION
+
     try:
         from models._version import __version__  # type: ignore[import-not-found]
 
@@ -29,11 +34,6 @@ def get_app_version() -> str:
             return _VERSION
     except ImportError:
         pass
-
-    git_version = _version_from_git()
-    if git_version:
-        _VERSION = git_version
-        return _VERSION
 
     _VERSION = "dev"
     return _VERSION
@@ -56,15 +56,12 @@ def _version_from_git() -> str | None:
             return None
         return output.strip()
 
-    tag = _run_git(["describe", "--tags", "--abbrev=0"])
-    if tag:
-        return tag
+    sha = _run_git(["rev-parse", "--short", "HEAD"])
+    if not sha:
+        return None
 
-    count = _run_git(["rev-list", "--count", "HEAD"])
-    if count:
-        return f"v1.{count}"
-
-    return None
+    version = _run_git(["describe", "--tags", "--abbrev=0"]) or "0.0"
+    return f"{version}.dev [{sha}]"
 
 
 def _find_repo_root(path: Path) -> Path | None:
