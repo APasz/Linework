@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from models.assets import IconName
 from models.geo import IconSource, IconType
 from models.styling import Anchor, Colour, Colours, LineStyle
 from qt.tools.base import ToolName
 from ui.qt.flow_layout import FlowLayout
+from ui.qt.icon_picker import _builtin_pixmap, _picture_pixmap
 from ui.qt.line_style_icons import line_style_icon
 from ui.qt.palette import ColourPaletteButton
 
@@ -20,54 +20,58 @@ if TYPE_CHECKING:
     from qt.app import QtApp
 
 
-class _PicturePicker(QtWidgets.QWidget):
-    changed = QtCore.Signal(str)
-
-    def __init__(self, app: QtApp, initial: str) -> None:
+class _IconIndicator(QtWidgets.QWidget):
+    def __init__(self, app: QtApp, size: int = 18) -> None:
         super().__init__()
         self._app = app
-        self._path = initial
+        self._size = size
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
 
-        self._edit = QtWidgets.QLineEdit()
-        self._edit.setReadOnly(True)
-        self._edit.setText(self._display_name(self._path))
-        browse = QtWidgets.QPushButton("Browse...")
-        browse.clicked.connect(self._choose)
+        self._preview = QtWidgets.QLabel()
+        self._preview.setFixedSize(size, size)
+        self._preview.setScaledContents(True)
+        layout.addWidget(self._preview)
 
-        layout.addWidget(self._edit)
-        layout.addWidget(browse)
+        self._text = QtWidgets.QLabel()
+        layout.addWidget(self._text)
 
-    @staticmethod
-    def _display_name(path: str) -> str:
-        if not path:
-            return ""
-        return Path(path).name
+        self.set_source(self._app.current_icon or self._app.params.default_icon)
 
-    def _choose(self) -> None:
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "Choose picture icon",
-            str(self._app.project_dir()),
-            "Images (*.png *.jpg *.jpeg *.bmp *.webp *.svg)",
-        )
-        if not path:
+    def set_source(self, src: IconSource | None) -> None:
+        if src is None:
+            self._text.setText("None")
+            self._text.setToolTip("")
+            self._preview.clear()
             return
-        try:
-            imported = self._app.asset_lib.import_files([Path(path)])
-            if imported:
-                path = str(imported[0])
-        except OSError:
-            # Best-effort import; fall back to the raw file path.
-            pass
-        self._path = path
-        self._edit.setText(self._display_name(self._path))
-        self.changed.emit(self._path)
 
-    def value(self) -> str:
-        return self._path
+        if src.kind is IconType.builtin:
+            name = src.name.value if src.name else "builtin"
+            text = f"Built-in: {name}"
+            tooltip = text
+        else:
+            name = Path(src.src).name if src.src else "picture"
+            text = f"Picture: {name}"
+            tooltip = str(src.src) if src.src else text
+
+        self._text.setText(text)
+        self._text.setToolTip(tooltip)
+
+        pixmap = self._pixmap_for_source(src)
+        if pixmap is None:
+            self._preview.clear()
+        else:
+            self._preview.setPixmap(pixmap)
+
+    def _pixmap_for_source(self, src: IconSource) -> QtGui.QPixmap | None:
+        if src.kind is IconType.builtin and src.name:
+            colour = self.palette().color(QtGui.QPalette.ColorRole.Text)
+            return _builtin_pixmap(src.name, self._size, colour)
+        if src.kind is IconType.picture and src.src:
+            return _picture_pixmap(Path(src.src), self._size)
+        return None
 
 
 class QtSettingsBar(QtWidgets.QWidget):
@@ -89,6 +93,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         self._grid_size_spin: QtWidgets.QSpinBox | None = None
         self._label_snap_toggle: QtWidgets.QCheckBox | None = None
         self._icon_snap_toggle: QtWidgets.QCheckBox | None = None
+        self._icon_indicator: _IconIndicator | None = None
 
         self._layout = QtWidgets.QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -145,6 +150,13 @@ class QtSettingsBar(QtWidgets.QWidget):
         icon_snap = bool(self.app.params.icon_snap) ^ bool(alt_down)
         self._sync_toggle_value(self._label_snap_toggle, label_snap)
         self._sync_toggle_value(self._icon_snap_toggle, icon_snap)
+
+    def sync_current_icon(self) -> None:
+        """Sync the icon indicator to the current selection."""
+        if self._icon_indicator is None:
+            return
+        src = self.app.current_icon or self.app.params.default_icon
+        self._icon_indicator.set_source(src)
 
     def sizeHint(self) -> QtCore.QSize:
         """Return a size hint for the widget.
@@ -248,32 +260,8 @@ class QtSettingsBar(QtWidgets.QWidget):
         tab = self._new_flow_tab("Icon")
         add = tab.layout().addWidget  # type: ignore[no-any-return]
 
-        self._kind_combo = QtWidgets.QComboBox()
-        self._kind_combo.addItem(IconType.builtin.value, IconType.builtin)
-        self._kind_combo.addItem(IconType.picture.value, IconType.picture)
-        cur_kind = self.app.params.default_icon.kind if self.app.params.default_icon else IconType.builtin
-        self._set_combo_value(self._kind_combo, cur_kind)
-        self._kind_combo.currentIndexChanged.connect(self._on_icon_kind_changed)
-        add(self._row("Kind", self._kind_combo))
-
-        self._builtin_combo = QtWidgets.QComboBox()
-        for name in IconName:
-            self._builtin_combo.addItem(name.value, name)
-        if self.app.params.default_icon and self.app.params.default_icon.kind is IconType.builtin:
-            if self.app.params.default_icon.name:
-                self._set_combo_value(self._builtin_combo, self.app.params.default_icon.name)
-        self._builtin_combo.currentIndexChanged.connect(self._on_builtin_changed)
-        self._builtin_row = self._row("Default", self._builtin_combo)
-        add(self._builtin_row)
-
-        pic_init = ""
-        if self.app.params.default_icon and self.app.params.default_icon.kind is IconType.picture:
-            if self.app.params.default_icon.src:
-                pic_init = str(self.app.params.default_icon.src)
-        self._picture_picker = _PicturePicker(self.app, pic_init)
-        self._picture_picker.changed.connect(self._on_picture_changed)
-        self._picture_row = self._row("Default", self._picture_picker)
-        add(self._picture_row)
+        self._icon_indicator = _IconIndicator(self.app)
+        add(self._row("Current", self._icon_indicator))
 
         add(self._row("Size", self._spin_int(self.app.params.icon_size, 8, 512, self._on_icon_size)))
         add(
@@ -287,8 +275,6 @@ class QtSettingsBar(QtWidgets.QWidget):
         self._icon_snap_toggle = self._toggle(self.app.params.icon_snap, self._on_icon_snap)
         add(self._row("Snap", self._icon_snap_toggle))
         add(self._row("Colour", self._palette_button(self.app.params.icon_colour, self._on_icon_colour)))
-
-        self._sync_icon_kind_visibility()
 
     def _new_flow_tab(self, title: str) -> QtWidgets.QWidget:
         tab = QtWidgets.QWidget()
@@ -596,54 +582,3 @@ class QtSettingsBar(QtWidgets.QWidget):
     def _on_icon_colour(self, hexa: str) -> None:
         self.app.params.icon_colour = Colours.parse_colour(hexa)
         self.app.mark_dirty()
-
-    def _on_icon_kind_changed(self, _idx: int) -> None:
-        if not self._ready:
-            return
-        self._sync_icon_kind_visibility()
-        self._apply_default_icon()
-
-    def _on_builtin_changed(self, _idx: int) -> None:
-        if not self._ready:
-            return
-        if self._current_kind() is IconType.builtin:
-            self._apply_default_icon()
-
-    def _on_picture_changed(self, _path: str) -> None:
-        if not self._ready:
-            return
-        if self._current_kind() is IconType.picture:
-            self._apply_default_icon()
-
-    def _current_kind(self) -> IconType:
-        data = self._kind_combo.currentData()
-        return data if isinstance(data, IconType) else IconType.builtin
-
-    def _sync_icon_kind_visibility(self) -> None:
-        use_builtin = self._current_kind() is IconType.builtin
-        self._builtin_row.setVisible(use_builtin)
-        self._picture_row.setVisible(not use_builtin)
-
-    def _apply_default_icon(self) -> None:
-        kind = self._current_kind()
-        if kind is IconType.builtin:
-            name = self._builtin_combo.currentData()
-            if isinstance(name, IconName):
-                src = IconSource.builtin(name)
-            else:
-                src = IconSource.builtin(IconName.SIGNAL)
-        else:
-            path = self._picture_picker.value()
-            if not path:
-                return
-            src = IconSource.picture(path)
-        self.app.params.default_icon = src
-        self.app.current_icon = src
-        self.app.mark_dirty()
-        if src.kind is IconType.builtin and src.name:
-            label = src.name.value
-        elif src.src:
-            label = Path(src.src).name
-        else:
-            label = "Icon"
-        self.app.status.temp(f"Icon: {label}", ms=1500)

@@ -78,3 +78,4 @@ class IconTool(ToolBase):
 
         app.current_icon = src
         app.params.default_icon = src
+        app.settings_bar.sync_current_icon()
