@@ -192,6 +192,48 @@ class QtApp(QtWidgets.QMainWindow):
             return
         QtCore.QTimer.singleShot(15, self._sync_view_size)
 
+    def _window_chrome_size(self) -> tuple[int, int]:
+        """Return the extra window size needed around the canvas view.
+
+        Returns;
+            The extra width and height.
+        """
+        window_size = self.size()
+        view_size = self.view.size()
+        extra_w = window_size.width() - view_size.width()
+        extra_h = window_size.height() - view_size.height()
+        if (
+            window_size.width() > 0
+            and window_size.height() > 0
+            and view_size.width() > 0
+            and view_size.height() > 0
+            and extra_w >= 0
+            and extra_h >= 0
+            and (extra_w > 0 or extra_h > 0)
+        ):
+            return int(extra_w), int(extra_h)
+
+        hint = self.sizeHint()
+        view_hint = self.view.sizeHint()
+        extra_w = hint.width() - view_hint.width()
+        extra_h = hint.height() - view_hint.height()
+        if extra_w >= 0 and extra_h >= 0 and (extra_w > 0 or extra_h > 0):
+            return int(extra_w), int(extra_h)
+
+        extra_h = 0
+        menu = self.menuBar()
+        if menu is not None:
+            extra_h += menu.sizeHint().height()
+        toolbar = getattr(self, "settings_toolbar", None)
+        if toolbar is not None:
+            extra_h += toolbar.sizeHint().height()
+        status = self.statusBar()
+        if status is not None:
+            extra_h += status.sizeHint().height()
+        if extra_h <= 0:
+            extra_h = 100
+        return 0, int(extra_h)
+
     def _resolve_window_size(self, canvas_w: int, canvas_h: int) -> tuple[int, int]:
         """Resolve a window size from canvas size and preferences.
 
@@ -202,8 +244,9 @@ class QtApp(QtWidgets.QMainWindow):
         Returns;
             The window width and height.
         """
-        base_w = max(640, canvas_w)
-        base_h = max(480, canvas_h + 100)
+        extra_w, extra_h = self._window_chrome_size()
+        base_w = max(640, canvas_w + extra_w)
+        base_h = max(480, canvas_h + extra_h)
         pref_w = int(getattr(self.params, "window_width", 0) or 0)
         pref_h = int(getattr(self.params, "window_height", 0) or 0)
         window_w = pref_w if pref_w > 0 else base_w
