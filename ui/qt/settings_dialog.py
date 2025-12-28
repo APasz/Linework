@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 from collections import OrderedDict
 from collections.abc import Callable
@@ -627,17 +628,49 @@ class QtSettingsDialog(QtWidgets.QDialog):
         """Open the settings file or its folder."""
         path = default_settings_path()
         if not (QtGui.QGuiApplication.keyboardModifiers() & QtCore.Qt.KeyboardModifier.ShiftModifier):
-            file_url = QtCore.QUrl.fromLocalFile(str(path))
-            if QtGui.QDesktopServices.openUrl(file_url):
+            if self._open_local_path(path):
                 return
-        folder_url = QtCore.QUrl.fromLocalFile(str(path.parent))
-        if QtGui.QDesktopServices.openUrl(folder_url):
+        if self._open_local_path(path.parent):
             return
         QtWidgets.QMessageBox.information(
             self,
             "Settings file",
             f"Settings file is located at:\n{path}",
         )
+
+    @staticmethod
+    def _open_local_path(path: Path) -> bool:
+        """Open a file or folder in the system desktop environment."""
+        if sys.platform.startswith("linux") and getattr(sys, "frozen", False):
+            return QtSettingsDialog._open_local_path_linux(path)
+        url = QtCore.QUrl.fromLocalFile(str(path))
+        return QtGui.QDesktopServices.openUrl(url)
+
+    @staticmethod
+    def _open_local_path_linux(path: Path) -> bool:
+        """Open a path on Linux without leaking bundled libraries."""
+        env = os.environ.copy()
+        # Avoid LD_LIBRARY_PATH/LD_PRELOAD from bundled apps breaking /bin/sh.
+        for key in ("LD_LIBRARY_PATH", "LD_PRELOAD"):
+            env.pop(key, None)
+        candidates = [
+            ("gio", ["gio", "open", str(path)]),
+            ("xdg-open", ["xdg-open", str(path)]),
+        ]
+        for exe, argv in candidates:
+            if shutil.which(exe) is None:
+                continue
+            try:
+                subprocess.Popen(
+                    argv,
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except OSError:
+                continue
+            return True
+        return False
 
     def _toggle_desktop_entry(self) -> None:
         """Install or uninstall desktop integration."""

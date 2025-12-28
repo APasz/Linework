@@ -35,8 +35,7 @@ def get_app_version() -> str:
     except ImportError:
         pass
 
-    _VERSION = "dev"
-    return _VERSION
+    return "dev"
 
 
 def _version_from_git() -> str | None:

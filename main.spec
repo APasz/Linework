@@ -1,5 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+import sys
+
 
 a = Analysis(
     ['main.py'],
@@ -10,10 +13,16 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['readline', '_readline'],
     noarchive=False,
     optimize=0,
 )
+if sys.platform.startswith("linux"):
+    a.binaries = [
+        entry
+        for entry in a.binaries
+        if not os.path.basename(entry[0]).startswith("libreadline.so")
+    ]
 pyz = PYZ(a.pure)
 
 exe = EXE(
