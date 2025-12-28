@@ -120,8 +120,8 @@ class QtSettingsBar(QtWidgets.QWidget):
         name = tool.value if isinstance(tool, ToolName) else str(tool)
         tab = {
             ToolName.draw.value: "Draw",
-            ToolName.label.value: "Labels",
-            ToolName.icon.value: "Icons",
+            ToolName.label.value: "Label",
+            ToolName.icon.value: "Icon",
             ToolName.select.value: "Canvas | Select",
         }.get(name)
         if not tab:
@@ -234,7 +234,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         add(self._row("Brush", self._palette_button(self.app.params.brush_colour, self._on_brush_colour)))
 
     def _add_label_tab(self) -> None:
-        tab = self._new_flow_tab("Labels")
+        tab = self._new_flow_tab("Label")
         add = tab.layout().addWidget  # type: ignore[no-any-return]
 
         add(self._row("Size", self._spin_int(self.app.params.label_size, 6, 200, self._on_label_size)))
@@ -245,7 +245,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         add(self._row("Colour", self._palette_button(self.app.params.label_colour, self._on_label_colour)))
 
     def _add_icon_tab(self) -> None:
-        tab = self._new_flow_tab("Icons")
+        tab = self._new_flow_tab("Icon")
         add = tab.layout().addWidget  # type: ignore[no-any-return]
 
         self._kind_combo = QtWidgets.QComboBox()
@@ -448,8 +448,8 @@ class QtSettingsBar(QtWidgets.QWidget):
             "Select": ToolName.select,
             "Canvas | Select": ToolName.select,
             "Draw": ToolName.draw,
-            "Labels": ToolName.label,
-            "Icons": ToolName.icon,
+            "Label": ToolName.label,
+            "Icon": ToolName.icon,
         }
         tool = mapping.get(title)
         if tool is None:
