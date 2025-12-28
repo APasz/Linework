@@ -798,8 +798,8 @@ class QtSettingsDialog(QtWidgets.QDialog):
         """
         data_home = self._xdg_data_home()
         return [
-            data_home / "icons" / "hicolor" / "scalable" / "apps" / "linework.svg",
-            data_home / "icons" / "hicolor" / "256x256" / "apps" / "linework.png",
+            data_home / "icons" / "hicolor" / "scalable" / "apps" / "icon.svg",
+            data_home / "icons" / "hicolor" / "256x256" / "apps" / "icon.png",
         ]
 
     def _is_desktop_installed(self) -> bool:
@@ -885,8 +885,8 @@ class QtSettingsDialog(QtWidgets.QDialog):
         """
         root = self._runtime_dir()
         candidates = [
-            root / "assets" / "app" / "linework.svg",
-            root / "assets" / "app" / "linework.png",
+            root / "art" / "app" / "icon.svg",
+            root / "art" / "app" / "icon.png",
         ]
         for path in candidates:
             if path.exists():
@@ -906,10 +906,10 @@ class QtSettingsDialog(QtWidgets.QDialog):
         """
         if source.suffix.lower() == ".svg":
             target_dir = data_home / "icons" / "hicolor" / "scalable" / "apps"
-            target_name = "linework.svg"
+            target_name = "icon.svg"
         else:
             target_dir = data_home / "icons" / "hicolor" / "256x256" / "apps"
-            target_name = "linework.png"
+            target_name = "icon.png"
         target_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target_dir / target_name)
         return "linework"

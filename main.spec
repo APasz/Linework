@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('assets/app/*', 'assets/app')],
+    datas=[('art/app/*', 'art/app')],
     hiddenimports=['PySide6'],
     hookspath=[],
     hooksconfig={},
