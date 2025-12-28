@@ -393,7 +393,10 @@ class QtSettingsDialog(QtWidgets.QDialog):
             return 0
         snapped = int((value + step_value / 2) // step_value) * step_value
         if snapped <= 0:
-            snapped = step_value
+            if allow_zero and (min_value is None or min_value <= 0):
+                snapped = 0
+            else:
+                snapped = step_value
         if min_value is not None and snapped < min_value:
             snapped = ((min_value + step_value - 1) // step_value) * step_value
         if max_value is not None and snapped > max_value:
@@ -599,9 +602,6 @@ class QtSettingsDialog(QtWidgets.QDialog):
             widget: The widget to watch.
             kind: The schema field kind.
         """
-        if name not in self._default_values:
-            return
-
         def _sync(_value: object | None = None) -> None:
             self._sync_default_diff_markers()
 
@@ -798,8 +798,8 @@ class QtSettingsDialog(QtWidgets.QDialog):
         """
         data_home = self._xdg_data_home()
         return [
-            data_home / "icons" / "hicolor" / "scalable" / "apps" / "icon.svg",
-            data_home / "icons" / "hicolor" / "256x256" / "apps" / "icon.png",
+            data_home / "icons" / "hicolor" / "scalable" / "apps" / "linework.svg",
+            data_home / "icons" / "hicolor" / "256x256" / "apps" / "linework.png",
         ]
 
     def _is_desktop_installed(self) -> bool:
@@ -885,8 +885,8 @@ class QtSettingsDialog(QtWidgets.QDialog):
         """
         root = self._runtime_dir()
         candidates = [
-            root / "art" / "app" / "icon.svg",
-            root / "art" / "app" / "icon.png",
+            root / "art" / "app" / "linework.svg",
+            root / "art" / "app" / "linework.png",
         ]
         for path in candidates:
             if path.exists():
@@ -906,10 +906,10 @@ class QtSettingsDialog(QtWidgets.QDialog):
         """
         if source.suffix.lower() == ".svg":
             target_dir = data_home / "icons" / "hicolor" / "scalable" / "apps"
-            target_name = "icon.svg"
+            target_name = "linework.svg"
         else:
             target_dir = data_home / "icons" / "hicolor" / "256x256" / "apps"
-            target_name = "icon.png"
+            target_name = "linework.png"
         target_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target_dir / target_name)
         return "linework"
