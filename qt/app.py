@@ -172,6 +172,7 @@ class QtApp(QtWidgets.QMainWindow):
         self._build_tool_actions()
         self._build_settings_bar()
         self._build_status_bar()
+        self._install_modifier_filter()
         self.renderer.render(self.params)
         self._sync_view_size()
         self._sync_view_size_after_layout()
@@ -870,6 +871,32 @@ class QtApp(QtWidgets.QMainWindow):
         self.settings_bar = QtSettingsBar(self)
         self.settings_bar_action = self.settings_toolbar.addWidget(self.settings_bar)
         self.on_tool_changed(getattr(self.tool_mgr.current, "name", ToolName.select))
+        self._sync_snap_overrides()
+
+    def _install_modifier_filter(self) -> None:
+        """Install the global modifier filter."""
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self)
+
+    def _sync_snap_overrides(self, mods: QtCore.Qt.KeyboardModifier | None = None) -> None:
+        """Update snap toggles to reflect modifier overrides."""
+        if not hasattr(self, "settings_bar"):
+            return
+        if mods is None:
+            self.settings_bar.sync_snap_overrides()
+            return
+        alt_down = bool(mods & QtCore.Qt.KeyboardModifier.AltModifier)
+        self.settings_bar.sync_snap_overrides(alt_down=alt_down)
+
+    def eventFilter(self, obj: QtCore.QObject, event: QtCore.QEvent) -> bool:  # type: ignore[override]
+        """Handle modifier changes for snap toggle updates."""
+        event_type = event.type()
+        if event_type in (QtCore.QEvent.Type.KeyPress, QtCore.QEvent.Type.KeyRelease):
+            self._sync_snap_overrides(event.modifiers())
+        elif event_type in (QtCore.QEvent.Type.WindowActivate, QtCore.QEvent.Type.WindowDeactivate):
+            self._sync_snap_overrides()
+        return super().eventFilter(obj, event)
 
     def _build_menu(self) -> None:
         """Build the main menu bar."""

@@ -87,6 +87,8 @@ class QtSettingsBar(QtWidgets.QWidget):
         self._canvas_width_spin: QtWidgets.QSpinBox | None = None
         self._canvas_height_spin: QtWidgets.QSpinBox | None = None
         self._grid_size_spin: QtWidgets.QSpinBox | None = None
+        self._label_snap_toggle: QtWidgets.QCheckBox | None = None
+        self._icon_snap_toggle: QtWidgets.QCheckBox | None = None
 
         self._layout = QtWidgets.QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
@@ -106,6 +108,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         self._build_tabs()
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self._ready = True
+        self.sync_snap_overrides()
 
     # ---------- public ----------
     def set_active_tool(self, tool: ToolName) -> None:
@@ -133,6 +136,15 @@ class QtSettingsBar(QtWidgets.QWidget):
                 self.tabs.blockSignals(False)
                 self._syncing = False
             self.updateGeometry()
+
+    def sync_snap_overrides(self, *, alt_down: bool | None = None) -> None:
+        """Sync snap toggles to reflect modifier overrides."""
+        if alt_down is None:
+            alt_down = bool(QtGui.QGuiApplication.keyboardModifiers() & QtCore.Qt.KeyboardModifier.AltModifier)
+        label_snap = bool(self.app.params.label_snap) ^ bool(alt_down)
+        icon_snap = bool(self.app.params.icon_snap) ^ bool(alt_down)
+        self._sync_toggle_value(self._label_snap_toggle, label_snap)
+        self._sync_toggle_value(self._icon_snap_toggle, icon_snap)
 
     def sizeHint(self) -> QtCore.QSize:
         """Return a size hint for the widget.
@@ -228,7 +240,8 @@ class QtSettingsBar(QtWidgets.QWidget):
         add(self._row("Size", self._spin_int(self.app.params.label_size, 6, 200, self._on_label_size)))
         add(self._row("Rot", self._spin_int(self.app.params.label_rotation, 0, 360, self._on_label_rotation)))
         add(self._row("Anchor", self._anchor_control(self.app.params.label_anchor, self._on_label_anchor)))
-        add(self._row("Snap", self._toggle(self.app.params.label_snap, self._on_label_snap)))
+        self._label_snap_toggle = self._toggle(self.app.params.label_snap, self._on_label_snap)
+        add(self._row("Snap", self._label_snap_toggle))
         add(self._row("Colour", self._palette_button(self.app.params.label_colour, self._on_label_colour)))
 
     def _add_icon_tab(self) -> None:
@@ -271,7 +284,8 @@ class QtSettingsBar(QtWidgets.QWidget):
         )
         add(self._row("Rot", self._spin_int(self.app.params.icon_rotation, 0, 360, self._on_icon_rotation)))
         add(self._row("Anchor", self._anchor_control(self.app.params.icon_anchor, self._on_icon_anchor)))
-        add(self._row("Snap", self._toggle(self.app.params.icon_snap, self._on_icon_snap)))
+        self._icon_snap_toggle = self._toggle(self.app.params.icon_snap, self._on_icon_snap)
+        add(self._row("Snap", self._icon_snap_toggle))
         add(self._row("Colour", self._palette_button(self.app.params.icon_colour, self._on_icon_colour)))
 
         self._sync_icon_kind_visibility()
@@ -332,7 +346,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         for style in LineStyle:
             combo.addItem(line_style_icon(style, icon_size, colour), style.value, style.value)
         combo.setMinimumContentsLength(10)
-        combo.setMaximumWidth(180)
+        combo.setMaximumWidth(220)
         combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self._set_combo_value(combo, current)
         combo.view().setMinimumWidth(combo.sizeHint().width())
@@ -385,6 +399,14 @@ class QtSettingsBar(QtWidgets.QWidget):
             return
         widget.blockSignals(True)
         widget.setValue(int(value))
+        widget.blockSignals(False)
+
+    @staticmethod
+    def _sync_toggle_value(widget: QtWidgets.QCheckBox | None, checked: bool) -> None:
+        if widget is None or widget.isChecked() == checked:
+            return
+        widget.blockSignals(True)
+        widget.setChecked(bool(checked))
         widget.blockSignals(False)
 
     def _update_canvas_steps(self) -> None:
@@ -534,6 +556,7 @@ class QtSettingsBar(QtWidgets.QWidget):
     def _on_label_snap(self, checked: bool) -> None:
         self.app.params.label_snap = bool(checked)
         self.app.mark_dirty()
+        self.sync_snap_overrides()
 
     def _on_label_colour(self, hexa: str) -> None:
         self.app.params.label_colour = Colours.parse_colour(hexa)
@@ -560,6 +583,7 @@ class QtSettingsBar(QtWidgets.QWidget):
     def _on_icon_snap(self, checked: bool) -> None:
         self.app.params.icon_snap = bool(checked)
         self.app.mark_dirty()
+        self.sync_snap_overrides()
 
     def _on_icon_colour(self, hexa: str) -> None:
         self.app.params.icon_colour = Colours.parse_colour(hexa)
