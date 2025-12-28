@@ -185,6 +185,20 @@ def _dir_writable(path: Path) -> bool:
     return os.access(path, os.W_OK)
 
 
+def _dedupe_config_dir(path: Path) -> Path:
+    """Collapse duplicate config directory segments.
+
+    Args;
+        path: The raw config directory.
+
+    Returns;
+        The deduped config directory.
+    """
+    if path.name and path.name == path.parent.name:
+        return path.parent
+    return path
+
+
 def _runtime_dir() -> Path:
     """Return the runtime directory for portable storage.
 
@@ -211,7 +225,9 @@ def _standard_settings_path() -> Path:
     base = QtCore.QStandardPaths.writableLocation(QtCore.QStandardPaths.StandardLocation.AppConfigLocation)
     if not base:
         return _legacy_settings_path()
-    return Path(base) / DEFAULT_SETTINGS_NAME
+    base_path = Path(base)
+    base_path = _dedupe_config_dir(base_path)
+    return base_path / DEFAULT_SETTINGS_NAME
 
 
 def _installed_marker_path(standard_path: Path) -> Path:
