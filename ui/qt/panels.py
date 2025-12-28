@@ -214,9 +214,12 @@ class SettingsPanel(QtWidgets.QWidget):
 
     def _on_line_style(self, combo: QtWidgets.QComboBox) -> None:
         style = combo.currentData()
-        if isinstance(style, LineStyle):
-            self.app.params.line_style = style
-            self.app.mark_dirty()
+        try:
+            parsed = LineStyle(str(style))
+        except ValueError:
+            return
+        self.app.params.line_style = parsed
+        self.app.mark_dirty()
 
     def _on_dash_offset(self, value: int) -> None:
         self.app.params.line_dash_offset = int(value)

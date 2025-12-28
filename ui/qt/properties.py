@@ -12,6 +12,7 @@ from core.layers import HitKind
 from models.assets import IconName
 from models.geo import BuiltinIcon, PictureIcon, Point
 from models.styling import Anchor, CapStyle, Colour, LineStyle
+from ui.qt.line_style_icons import line_style_icon
 
 if TYPE_CHECKING:
     from qt.app import QtApp
@@ -163,7 +164,7 @@ class PropertiesPanel(QtWidgets.QWidget):
         self._form_layout.addRow("Cap", cap)
         self._widgets["line_capstyle"] = cap
 
-        style = self._combo([s for s in LineStyle], line.style, lambda v: self._update_line(idx, style=v))
+        style = self._line_style_combo(line.style, lambda v: self._update_line(idx, style=v))
         self._form_layout.addRow("Dash", style)
         self._widgets["line_style"] = style
 
@@ -511,6 +512,31 @@ class PropertiesPanel(QtWidgets.QWidget):
         combo.currentIndexChanged.connect(
             lambda _idx: self._guarded(on_change, cast(TCombo, combo.currentData()))
         )
+        return combo
+
+    def _line_style_combo(
+        self, current: LineStyle, on_change: Callable[[LineStyle], None]
+    ) -> QtWidgets.QComboBox:
+        combo = QtWidgets.QComboBox()
+        icon_size = QtCore.QSize(60, 12)
+        combo.setIconSize(icon_size)
+        combo.setMinimumContentsLength(10)
+        combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        colour = combo.palette().color(QtGui.QPalette.ColorRole.Text)
+        for style in LineStyle:
+            combo.addItem(line_style_icon(style, icon_size, colour), style.value, style.value)
+        self._set_combo(combo, current)
+        combo.view().setMinimumWidth(combo.sizeHint().width())
+
+        def _apply_style() -> None:
+            raw = combo.currentData()
+            try:
+                parsed = LineStyle(str(raw))
+            except ValueError:
+                return
+            self._guarded(on_change, parsed)
+
+        combo.currentIndexChanged.connect(lambda _idx: _apply_style())
         return combo
 
     def _colour_button(

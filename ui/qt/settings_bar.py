@@ -13,6 +13,7 @@ from models.geo import IconSource, IconType
 from models.styling import Anchor, Colour, Colours, LineStyle
 from qt.tools.base import ToolName
 from ui.qt.flow_layout import FlowLayout
+from ui.qt.line_style_icons import line_style_icon
 from ui.qt.palette import ColourPaletteButton
 
 if TYPE_CHECKING:
@@ -325,12 +326,16 @@ class QtSettingsBar(QtWidgets.QWidget):
         self, current: LineStyle, on_change: Callable[[QtWidgets.QComboBox], None]
     ) -> QtWidgets.QComboBox:
         combo = QtWidgets.QComboBox()
+        icon_size = QtCore.QSize(60, 12)
+        combo.setIconSize(icon_size)
+        colour = combo.palette().color(QtGui.QPalette.ColorRole.Text)
         for style in LineStyle:
-            combo.addItem(style.value, style)
-        combo.setMinimumContentsLength(6)
-        combo.setMaximumWidth(120)
+            combo.addItem(line_style_icon(style, icon_size, colour), style.value, style.value)
+        combo.setMinimumContentsLength(10)
+        combo.setMaximumWidth(180)
         combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self._set_combo_value(combo, current)
+        combo.view().setMinimumWidth(combo.sizeHint().width())
         combo.currentIndexChanged.connect(lambda _idx: on_change(combo))
         return combo
 
@@ -496,10 +501,13 @@ class QtSettingsBar(QtWidgets.QWidget):
 
     def _on_line_style(self, combo: QtWidgets.QComboBox) -> None:
         style = combo.currentData()
-        if isinstance(style, LineStyle):
-            self.app.params.line_style = style
-            self.app.mark_dirty()
-            self.app.status.temp(f"Line style: {style.value}")
+        try:
+            parsed = LineStyle(str(style))
+        except ValueError:
+            return
+        self.app.params.line_style = parsed
+        self.app.mark_dirty()
+        self.app.status.temp(f"Line style: {parsed.value}")
 
     def _on_dash_offset(self, value: int) -> None:
         self.app.params.line_dash_offset = int(value)

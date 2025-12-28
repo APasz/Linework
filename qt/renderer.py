@@ -13,7 +13,7 @@ from core.layers import HitKind
 from models.assets import Builtins, Primitives, Style, _open_rgba
 from models.geo import BuiltinIcon, Iconlike, Label, Line, PictureIcon
 from models.params import Params
-from models.styling import Anchor, CapStyle, Colour, JoinStyle, LineStyle, scaled_pattern
+from models.styling import Anchor, CapStyle, Colour, JoinStyle, LineStyle, pen_dash_pattern
 from qt.scene_data import DATA_IDX, DATA_KIND
 
 Z_LINES = 0
@@ -67,18 +67,19 @@ def _anchor_local(anchor: Anchor, w: float, h: float) -> tuple[float, float]:
 
 
 def _dash_pattern(style: LineStyle | None, width: int) -> list[float]:
-    pat = scaled_pattern(style, width)
+    pat = pen_dash_pattern(style, width)
     return [float(p) for p in pat] if pat else []
 
 
 def _pen_for_line(line: Line) -> QtGui.QPen:
     pen = QtGui.QPen(_qcolour(line.col))
-    pen.setWidth(max(1, int(line.width)))
+    width = max(1, int(line.width))
+    pen.setWidth(width)
     pen.setCapStyle(_cap_style(line.capstyle))
-    dash = _dash_pattern(line.style, line.width)
+    dash = _dash_pattern(line.style, width)
     if dash:
         pen.setDashPattern(dash)
-        pen.setDashOffset(float(line.dash_offset))
+        pen.setDashOffset(float(line.dash_offset) / width)
     return pen
 
 

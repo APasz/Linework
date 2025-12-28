@@ -6,10 +6,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from models.assets import IconName
-from models.styling import Colours
+from models.styling import Colours, LineStyle
+from ui.qt.line_style_icons import line_style_icon
 from ui.qt.palette import ColourPaletteButton
 
 if TYPE_CHECKING:
@@ -226,12 +227,32 @@ class QtGenericEditDialog(QtWidgets.QDialog):
         keys = _resolve_choices_seq(fld.get("choices"))
         if fld.get("sort", True):
             keys = sorted(keys, key=str.casefold)
+        line_values = {s.value for s in LineStyle}
+        name = str(fld.get("name", ""))
+        use_line_icons = bool(keys) and name in {"style", "line_style"} and set(keys).issubset(line_values)
+        if use_line_icons:
+            icon_size = QtCore.QSize(60, 12)
+            combo.setIconSize(icon_size)
+            combo.setMinimumContentsLength(10)
+            combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            colour = combo.palette().color(QtGui.QPalette.ColorRole.Text)
         for key in keys:
-            combo.addItem(str(key))
+            label = str(key)
+            if use_line_icons:
+                try:
+                    style = LineStyle(label)
+                except ValueError:
+                    combo.addItem(label)
+                else:
+                    combo.addItem(line_style_icon(style, icon_size, colour), label)
+            else:
+                combo.addItem(label)
         init_key = str(init_val) if init_val is not None else (keys[0] if keys else "")
         idx = combo.findText(init_key)
         if idx >= 0:
             combo.setCurrentIndex(idx)
+        if use_line_icons:
+            combo.view().setMinimumWidth(combo.sizeHint().width())
         return combo
 
     def _build_choice_dict(self, fld: dict[str, Any], init_val: Any) -> QtWidgets.QWidget:

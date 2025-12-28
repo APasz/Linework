@@ -9,7 +9,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from core.commands import AddLine
 from models.geo import Line, Point
-from models.styling import CapStyle, scaled_pattern
+from models.styling import CapStyle, pen_dash_pattern
 from qt.input import MotionEvent
 from qt.tools.base import ToolBase, ToolName
 
@@ -30,7 +30,8 @@ def _pen_for_line(line: Line) -> QtGui.QPen:
     """
     col = line.col
     pen = QtGui.QPen(QtGui.QColor(col.red, col.green, col.blue, col.alpha))
-    pen.setWidth(max(1, int(line.width)))
+    width = max(1, int(line.width))
+    pen.setWidth(width)
     pen.setCapStyle(
         {
             CapStyle.ROUND: QtCore.Qt.PenCapStyle.RoundCap,
@@ -38,10 +39,10 @@ def _pen_for_line(line: Line) -> QtGui.QPen:
             CapStyle.PROJECTING: QtCore.Qt.PenCapStyle.SquareCap,
         }[line.capstyle]
     )
-    dash = scaled_pattern(line.style, line.width)
+    dash = pen_dash_pattern(line.style, width)
     if dash:
         pen.setDashPattern([float(d) for d in dash])
-        pen.setDashOffset(float(line.dash_offset))
+        pen.setDashOffset(float(line.dash_offset) / width)
     return pen
 
 

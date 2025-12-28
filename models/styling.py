@@ -211,6 +211,23 @@ _BASE: dict[LineStyle | None, tuple[float, ...]] = {
     LineStyle.DASH_DOT: (3, 2, 0.1, 2),
     LineStyle.DASH_DOT_DOT: (3, 2, 0.1, 2, 0.1, 2),
 }
+
+
+def pen_dash_pattern(style: LineStyle | None, width_px: int) -> tuple[float, ...]:
+    """Return a dash pattern in pen-width units for Qt pens.
+
+    Args;
+        style: The dash style.
+        width_px: The stroke width in pixels.
+
+    Returns;
+        The dash pattern in pen-width units.
+    """
+    pat = scaled_pattern(style, width_px)
+    if not pat:
+        return ()
+    w = max(1, width_px)
+    return tuple(p / w for p in pat)
 def _normalise_pairs(seq: Iterable[int]) -> tuple[int, ...]:
     """Ensure even-length (on/off pairs) and no zeros except for tiny 'dot' hack."""
     arr = list(seq)
