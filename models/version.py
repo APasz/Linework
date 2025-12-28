@@ -27,13 +27,14 @@ def get_app_version() -> str:
 
     try:
         from models._version import __version__  # type: ignore[import-not-found]
+    except Exception:
+        # PyInstaller archives can raise zlib errors for bundled modules; treat as missing version data.
+        return "unknown"
 
-        file_version = str(__version__).strip()
-        if file_version:
-            _VERSION = file_version
-            return _VERSION
-    except ImportError:
-        pass
+    file_version = str(__version__).strip()
+    if file_version:
+        _VERSION = file_version
+        return _VERSION
 
     return "dev"
 
