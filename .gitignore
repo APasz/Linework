@@ -18,3 +18,8 @@ assets/*
 build/*
 dist/*
 models/_version.py
+linework.settings
+linework.portable
+linework.installed
+linework.user
+linework.cache
