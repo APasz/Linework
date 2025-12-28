@@ -22,7 +22,8 @@ class Params(Model):
     bg_colour: Colour = Colours.white
     icon_colour: Colour = Colours.red
     label_colour: Colour = Colours.black
-    custom_palette: list[Colour | None] = Colours.custom_palette  # Shared across all Params instances
+    custom_palette: list[Colour | None] = Colours.custom_palette  # Shared by default; can be detached per project.
+    custom_palette_shared: bool = True
     brush_width: int = 10
     line_style: LineStyle = LineStyle.SOLID
     line_dash_offset: int = 0

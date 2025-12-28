@@ -84,14 +84,13 @@ class _PicturePicker(QtWidgets.QWidget):
         )
         if not path:
             return
-        if hasattr(self._app, "asset_lib"):
-            try:
-                imported = self._app.asset_lib.import_files([Path(path)])
-                if imported:
-                    path = str(imported[0])
-            except OSError:
-                # Best-effort import; fall back to the raw file path.
-                pass
+        try:
+            imported = self._app.asset_lib.import_files([Path(path)])
+            if imported:
+                path = str(imported[0])
+        except OSError:
+            # Best-effort import; fall back to the raw file path.
+            pass
         self._path = path
         self._edit.setText(self._display_name(self._path))
         self.changed.emit(self._path)
@@ -1030,9 +1029,4 @@ class QtSettingsDialog(QtWidgets.QDialog):
             idx: The palette index.
             col: The new colour value.
         """
-        if idx < 0:
-            return
-        if idx >= len(self.app.params.custom_palette):
-            self.app.params.custom_palette.extend([None] * (idx - len(self.app.params.custom_palette) + 1))
-        self.app.params.custom_palette[idx] = col
-        self.app.mark_dirty()
+        self.app.update_custom_palette(idx, col)

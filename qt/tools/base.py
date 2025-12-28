@@ -106,7 +106,7 @@ class ToolBase:
         pass
 
     @staticmethod
-    def moved_enough(a: "Point", b: "Point", tol: int = 1) -> bool:
+    def moved_enough(a: Point, b: Point, tol: int = 1) -> bool:
         """Return True if the distance exceeds the tolerance.
 
         Args;

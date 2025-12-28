@@ -40,6 +40,10 @@ if TYPE_CHECKING:
     from ui.qt.properties import PropertiesPanel
 
 
+def _sync_custom_palette(target: list[Colour | None], source: list[Colour | None]) -> None:
+    target[:] = list(source)
+
+
 def _load_params(project_path: Path | None) -> tuple[Params, Path | None]:
     """Load params and resolve the project path.
 
@@ -56,12 +60,21 @@ def _load_params(project_path: Path | None) -> tuple[Params, Path | None]:
         defaults = Params()
         print(f"Defaults load failed; using built-ins: {xcp}", file=sys.stderr)
 
+    _sync_custom_palette(Colours.custom_palette, defaults.custom_palette)
     default_project = getattr(defaults, "default_project", None)
     window_width = int(getattr(defaults, "window_width", 0) or 0)
     window_height = int(getattr(defaults, "window_height", 0) or 0)
     remember_window_size = bool(getattr(defaults, "remember_window_size", False))
     auto_expand_window = bool(getattr(defaults, "auto_expand_window", False))
     auto_shrink_window = bool(getattr(defaults, "auto_shrink_window", False))
+    custom_palette_shared = bool(getattr(defaults, "custom_palette_shared", True))
+
+    def _apply_palette_mode(params: Params) -> None:
+        params.custom_palette_shared = custom_palette_shared
+        palette_snapshot = list(params.custom_palette)
+        if not custom_palette_shared:
+            _sync_custom_palette(Colours.custom_palette, palette_snapshot)
+        params.custom_palette = Colours.custom_palette
     if project_path is None and default_project:
         candidate = Path(default_project).expanduser()
         if candidate.suffix.lower() == ".linework" and candidate.is_file():
@@ -76,16 +89,23 @@ def _load_params(project_path: Path | None) -> tuple[Params, Path | None]:
                 params.remember_window_size = remember_window_size
                 params.auto_expand_window = auto_expand_window
                 params.auto_shrink_window = auto_shrink_window
+                _apply_palette_mode(params)
                 return params, candidate
 
     if project_path is None:
         params = Params()
         params.apply_profile(defaults, inplace_palette=True)
+        _apply_palette_mode(params)
         return params, None
 
     project = project_path
     if project.exists():
-        params = IO.load_params(project)
+        try:
+            params = IO.load_params(project)
+        except Exception as xcp:
+            params = Params()
+            params.apply_profile(defaults, inplace_palette=True)
+            print(f"Project load failed; using defaults: {xcp}", file=sys.stderr)
     else:
         params = Params()
         params.apply_profile(defaults, inplace_palette=True)
@@ -95,6 +115,7 @@ def _load_params(project_path: Path | None) -> tuple[Params, Path | None]:
     params.remember_window_size = remember_window_size
     params.auto_expand_window = auto_expand_window
     params.auto_shrink_window = auto_shrink_window
+    _apply_palette_mode(params)
     return params, project
 
 
@@ -1113,6 +1134,8 @@ class QtApp(QtWidgets.QMainWindow):
         def _save_defaults(data: dict[str, object]) -> dict[str, object] | None:
             nonlocal default_base
             default_profile = self._settings_from_dialog(data, default_base)
+            if getattr(default_profile, "custom_palette_shared", True):
+                default_profile.custom_palette = list(self.params.custom_palette)
             target_path: Path | None = None
             requested_mode = str(data.get("storage_mode", "")).strip()
             if requested_mode:
@@ -1162,6 +1185,7 @@ class QtApp(QtWidgets.QMainWindow):
         return dict(
             default_project=default_project,
             storage_mode=storage_mode,
+            custom_palette_shared=getattr(params, "custom_palette_shared", True),
             window_width=params.window_width,
             window_height=params.window_height,
             remember_window_size=params.remember_window_size,
@@ -1297,6 +1321,7 @@ class QtApp(QtWidgets.QMainWindow):
         updates = {
             "default_project": _path_from_data("default_project", base.default_project),
             "storage_mode": _storage_mode_from_data("storage_mode", getattr(base, "storage_mode", "portable")),
+            "custom_palette_shared": bool(data.get("custom_palette_shared", base.custom_palette_shared)),
             "window_width": _int_from_data("window_width", base.window_width, min_value=0),
             "window_height": _int_from_data("window_height", base.window_height, min_value=0),
             "remember_window_size": bool(data.get("remember_window_size", base.remember_window_size)),
@@ -1351,6 +1376,7 @@ class QtApp(QtWidgets.QMainWindow):
                 "remember_window_size",
                 "auto_expand_window",
                 "auto_shrink_window",
+                "custom_palette_shared",
             }:
                 continue
             if getattr(before, name) != getattr(after, name):
@@ -1365,6 +1391,7 @@ class QtApp(QtWidgets.QMainWindow):
             mark_dirty: Whether to mark the document dirty.
         """
         self.params.apply_profile(profile, inplace_palette=True)
+        self._apply_custom_palette_sharing()
         self._normalize_canvas_params()
         self.current_icon = self.params.default_icon
         self._sync_view_size()
@@ -1373,6 +1400,42 @@ class QtApp(QtWidgets.QMainWindow):
         self._sync_view_size_after_layout()
         if mark_dirty:
             self.mark_dirty()
+
+    def _apply_custom_palette_sharing(self) -> None:
+        if self.params.custom_palette is not Colours.custom_palette:
+            _sync_custom_palette(Colours.custom_palette, self.params.custom_palette)
+            self.params.custom_palette = Colours.custom_palette
+        if bool(getattr(self.params, "custom_palette_shared", True)):
+            self._persist_shared_palette()
+
+    def update_custom_palette(self, idx: int, col: Colour | None) -> None:
+        if idx < 0:
+            return
+        palette = self.params.custom_palette
+        if idx >= len(palette):
+            palette.extend([None] * (idx - len(palette) + 1))
+        palette[idx] = col
+        if palette is not Colours.custom_palette:
+            _sync_custom_palette(Colours.custom_palette, palette)
+        if getattr(self.params, "custom_palette_shared", True):
+            self._persist_shared_palette()
+        else:
+            self.mark_dirty()
+
+    def _persist_shared_palette(self) -> None:
+        if not getattr(self.params, "custom_palette_shared", True):
+            return
+        try:
+            defaults = IO.load_defaults()
+        except Exception as xcp:
+            defaults = Params()
+            print(f"Defaults load failed; custom palette not persisted: {xcp}", file=sys.stderr)
+        defaults.custom_palette_shared = True
+        defaults.custom_palette = list(self.params.custom_palette)
+        try:
+            IO.save_defaults(defaults)
+        except Exception as xcp:
+            print(f"Defaults save failed; custom palette not persisted: {xcp}", file=sys.stderr)
 
     def on_tool_changed(self, name: ToolName) -> None:
         """Sync the settings tab and status to the active tool."""
@@ -1430,6 +1493,7 @@ class QtApp(QtWidgets.QMainWindow):
         remember_window_size = getattr(self.params, "remember_window_size", False)
         auto_expand_window = getattr(self.params, "auto_expand_window", False)
         auto_shrink_window = getattr(self.params, "auto_shrink_window", False)
+        custom_palette_shared = bool(getattr(self.params, "custom_palette_shared", True))
         self.params = params
         self.params.default_project = default_project
         self.params.storage_mode = storage_mode
@@ -1438,6 +1502,11 @@ class QtApp(QtWidgets.QMainWindow):
         self.params.remember_window_size = remember_window_size
         self.params.auto_expand_window = auto_expand_window
         self.params.auto_shrink_window = auto_shrink_window
+        self.params.custom_palette_shared = custom_palette_shared
+        palette_snapshot = list(self.params.custom_palette)
+        if not self.params.custom_palette_shared:
+            _sync_custom_palette(Colours.custom_palette, palette_snapshot)
+        self.params.custom_palette = Colours.custom_palette
         self._normalize_canvas_params()
         self.asset_lib = get_asset_library(self._project_path_or_default())
         self.current_icon = self.params.default_icon

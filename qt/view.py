@@ -50,8 +50,7 @@ class QtCanvasView(QtWidgets.QGraphicsView):
 
     def _notify_zoom(self) -> None:
         """Notify the app about zoom changes."""
-        if hasattr(self.app, "on_zoom_changed"):
-            self.app.on_zoom_changed(self.zoom_level())
+        self.app.on_zoom_changed(self.zoom_level())
 
     def _motion_event(self, event: QtGui.QMouseEvent) -> MotionEvent:
         """Build a MotionEvent from a Qt mouse event.
@@ -129,8 +128,7 @@ class QtCanvasView(QtWidgets.QGraphicsView):
         Args;
             event: The Qt leave event.
         """
-        if hasattr(self.app, "on_hover_leave"):
-            self.app.on_hover_leave()
+        self.app.on_hover_leave()
         super().leaveEvent(event)
 
     def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:

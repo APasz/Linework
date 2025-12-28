@@ -264,8 +264,7 @@ class QtIconPickerDialog(QtWidgets.QDialog):
             select: Optional list of paths to select after loading.
         """
         self._picture_list.clear()
-        lib = getattr(self._app, "asset_lib", None)
-        pics = lib.list_pictures() if lib is not None else []
+        pics = self._app.asset_lib.list_pictures() or []
         selected_names = {p.name for p in select or []}
         selected_item: QtWidgets.QListWidgetItem | None = None
         for path in pics:
@@ -315,9 +314,6 @@ class QtIconPickerDialog(QtWidgets.QDialog):
 
     def _import_pictures(self) -> None:
         """Import picture files and refresh the list."""
-        lib = getattr(self._app, "asset_lib", None)
-        if lib is None:
-            return
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
             self,
             "Import pictures",
@@ -326,7 +322,7 @@ class QtIconPickerDialog(QtWidgets.QDialog):
         )
         if not paths:
             return
-        imported = lib.import_files([Path(p) for p in paths])
+        imported = self._app.asset_lib.import_files([Path(p) for p in paths])
         if imported:
             self._load_pictures(select=imported)
             self._tabs.setCurrentIndex(1)

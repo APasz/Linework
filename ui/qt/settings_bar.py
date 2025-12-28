@@ -54,14 +54,13 @@ class _PicturePicker(QtWidgets.QWidget):
         )
         if not path:
             return
-        if hasattr(self._app, "asset_lib"):
-            try:
-                imported = self._app.asset_lib.import_files([Path(path)])
-                if imported:
-                    path = str(imported[0])
-            except OSError:
-                # Best-effort import; fall back to the raw file path.
-                pass
+        try:
+            imported = self._app.asset_lib.import_files([Path(path)])
+            if imported:
+                path = str(imported[0])
+        except OSError:
+            # Best-effort import; fall back to the raw file path.
+            pass
         self._path = path
         self._edit.setText(self._display_name(self._path))
         self.changed.emit(self._path)
@@ -366,12 +365,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         return max(1, width)
 
     def _on_update_custom_palette(self, idx: int, col: Colour | None) -> None:
-        if idx < 0:
-            return
-        if idx >= len(self.app.params.custom_palette):
-            self.app.params.custom_palette.extend([None] * (idx - len(self.app.params.custom_palette) + 1))
-        self.app.params.custom_palette[idx] = col
-        self.app.mark_dirty()
+        self.app.update_custom_palette(idx, col)
 
     @staticmethod
     def _set_combo_value(combo: QtWidgets.QComboBox, value: object) -> None:
@@ -437,8 +431,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         self.app._sync_view_size()
         self.app.redraw()
         self.app.mark_dirty()
-        if hasattr(self.app, "status"):
-            self.app.status.temp(f"Canvas {self.app.params.width}x{self.app.params.height}")
+        self.app.status.temp(f"Canvas {self.app.params.width}x{self.app.params.height}")
 
     def _on_canvas_height(self, value: int) -> None:
         snapped = self.app._snap_canvas_dimension(value, min_value=64, max_value=10000)
@@ -447,8 +440,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         self.app._sync_view_size()
         self.app.redraw()
         self.app.mark_dirty()
-        if hasattr(self.app, "status"):
-            self.app.status.temp(f"Canvas {self.app.params.width}x{self.app.params.height}")
+        self.app.status.temp(f"Canvas {self.app.params.width}x{self.app.params.height}")
 
     def _on_grid_size(self, value: int) -> None:
         snapped = self.app._snap_grid_size_value(value)
@@ -470,8 +462,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         self.app.params.grid_visible = bool(checked)
         self.app.redraw()
         self.app.mark_dirty()
-        if hasattr(self.app, "status"):
-            self.app.status.temp("Grid ON" if self.app.params.grid_visible else "Grid OFF")
+        self.app.status.temp("Grid ON" if self.app.params.grid_visible else "Grid OFF")
 
     def _on_grid_colour(self, hexa: str) -> None:
         self.app.params.grid_colour = Colours.parse_colour(hexa)
@@ -486,34 +477,29 @@ class QtSettingsBar(QtWidgets.QWidget):
     def _on_drag_to_draw(self, checked: bool) -> None:
         self.app.params.drag_to_draw = bool(checked)
         self.app.mark_dirty()
-        if hasattr(self.app, "status"):
-            self.app.status.set_centre("Draw: drag to draw" if checked else "Draw: click-click mode")
+        self.app.status.set_centre("Draw: drag to draw" if checked else "Draw: click-click mode")
 
     def _on_continuous_draw(self, checked: bool) -> None:
         self.app.params.continuous_draw = bool(checked)
         self.app.mark_dirty()
-        if hasattr(self.app, "status"):
-            self.app.status.set_centre("Draw: continuous on" if checked else "Draw: continuous off")
+        self.app.status.set_centre("Draw: continuous on" if checked else "Draw: continuous off")
 
     def _on_cardinal_snap(self, checked: bool) -> None:
         self.app.params.cardinal_snap = bool(checked)
         self.app.mark_dirty()
-        if hasattr(self.app, "status"):
-            self.app.status.set_centre("Draw: Cardinal Snap" if checked else "Draw: Grid Snap")
+        self.app.status.set_centre("Draw: Cardinal Snap" if checked else "Draw: Grid Snap")
 
     def _on_brush_width(self, value: int) -> None:
         self.app.params.brush_width = int(value)
         self.app.mark_dirty()
-        if hasattr(self.app, "status"):
-            self.app.status.temp(f"Line width: {self.app.params.brush_width}")
+        self.app.status.temp(f"Line width: {self.app.params.brush_width}")
 
     def _on_line_style(self, combo: QtWidgets.QComboBox) -> None:
         style = combo.currentData()
         if isinstance(style, LineStyle):
             self.app.params.line_style = style
             self.app.mark_dirty()
-            if hasattr(self.app, "status"):
-                self.app.status.temp(f"Line style: {style.value}")
+            self.app.status.temp(f"Line style: {style.value}")
 
     def _on_dash_offset(self, value: int) -> None:
         self.app.params.line_dash_offset = int(value)
@@ -614,11 +600,10 @@ class QtSettingsBar(QtWidgets.QWidget):
         self.app.params.default_icon = src
         self.app.current_icon = src
         self.app.mark_dirty()
-        if hasattr(self.app, "status"):
-            if src.kind is IconType.builtin and src.name:
-                label = src.name.value
-            elif src.src:
-                label = Path(src.src).name
-            else:
-                label = "Icon"
-            self.app.status.temp(f"Icon: {label}", ms=1500)
+        if src.kind is IconType.builtin and src.name:
+            label = src.name.value
+        elif src.src:
+            label = Path(src.src).name
+        else:
+            label = "Icon"
+        self.app.status.temp(f"Icon: {label}", ms=1500)

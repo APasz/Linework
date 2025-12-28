@@ -25,6 +25,12 @@ def settings_schema() -> list[dict[str, Any]]:
             "section": "General",
         },
         {
+            "name": "custom_palette_shared",
+            "label": "Share custom palette across projects",
+            "kind": "bool",
+            "section": "General",
+        },
+        {
             "name": "window_width",
             "label": "Initial window width (0 = auto)",
             "kind": "int",

@@ -167,6 +167,8 @@ class MoveLineEnd:
 
     def do(self) -> None:
         """Execute the line-end move command."""
+        if not (0 <= self.index < len(self.params.lines)):
+            return
         lin = self.params.lines[self.index]
         if self.end == "a":
             lin.a = self.new_point
@@ -177,6 +179,8 @@ class MoveLineEnd:
 
     def undo(self) -> None:
         """Undo the line-end move command."""
+        if not (0 <= self.index < len(self.params.lines)):
+            return
         lin = self.params.lines[self.index]
         if self.end == "a":
             lin.a = self.old_point
@@ -223,6 +227,8 @@ class MoveLabel:
 
     def do(self) -> None:
         """Execute the label move command."""
+        if not (0 <= self.index < len(self.params.labels)):
+            return
         lab = self.params.labels[self.index]
         lab.p = self.new_point
         self.params.labels[self.index] = lab
@@ -230,6 +236,8 @@ class MoveLabel:
 
     def undo(self) -> None:
         """Undo the label move command."""
+        if not (0 <= self.index < len(self.params.labels)):
+            return
         lab = self.params.labels[self.index]
         lab.p = self.old_point
         self.params.labels[self.index] = lab
@@ -248,6 +256,8 @@ class MoveIcon:
 
     def do(self) -> None:
         """Execute the icon move command."""
+        if not (0 <= self.index < len(self.params.icons)):
+            return
         ico = self.params.icons[self.index]
         ico.p = self.new_point
         self.params.icons[self.index] = ico
@@ -255,6 +265,8 @@ class MoveIcon:
 
     def undo(self) -> None:
         """Undo the icon move command."""
+        if not (0 <= self.index < len(self.params.icons)):
+            return
         ico = self.params.icons[self.index]
         ico.p = self.old_point
         self.params.icons[self.index] = ico

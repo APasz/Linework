@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
@@ -105,6 +106,19 @@ def probe_wh(path: Path, fmt: str | None = None) -> tuple[int, int]:
             return (0, 0)
 
 
+def _ensure_icons_dir(root: Path) -> Path:
+    target = root.parent.absolute() / "assets" / "icons"
+    try:
+        target.mkdir(parents=True, exist_ok=True)
+        if os.access(target, os.W_OK):
+            return target
+    except OSError:
+        pass
+    fallback = Path.home() / ".linework" / "assets" / "icons"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
 class AssetLibrary:
     """Project-scoped asset library."""
 
@@ -115,8 +129,7 @@ class AssetLibrary:
             root: The project root path.
         """
         self.root = root
-        self.icons_dir = root.parent.absolute() / "assets" / "icons"
-        self.icons_dir.mkdir(parents=True, exist_ok=True)
+        self.icons_dir = _ensure_icons_dir(root)
 
     def list_pictures(self) -> list[Path]:
         """List available picture icons.

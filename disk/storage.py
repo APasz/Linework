@@ -61,6 +61,8 @@ def _coerce_settings_path(value: str | Path) -> Path:
         return path / DEFAULT_SETTINGS_NAME
     if raw.endswith(("/", "\\")):
         return path / DEFAULT_SETTINGS_NAME
+    if not path.suffix:
+        return path / DEFAULT_SETTINGS_NAME
     return path
 
 
@@ -239,19 +241,23 @@ class IO:
     def save_params(params: Params, path: Path) -> None:
         """Write params to disk at the given path."""
         payload = params.model_copy(update={"app_version": get_app_version()})
+        exclude = {
+            "default_project",
+            "storage_mode",
+            "window_width",
+            "window_height",
+            "remember_window_size",
+            "auto_expand_window",
+            "auto_shrink_window",
+            "custom_palette_shared",
+        }
+        if getattr(params, "custom_palette_shared", True):
+            exclude.add("custom_palette")
         path.write_text(
             payload.model_dump_json(
                 indent=4,
                 exclude_none=True,
-                exclude={
-                    "default_project",
-                    "storage_mode",
-                    "window_width",
-                    "window_height",
-                    "remember_window_size",
-                    "auto_expand_window",
-                    "auto_shrink_window",
-                },
+                exclude=exclude,
             ),
             encoding="utf-8",
         )

@@ -304,12 +304,7 @@ class SettingsPanel(QtWidgets.QWidget):
 
     # ---------- helpers ----------
     def _on_update_custom_palette(self, idx: int, col: Colour | None) -> None:
-        if idx < 0:
-            return
-        if idx >= len(self.app.params.custom_palette):
-            self.app.params.custom_palette.extend([None] * (idx - len(self.app.params.custom_palette) + 1))
-        self.app.params.custom_palette[idx] = col
-        self.app.mark_dirty()
+        self.app.update_custom_palette(idx, col)
 
     @staticmethod
     def _set_combo_value(combo: QtWidgets.QComboBox, value: object) -> None:

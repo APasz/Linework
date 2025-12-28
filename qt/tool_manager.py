@@ -34,8 +34,7 @@ class QtToolManager:
         Args;
             name: The tool identifier.
         """
-        if hasattr(self.current, "on_deactivate"):
-            self.current.on_deactivate(self.app)
+        self.current.on_deactivate(self.app)
 
         self.app.select_clear()
         self.app.selection.clear_marquee()
