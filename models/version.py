@@ -27,7 +27,7 @@ def get_app_version() -> str:
         if file_version:
             _VERSION = file_version
             return _VERSION
-    except Exception:
+    except ImportError:
         pass
 
     git_version = _version_from_git()
@@ -52,7 +52,7 @@ def _version_from_git() -> str | None:
                 stderr=subprocess.DEVNULL,
                 text=True,
             )
-        except Exception:
+        except (OSError, subprocess.SubprocessError):
             return None
         return output.strip()
 
@@ -62,7 +62,7 @@ def _version_from_git() -> str | None:
 
     count = _run_git(["rev-list", "--count", "HEAD"])
     if count:
-        return f"v0.{count}"
+        return f"v1.{count}"
 
     return None
 

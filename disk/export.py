@@ -14,7 +14,7 @@ from typing import Any
 from PIL import Image, ImageDraw, ImageFont
 
 from models.assets import Formats, _builtin_icon_plan, _open_rgba
-from models.geo import Line, Picture_Icon
+from models.geo import Line, PictureIcon
 from models.params import Params
 from models.styling import CapStyle, Colour, iter_dash_spans, svg_dasharray
 
@@ -34,12 +34,20 @@ try:
     import cairosvg
 
     RASTER_BACKEND = RASTERISERS.cairosvg
-except Exception:
+except ImportError:
     cairosvg = None
     RASTER_BACKEND = RASTERISERS.pil
 
 
 def _col_and_opacity(col: Colour) -> tuple[str, str]:
+    """Return SVG colour and opacity attributes.
+
+    Args;
+        col: The input colour.
+
+    Returns;
+        The hex colour and opacity attribute string (or empty string).
+    """
     hex_rgb = col.hexh
     if col.alpha < 255:
         op = f' opacity="{col.alpha / 255:.3f}"'
@@ -80,11 +88,20 @@ _MIME_BY_EXT = {
 
 
 def _picture_bytes_and_mime(src: Path, size: tuple[int, int] | None = None) -> tuple[bytes, str]:
+    """Load image bytes and MIME type, with a raster fallback.
+
+    Args;
+        src: The source image path.
+        size: Optional fallback size for rasterisation.
+
+    Returns;
+        A tuple of image bytes and MIME type.
+    """
     ext = src.suffix[1:].lower()
     try:
         data = src.read_bytes()
         return data, _MIME_BY_EXT.get(ext, "application/octet-stream")
-    except Exception:
+    except OSError:
         w, h = size if size else (64, 64)
         img = _open_rgba(src, w, h)
         buf = io.BytesIO()
@@ -96,16 +113,40 @@ def _picture_bytes_and_mime(src: Path, size: tuple[int, int] | None = None) -> t
 
 
 def _svg_cap(cap: CapStyle) -> str:
-    # Tk: "butt" | "round" | "projecting"
+    """Map cap styles to SVG equivalents.
+
+    Args;
+        cap: The cap style.
+
+    Returns;
+        The SVG cap string.
+    """
+    # Cap styles: "butt" | "round" | "projecting"
     # SVG: "butt" | "round" | "square"
     return "square" if cap == CapStyle.PROJECTING else cap.value
 
 
 def _escape(string: str) -> str:
+    """Escape text for SVG content.
+
+    Args;
+        string: The input string.
+
+    Returns;
+        The escaped string.
+    """
     return string.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 def _svg_line_fast(line: Line) -> str:
+    """Render a line as a single SVG element.
+
+    Args;
+        line: The line to render.
+
+    Returns;
+        The SVG line element.
+    """
     stroke, sop = _col_and_opacity(line.col)
     arr = svg_dasharray(line.style, line.width)  # "6,3" or ""
     dash_attr = f' stroke-dasharray="{arr}"' if arr else ""
@@ -119,6 +160,14 @@ def _svg_line_fast(line: Line) -> str:
 
 
 def _svg_line_strict(lin: Line) -> list[str]:
+    """Render a line with strict dash parity.
+
+    Args;
+        lin: The line to render.
+
+    Returns;
+        The SVG element list for the line.
+    """
     ux, uy, L = lin.unit()
     if L <= 0 or int(lin.width) <= 0:
         return []
@@ -171,6 +220,12 @@ def _svg_line_strict(lin: Line) -> list[str]:
 
 
 def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]) -> None:
+    """Append SVG elements for a drawing plan.
+
+    Args;
+        parts: The SVG string accumulator.
+        plan: The drawing plan.
+    """
     def _dash_attrs(kw: dict[str, Any]) -> str:
         width = int(kw.get("width", 1) or 1)
         style = kw.get("style", None)
@@ -183,9 +238,9 @@ def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]) -> 
                 if isinstance(style, str):
                     try:
                         style = LineStyle(style)
-                    except Exception:
+                    except ValueError:
                         style = None
-            except Exception:
+            except ImportError:
                 style = None
             if style is not None:
                 arr = svg_dasharray(style, width)
@@ -224,7 +279,8 @@ def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]) -> 
                 parts.append(f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="{fill}"/>')
             if stroke:
                 parts.append(
-                    f'<rect x="{x}" y="{y}" width="{w}" height="{h}" fill="none" stroke="{stroke}" stroke-width="{width or 1}"/>'
+                    f'<rect x="{x}" y="{y}" width="{w}" height="{h}" '
+                    f'fill="none" stroke="{stroke}" stroke-width="{width or 1}"/>'
                 )
 
         elif op == "line":
@@ -287,6 +343,15 @@ def _emit_svg_plan(parts: list[str], plan: list[tuple[str, dict[str, Any]]]) -> 
 def _emit_pil_plan(
     img: Image.Image, plan: list[tuple[str, dict[str, Any]]], cx: int, cy: int, rot_deg: int
 ) -> None:
+    """Draw a plan onto an image, applying rotation when needed.
+
+    Args;
+        img: The target image.
+        plan: The drawing plan.
+        cx: The plan centre x coordinate.
+        cy: The plan centre y coordinate.
+        rot_deg: The rotation in degrees.
+    """
     needs_rot = (rot_deg % 360) != 0
     if needs_rot:
         box = max(
@@ -395,6 +460,14 @@ def _emit_pil_plan(
 
 
 def _rgba(svg_hex: str) -> tuple[int, int, int, int]:
+    """Convert a hex colour string to RGBA.
+
+    Args;
+        svg_hex: The #RRGGBB colour string.
+
+    Returns;
+        The RGBA tuple.
+    """
     r = int(svg_hex[1:3], 16)
     g = int(svg_hex[3:5], 16)
     b = int(svg_hex[5:7], 16)
@@ -405,6 +478,12 @@ def _rgba(svg_hex: str) -> tuple[int, int, int, int]:
 
 
 def _stroke_dashed_line(draw: ImageDraw.ImageDraw, line: Line) -> None:
+    """Draw a dashed line with cap handling.
+
+    Args;
+        draw: The PIL drawing context.
+        line: The line to draw.
+    """
     ux, uy, L = line.unit()
     if L <= 0 or int(line.width) <= 0:
         return
@@ -469,10 +548,11 @@ class Exporter:
         Raises;
             ValueError: If the output format is unsupported.
         """
-        fmt = Formats.check(params.output_file)
+        output_file = cls._output_path(params)
+        fmt = Formats.check(output_file)
         func = cls.supported.get(fmt) if fmt else None
         if not fmt or not func:
-            raise ValueError(f"Unsupported output type: {params.output_file.suffix}")
+            raise ValueError(f"Unsupported output type: {output_file.suffix}")
         return func(params)
 
     @classmethod
@@ -493,7 +573,22 @@ class Exporter:
 
     # ---------------- Internal helpers ----------------
     @staticmethod
+    def _output_path(params: Params) -> Path:
+        """Return the output path or raise if it is missing."""
+        if params.output_file is None:
+            raise ValueError("Output path is required for export.")
+        return params.output_file
+
+    @staticmethod
     def _svg_string(params: Params) -> str:
+        """Build the SVG document string for params.
+
+        Args;
+            params: The export parameters.
+
+        Returns;
+            The SVG document string.
+        """
         W, H = params.width, params.height
         parts: list[str] = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">']
 
@@ -504,9 +599,9 @@ class Exporter:
         if params.grid_visible and params.grid_size > 0:
             gc, gop = _col_and_opacity(params.grid_colour)
             parts.append('<g shape-rendering="crispEdges">')
-            for x in range(0, W + 1, params.grid_size):
+            for x in range(0, W, params.grid_size):
                 parts.append(f'<line x1="{x}" y1="0" x2="{x}" y2="{H}" stroke="{gc}" stroke-width="1"{gop}/>')
-            for y in range(0, H + 1, params.grid_size):
+            for y in range(0, H, params.grid_size):
                 parts.append(f'<line x1="0" y1="{y}" x2="{W}" y2="{y}" stroke="{gc}" stroke-width="1"{gop}/>')
             parts.append("</g>")
 
@@ -523,7 +618,8 @@ class Exporter:
             ta, db = lab.anchor.svg
             parts.append(
                 f'<text x="{lab.p.x}" y="{lab.p.y}" fill="{fill}" font-size="{lab.size}" '
-                f'text-anchor="{ta}" dominant-baseline="{db}" transform="rotate({-lab.rotation} {lab.p.x} {lab.p.y})"{fop}>'
+                f'text-anchor="{ta}" dominant-baseline="{db}" alignment-baseline="{db}" '
+                f'transform="rotate({-lab.rotation} {lab.p.x} {lab.p.y})"{fop}>'
                 f"{_escape(lab.text)}</text>"
             )
 
@@ -531,7 +627,7 @@ class Exporter:
             bw, bh = ico.bbox_wh()
             cx, cy = ico.anchor._centre(ico.p.x, ico.p.y, bw, bh)
 
-            if isinstance(ico, Picture_Icon):
+            if isinstance(ico, PictureIcon):
                 data, mime = _picture_bytes_and_mime(Path(ico.src), size=(bw, bh))
                 b64 = base64.b64encode(data).decode("ascii")
                 parts.append(
@@ -552,6 +648,14 @@ class Exporter:
     # Raster draw (PIL)
     @staticmethod
     def _draw(params: Params) -> Image.Image:
+        """Render params to a PIL image.
+
+        Args;
+            params: The export parameters.
+
+        Returns;
+            The rendered image.
+        """
         img = Image.new("RGBA", (params.width, params.height), params.bg_colour.rgba)
         draw = ImageDraw.Draw(img)
 
@@ -563,7 +667,7 @@ class Exporter:
             bw, bh = ico.bbox_wh()
             cxw, cyw = ico.anchor._centre(ico.p.x, ico.p.y, bw, bh)
 
-            if isinstance(ico, Picture_Icon):
+            if isinstance(ico, PictureIcon):
                 im = _open_rgba(Path(ico.src), bw, bh)
                 rot = ico.rotation % 360
                 if rot:
@@ -589,6 +693,7 @@ class Exporter:
         For opaque formats, draw with PIL directly if selected,
         else rasterise SVG then transcode to RGB.
         """
+        output_file = Exporter._output_path(params)
         if RASTER_BACKEND is RASTERISERS.pil:
             frame = Exporter._draw(params)
         else:
@@ -599,8 +704,8 @@ class Exporter:
 
         bg = Image.new("RGB", frame.size, params.bg_colour.rgb if params.bg_colour.alpha else (255, 255, 255))
         bg.paste(frame, mask=frame.split()[-1])
-        bg.save(params.output_file, format=fmt.upper())
-        return params.output_file
+        bg.save(output_file, format=fmt.upper())
+        return output_file
 
     # Public handlers
     @staticmethod
@@ -613,8 +718,9 @@ class Exporter:
         Returns;
             The output path.
         """
-        params.output_file.write_text(Exporter._svg_string(params), encoding="utf-8")
-        return params.output_file
+        output_file = Exporter._output_path(params)
+        output_file.write_text(Exporter._svg_string(params), encoding="utf-8")
+        return output_file
 
     @classmethod
     def webp(cls, params: Params) -> Path:
@@ -626,14 +732,15 @@ class Exporter:
         Returns;
             The output path.
         """
+        output_file = cls._output_path(params)
         if RASTER_BACKEND is RASTERISERS.pil:
             frame = cls._draw(params)
-            frame.save(params.output_file, format=Formats.webp.upper(), lossless=True, method=6)
+            frame.save(output_file, format=Formats.webp.upper(), lossless=True, method=6)
         else:
             raster = _rasterise_via_svg(params, Formats.webp, cls._svg_string(params))
             if raster is not None:
-                params.output_file.write_bytes(raster)
-        return params.output_file
+                output_file.write_bytes(raster)
+        return output_file
 
     @classmethod
     def png(cls, params: Params) -> Path:
@@ -645,14 +752,15 @@ class Exporter:
         Returns;
             The output path.
         """
+        output_file = cls._output_path(params)
         if RASTER_BACKEND is RASTERISERS.pil:
             frame = cls._draw(params)
-            frame.save(params.output_file, format=Formats.png.upper())
+            frame.save(output_file, format=Formats.png.upper())
         else:
             raster = _rasterise_via_svg(params, Formats.png, cls._svg_string(params))
             if raster is not None:
-                params.output_file.write_bytes(raster)
-        return params.output_file
+                output_file.write_bytes(raster)
+        return output_file
 
     @classmethod
     def jpg(cls, params: Params) -> Path:
@@ -695,20 +803,37 @@ class Exporter:
 
 
 def _draw_grid(draw: ImageDraw.ImageDraw, params: Params) -> None:
+    """Draw the grid overlay.
+
+    Args;
+        draw: The PIL drawing context.
+        params: The export parameters.
+    """
     if not (params.grid_visible and params.grid_size > 0):
         return
-    for x in range(0, params.width + 1, params.grid_size):
+    for x in range(0, params.width, params.grid_size):
         draw.line([(x, 0), (x, params.height)], fill=params.grid_colour.rgba, width=1)
-    for y in range(0, params.height + 1, params.grid_size):
+    for y in range(0, params.height, params.grid_size):
         draw.line([(0, y), (params.width, y)], fill=params.grid_colour.rgba, width=1)
 
 
 def _draw_lines(draw: ImageDraw.ImageDraw, params: Params) -> None:
+    """Draw line items onto the image.
+
+    Args;
+        draw: The PIL drawing context.
+        params: The export parameters.
+    """
     for lin in params.lines:
         _stroke_dashed_line(draw, lin)
 
 
 def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont | None], Any]:
+    """Create a font cache and loader.
+
+    Returns;
+        A cache dict and a font loader callable.
+    """
     _TTF_CANDIDATES = ("DejaVuSans.ttf", "DejaVuSansMono.ttf")
     cache: dict[int, ImageFont.FreeTypeFont | ImageFont.ImageFont | None] = {}
 
@@ -722,12 +847,12 @@ def _font_cache_factory() -> tuple[dict[int, ImageFont.FreeTypeFont | ImageFont.
                 try:
                     got = ImageFont.truetype(name, sz)
                     break
-                except Exception:
+                except OSError:
                     pass
         if got is None:
             try:
                 got = ImageFont.load_default()
-            except Exception:
+            except OSError:
                 got = None
         cache[sz] = got
         return got
@@ -739,6 +864,12 @@ _FONT_CACHE, _font = _font_cache_factory()
 
 
 def _draw_labels(img: Image.Image, params: Params) -> None:
+    """Draw labels onto the image.
+
+    Args;
+        img: The target image.
+        params: The export parameters.
+    """
     for lab in params.labels:
         if not lab.text:
             continue
@@ -763,6 +894,16 @@ def _draw_labels(img: Image.Image, params: Params) -> None:
 
 
 def _rasterise_via_svg(params: Params, fmt: Formats, svg_text: str) -> bytes | None:
+    """Rasterise SVG text using the configured backend.
+
+    Args;
+        params: The export parameters.
+        fmt: The target raster format.
+        svg_text: The SVG document text.
+
+    Returns;
+        The raster bytes, or None when unsupported.
+    """
     svg_bytes = svg_text.encode("utf-8")
 
     if RASTER_BACKEND is RASTERISERS.cairosvg and cairosvg is not None:

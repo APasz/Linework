@@ -1,1 +1,1 @@
-"""UI package for Linework."""
+"""UI package for Linework frontends."""

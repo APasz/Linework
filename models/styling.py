@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import re
-import sys
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from enum import Enum, StrEnum
 from functools import lru_cache
 from types import MappingProxyType
-from typing import Final, Literal, Self
+from typing import Any, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -18,7 +17,7 @@ class Model(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True)
 
-    def replace(self, **updates) -> Self:
+    def replace(self, **updates: Any) -> Self:
         """Return a copy with the provided fields updated.
 
         Args;
@@ -64,15 +63,6 @@ class Anchor(Enum):
         return next((a for a in cls if a.value == v), cls.C)
 
     # ---- targets ----
-    @property
-    def tk(self) -> TK_CARDINALS:
-        """Return the Tk anchor string.
-
-        Returns;
-            The Tk anchor string.
-        """
-        return self.value
-
     @property
     def pil(self) -> PIL_CARDINALS | None:
         """Return the Pillow anchor, or None to use the default.
@@ -153,7 +143,6 @@ class Anchor(Enum):
         return round(px - dx), round(py - dy)
 
 
-TK_CARDINALS = Literal["nw", "n", "ne", "w", "center", "e", "sw", "s", "se"]
 PIL_CARDINALS = Literal["lt", "mt", "rt", "lm", "mm", "rm", "lb", "mb", "rb"]
 TextAnchor = Literal["start", "middle", "end"]
 DominantBaseline = Literal["hanging", "middle", "text-after-edge"]
@@ -222,30 +211,6 @@ _BASE: dict[LineStyle | None, tuple[float, ...]] = {
     LineStyle.DASH_DOT: (3, 2, 0.1, 2),
     LineStyle.DASH_DOT_DOT: (3, 2, 0.1, 2, 0.1, 2),
 }
-_IS_WINDOWS = sys.platform.startswith("win")
-_WINDOWS_DASH_BOOST_MAX_W = 3
-_WINDOWS_DASH_BOOST = 2
-_WINDOWS_DASH_STYLES: Final[set[LineStyle]] = {
-    LineStyle.DASH,
-    LineStyle.LONG,
-    LineStyle.SHORT,
-    LineStyle.DASH_DOT,
-    LineStyle.DASH_DOT_DOT,
-}
-
-
-def use_manual_tk_dash(style: LineStyle | None) -> bool:
-    """Return True when manual dash rendering is needed for Tk on Windows.
-
-    Args;
-        style: The line style to test.
-
-    Returns;
-        True if the style should be rendered manually.
-    """
-    return _IS_WINDOWS and style in _WINDOWS_DASH_STYLES
-
-
 def _normalise_pairs(seq: Iterable[int]) -> tuple[int, ...]:
     """Ensure even-length (on/off pairs) and no zeros except for tiny 'dot' hack."""
     arr = list(seq)
@@ -276,40 +241,6 @@ def scaled_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
     w = max(1, width_px)
     scaled = [max(1, round(seg * w)) for seg in base]
     return _normalise_pairs(scaled)
-
-
-def _boost_windows_dash(
-    style: LineStyle | None, base: tuple[float, ...], scaled: tuple[int, ...], width_px: int
-) -> tuple[int, ...]:
-    if not _IS_WINDOWS or style not in _WINDOWS_DASH_STYLES or width_px > _WINDOWS_DASH_BOOST_MAX_W:
-        return scaled
-    # Windows Tk can collapse short dashes into dots at small widths; stretch non-dot segments.
-    out: list[int] = []
-    for seg_base, seg_scaled in zip(base, scaled):
-        if seg_base <= 0.5:
-            out.append(seg_scaled)
-        else:
-            out.append(seg_scaled * _WINDOWS_DASH_BOOST)
-    return tuple(out)
-
-
-def tk_dash_pattern(style: LineStyle | None, width_px: int) -> tuple[int, ...]:
-    """Return a Tk-compatible dash pattern for the given style and width.
-
-    Args;
-        style: The line style to scale.
-        width_px: The line width in pixels.
-
-    Returns;
-        The dash pattern tuple.
-    """
-    base = _BASE.get(style, _BASE[None])
-    if not base:
-        return ()
-    pat = scaled_pattern(style, width_px)
-    if not pat:
-        return pat
-    return _boost_windows_dash(style, base, pat, width_px)
 
 
 def dash_seq(dash: Sequence[int] | None, offset: int) -> tuple[list[int], bool]:
@@ -628,86 +559,3 @@ def _collect_palette() -> dict[str, Colour]:
 
 
 PALETTE: Final[Mapping[str, Colour]] = _collect_palette()
-
-
-class TkCursor(StrEnum):
-    """Available Tk cursor names."""
-
-    X_CURSOR = "X_cursor"
-    ARROW = "arrow"
-    BASED_ARROW_DOWN = "based_arrow_down"
-    BASED_ARROW_UP = "based_arrow_up"
-    BOAT = "boat"
-    BOGOSITY = "bogosity"
-    BOTTOM_LEFT_CORNER = "bottom_left_corner"
-    BOTTOM_RIGHT_CORNER = "bottom_right_corner"
-    BOTTOM_SIDE = "bottom_side"
-    BOTTOM_TEE = "bottom_tee"
-    BOX_SPIRAL = "box_spiral"
-    CENTRE_PTR = "center_ptr"
-    CIRCLE = "circle"
-    CLOCK = "clock"
-    COFFEE_MUG = "coffee_mug"
-    CROSS = "cross"
-    CROSS_REVERSE = "cross_reverse"
-    CROSSHAIR = "crosshair"
-    DIAMOND_CROSS = "diamond_cross"
-    DOT = "dot"
-    DOTBOX = "dotbox"
-    DOUBLE_ARROW = "double_arrow"
-    DRAFT_LARGE = "draft_large"
-    DRAFT_SMALL = "draft_small"
-    DRAPED_BOX = "draped_box"
-    EXCHANGE = "exchange"
-    FLEUR = "fleur"
-    GOBBLER = "gobbler"
-    GUMBY = "gumby"
-    HAND1 = "hand1"
-    HAND2 = "hand2"
-    HEART = "heart"
-    ICON = "icon"
-    IRON_CROSS = "iron_cross"
-    LEFT_PTR = "left_ptr"
-    LEFT_SIDE = "left_side"
-    LEFT_TEE = "left_tee"
-    LEFTBUTTON = "leftbutton"
-    LL_ANGLE = "ll_angle"
-    LR_ANGLE = "lr_angle"
-    MAN = "man"
-    MIDDLEBUTTON = "middlebutton"
-    MOUSE = "mouse"
-    NONE = "none"  # hide the cursor entirely
-    PENCIL = "pencil"
-    PIRATE = "pirate"
-    PLUS = "plus"
-    QUESTION_ARROW = "question_arrow"
-    RIGHT_PTR = "right_ptr"
-    RIGHT_SIDE = "right_side"
-    RIGHT_TEE = "right_tee"
-    RIGHTBUTTON = "rightbutton"
-    RTL_LOGO = "rtl_logo"
-    SAILBOAT = "sailboat"
-    SB_DOWN_ARROW = "sb_down_arrow"
-    SB_H_DOUBLE_ARROW = "sb_h_double_arrow"
-    SB_LEFT_ARROW = "sb_left_arrow"
-    SB_RIGHT_ARROW = "sb_right_arrow"
-    SB_UP_ARROW = "sb_up_arrow"
-    SB_V_DOUBLE_ARROW = "sb_v_double_arrow"
-    SHUTTLE = "shuttle"
-    SIZING = "sizing"
-    SPIDER = "spider"
-    SPRAYCAN = "spraycan"
-    STAR = "star"
-    TARGET = "target"
-    TCROSS = "tcross"
-    TOP_LEFT_ARROW = "top_left_arrow"
-    TOP_LEFT_CORNER = "top_left_corner"
-    TOP_RIGHT_CORNER = "top_right_corner"
-    TOP_SIDE = "top_side"
-    TOP_TEE = "top_tee"
-    TREK = "trek"
-    UL_ANGLE = "ul_angle"
-    UMBRELLA = "umbrella"
-    UR_ANGLE = "ur_angle"
-    WATCH = "watch"
-    XTERM = "xterm"

@@ -1,65 +1,14 @@
-"""Geometry models and canvas helpers for Linework."""
+"""Geometry models for Linework."""
 
 import math
-import tkinter as tk
-from collections import OrderedDict
-from collections.abc import Collection
-from dataclasses import dataclass
-from enum import Enum, StrEnum
+from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self, overload
+from typing import Annotated, Literal, Self
 
-from PIL import Image, ImageTk
 from pydantic import Field, model_validator
 
-from canvas.layers import Hit_Kind, Layer_Type, Tag
-from models.assets import Builtins, Formats, Icon_Name, Primitives, Style, _open_rgba, probe_wh
-from models.styling import (
-    Anchor,
-    CapStyle,
-    Colour,
-    JoinStyle,
-    LineStyle,
-    Model,
-    iter_dash_spans,
-    scaled_pattern,
-    tk_dash_pattern,
-    use_manual_tk_dash,
-)
-
-MAX_CACHE: int = 128
-
-
-@dataclass
-class _LineOpts:
-    width: int | None = None
-    joinstyle: JoinStyle | None = None
-    capstyle: CapStyle | None = None
-    dash: tuple[int, ...] | None = None
-
-    def asdict(self) -> dict[str, Any]:
-        items = ("width", "joinstyle", "capstyle", "dash")
-        data = {}
-        for key in items:
-            item = getattr(self, key, None)
-            if item:
-                data[key] = item.value if isinstance(item, Enum) else item
-        return data
-
-
-@dataclass
-class _PolyOpts:
-    width: int | None = None
-    joinstyle: JoinStyle | None = None
-
-    def asdict(self) -> dict[str, Any]:
-        items = ("width", "joinstyle")
-        data = {}
-        for key in items:
-            item = getattr(self, key, None)
-            if item:
-                data[key] = item.value if isinstance(item, Enum) else item
-        return data
+from models.assets import Formats, IconName, probe_wh
+from models.styling import Anchor, CapStyle, Colour, LineStyle, Model, scaled_pattern
 
 
 class Point(Model):
@@ -82,6 +31,7 @@ class Line(Model):
     capstyle: CapStyle = CapStyle.ROUND
     style: LineStyle = LineStyle.SOLID
     dash_offset: int = 0
+    snap: bool = True
 
     def with_points(self, a: Point, b: Point) -> Self:
         """Return a copy with new endpoints.
@@ -185,32 +135,32 @@ class Label(Model):
         return self.model_copy(update={"p": Point(x=x, y=y)})
 
 
-class Icon_Type(StrEnum):
+class IconType(StrEnum):
     """Icon source kind."""
 
     builtin = "builtin"
     picture = "picture"
 
 
-class Icon_Source(Model):
+class IconSource(Model):
     """Reference to a builtin or picture icon."""
 
-    kind: Icon_Type
-    name: Icon_Name | None = None
+    kind: IconType
+    name: IconName | None = None
     src: Path | None = None
 
     @model_validator(mode="after")
-    def _check(self) -> "Icon_Source":
-        if self.kind is Icon_Type.builtin:
+    def _check(self) -> "IconSource":
+        if self.kind is IconType.builtin:
             if self.name is None or self.src is not None:
-                raise ValueError("builtin Icon_Source requires name and forbids src")
+                raise ValueError("builtin IconSource requires name and forbids src")
         else:
             if self.src is None or self.name is not None:
-                raise ValueError("picture Icon_Source requires src and forbids name")
+                raise ValueError("picture IconSource requires src and forbids name")
         return self
 
     @classmethod
-    def builtin(cls, name: Icon_Name | str) -> "Icon_Source":
+    def builtin(cls, name: IconName | str) -> "IconSource":
         """Create a builtin icon source.
 
         Args;
@@ -219,10 +169,10 @@ class Icon_Source(Model):
         Returns;
             The icon source.
         """
-        return cls(kind=Icon_Type.builtin, name=Icon_Name(name))
+        return cls(kind=IconType.builtin, name=IconName(name))
 
     @classmethod
-    def picture(cls, src: Path | str) -> "Icon_Source":
+    def picture(cls, src: Path | str) -> "IconSource":
         """Create a picture icon source.
 
         Args;
@@ -231,11 +181,11 @@ class Icon_Source(Model):
         Returns;
             The icon source.
         """
-        return cls(kind=Icon_Type.picture, src=Path(src))
+        return cls(kind=IconType.picture, src=Path(src))
 
     @classmethod
-    def coerce(cls, x: "Icon_Source | Iconlike | Path | str | Icon_Name") -> "Icon_Source":
-        """Coerce an input into an Icon_Source.
+    def coerce(cls, x: "IconSource | Iconlike | Path | str | IconName") -> "IconSource":
+        """Coerce an input into an IconSource.
 
         Args;
             x: The input value.
@@ -243,26 +193,26 @@ class Icon_Source(Model):
         Returns;
             The icon source.
         """
-        if isinstance(x, Icon_Source):
+        if isinstance(x, IconSource):
             return x
-        if isinstance(x, Icon_Name):
+        if isinstance(x, IconName):
             return cls.builtin(x)
         if isinstance(x, str):
             # try value→enum first, else assume file path
             try:
-                return cls.builtin(Icon_Name(x))
-            except Exception:
+                return cls.builtin(IconName(x))
+            except ValueError:
                 return cls.picture(x)
         if isinstance(x, Path):
             return cls.picture(x)
-        if isinstance(x, Builtin_Icon):
+        if isinstance(x, BuiltinIcon):
             return cls.builtin(x.name)
-        if isinstance(x, Picture_Icon):
+        if isinstance(x, PictureIcon):
             return cls.picture(x.src)
-        raise TypeError(f"Cannot coerce {type(x)} to Icon_Source")
+        raise TypeError(f"Cannot coerce {type(x)} to IconSource")
 
 
-class Base_Icon(Model):
+class BaseIcon(Model):
     """Base class for icons."""
 
     p: Point
@@ -304,11 +254,11 @@ class Base_Icon(Model):
         raise NotImplementedError
 
 
-class Builtin_Icon(Base_Icon):
+class BuiltinIcon(BaseIcon):
     """Builtin icon definition."""
 
     kind: Literal["builtin"] = "builtin"
-    name: Icon_Name
+    name: IconName
 
     def bbox_wh(self) -> tuple[int, int]:
         """Return the unrotated bounding box size.
@@ -320,7 +270,7 @@ class Builtin_Icon(Base_Icon):
         return (s, s)
 
 
-class Picture_Icon(Base_Icon):
+class PictureIcon(BaseIcon):
     """Image-based icon definition."""
 
     kind: Literal["picture"] = "picture"
@@ -345,648 +295,4 @@ class Picture_Icon(Base_Icon):
         return (self.size, self.size)
 
 
-Iconlike = Annotated[Builtin_Icon | Picture_Icon, Field(discriminator="kind")]
-
-
-class ItemID(int):
-    """Canvas item identifier."""
-
-
-def _flat_points(*points: Point) -> tuple[int, ...]:
-    out: list[int] = []
-    for p in points:
-        out += [p.x, p.y]
-    return tuple(out)
-
-
-def tag_sort(
-    tag_type: Layer_Type,
-    base_kind: Layer_Type | Hit_Kind | None = None,
-    idx: int | None = None,
-    override: Tag | None = None,
-    extra: Collection[Tag] | None = None,
-) -> tuple[str, ...]:
-    """Build the full list of tag strings for a canvas item.
-
-    Args;
-        tag_type: The primary layer type.
-        base_kind: The base hit kind.
-        idx: Optional item index.
-        override: Optional tag override.
-        extra: Optional extra tags.
-
-    Returns;
-        The tag strings.
-    """
-    tags: set[Tag] = {Tag.layer(tag_type)}
-    if override:
-        tags.add(override)
-    else:
-        tags.add(Tag(tag_type.tagns(), base_kind, idx))
-    if extra:
-        tags.update(extra)
-
-    strings: list[str] = []
-    for tag in tags:
-        strings.extend(tag.to_strings())
-    return tuple(strings)
-
-
-Deletable = int | ItemID | str
-
-
-class CanvasLW(tk.Canvas):
-    """Tk canvas with typed convenience helpers."""
-
-    class cache:
-        checker_bg: tuple[int, ImageTk.PhotoImage] | None = None
-        checker_ref: tuple[int, ImageTk.PhotoImage] | None = None
-        imgs: dict[str, ImageTk.PhotoImage] = {}
-
-    @staticmethod
-    def _stipple_for_alpha(alpha: int | Colour) -> str | None:
-        """Return a Tk stipple pattern for an alpha value."""
-        if isinstance(alpha, Colour):
-            a = alpha.alpha
-        else:
-            a = alpha
-        if a >= 250:
-            return None
-        if a >= 192:
-            return "gray12"
-        if a >= 128:
-            return "gray25"
-        if a >= 64:
-            return "gray50"
-        if a > 0:
-            return "gray75"
-        return "gray75"
-
-    def _create_dashed_segments(
-        self,
-        a: Point,
-        b: Point,
-        *,
-        col: Colour,
-        width: int,
-        capstyle: CapStyle,
-        dash: tuple[int, ...],
-        dash_offset: int,
-        tags: Collection[str],
-        stipple: str | None,
-    ) -> ItemID:
-        dx, dy = b.x - a.x, b.y - a.y
-        L = math.hypot(dx, dy)
-        if L <= 0:
-            return ItemID(0)
-        ux, uy = dx / L, dy / L
-        x1, y1 = float(a.x), float(a.y)
-
-        first_iid: int | None = None
-        for seg_a, seg_b, on in iter_dash_spans(L, dash, dash_offset):
-            if not on:
-                continue
-            xA, yA = x1 + ux * seg_a, y1 + uy * seg_a
-            xB, yB = x1 + ux * seg_b, y1 + uy * seg_b
-            iid = super().create_line(
-                xA,
-                yA,
-                xB,
-                yB,
-                fill=col.hexh,
-                width=width,
-                capstyle=capstyle.value,
-                stipple=stipple or "",
-                tags=list(tags),
-            )
-            if first_iid is None:
-                first_iid = iid
-        return ItemID(first_iid or 0)
-
-    # ---------- creation ----------
-    def create_with_points(
-        self,
-        a: Point,
-        b: Point,
-        *,
-        col: Colour,
-        width: int,
-        capstyle: CapStyle,
-        style: LineStyle | None = None,
-        idx: int | None = None,
-        dash_offset: int = 0,
-        extra_tags: Collection[Tag] | None = None,
-        override_tag: Tag | None = None,
-        tag_type: Layer_Type = Layer_Type.lines,
-    ) -> ItemID:
-        """Create a line item from two points.
-
-        Args;
-            a: The start point.
-            b: The end point.
-            col: Line colour.
-            width: Line width in pixels.
-            capstyle: Line cap style.
-            style: Optional line style override.
-            idx: Optional index for tagging.
-            dash_offset: Dash offset.
-            extra_tags: Optional extra tags.
-            override_tag: Optional explicit tag.
-            tag_type: The layer type for tagging.
-
-        Returns;
-            The created item ID.
-        """
-        use_manual = use_manual_tk_dash(style)
-        dash = scaled_pattern(style, width) if use_manual else tk_dash_pattern(style, width)
-        st = self._stipple_for_alpha(col.alpha)
-        tags = tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags)
-        if use_manual and dash:
-            return self._create_dashed_segments(
-                a,
-                b,
-                col=col,
-                width=width,
-                capstyle=capstyle,
-                dash=dash,
-                dash_offset=dash_offset,
-                tags=tags,
-                stipple=st,
-            )
-        iid = super().create_line(
-            a.x,
-            a.y,
-            b.x,
-            b.y,
-            fill=col.hexh,
-            width=width,
-            capstyle=capstyle.value,
-            dash=dash or [],
-            dashoffset=(dash_offset if dash else 0),
-            stipple=st or "",
-            tags=tags,
-        )
-        return ItemID(iid)
-
-    def create_with_line(
-        self,
-        line: Line,
-        *,
-        idx: int | None = None,
-        extra_tags: Collection[Tag] | None = None,
-        override_tag: Tag | None = None,
-        tag_type: Layer_Type = Layer_Type.lines,
-    ) -> ItemID:
-        """Create a line item from a Line model.
-
-        Args;
-            line: The line model.
-            idx: Optional index for tagging.
-            extra_tags: Optional extra tags.
-            override_tag: Optional explicit tag.
-            tag_type: The layer type for tagging.
-
-        Returns;
-            The created item ID.
-        """
-        use_manual = use_manual_tk_dash(line.style)
-        dash = scaled_pattern(line.style, line.width) if use_manual else tk_dash_pattern(line.style, line.width)
-        st = self._stipple_for_alpha(line.col.alpha)
-        tags = tag_sort(tag_type, base_kind=Hit_Kind.line, idx=idx, override=override_tag, extra=extra_tags)
-        if use_manual and dash:
-            return self._create_dashed_segments(
-                line.a,
-                line.b,
-                col=line.col,
-                width=line.width,
-                capstyle=line.capstyle,
-                dash=dash,
-                dash_offset=line.dash_offset,
-                tags=tags,
-                stipple=st,
-            )
-        iid = super().create_line(
-            line.a.x,
-            line.a.y,
-            line.b.x,
-            line.b.y,
-            fill=line.col.hexh,
-            width=line.width,
-            capstyle=line.capstyle.value,
-            dash=dash or [],
-            dashoffset=(line.dash_offset if dash else 0),
-            stipple=st or "",
-            tags=tags,
-        )
-        return ItemID(iid)
-
-    def create_with_label(
-        self,
-        label: Label,
-        *,
-        idx: int | None = None,
-        extra_tags: Collection[Tag] | None = None,
-        override_tag: Tag | None = None,
-        tag_type: Layer_Type = Layer_Type.labels,
-    ) -> ItemID:
-        """Create a text item from a Label model.
-
-        Args;
-            label: The label model.
-            idx: Optional index for tagging.
-            extra_tags: Optional extra tags.
-            override_tag: Optional explicit tag.
-            tag_type: The layer type for tagging.
-
-        Returns;
-            The created item ID.
-        """
-        st = self._stipple_for_alpha(label.col.alpha)
-        iid = super().create_text(
-            label.p.x,
-            label.p.y,
-            text=label.text,
-            fill=label.col.hexh,
-            anchor=label.anchor.tk,
-            font=("TkDefaultFont", label.size),
-            angle=label.rotation,
-            stipple=st or "",
-            tags=tag_sort(tag_type, base_kind=Hit_Kind.label, idx=idx, override=override_tag, extra=extra_tags),
-        )
-        return ItemID(iid)
-
-    @overload
-    def create_with_iconlike(
-        self,
-        icon: Builtin_Icon,
-        *,
-        idx: int | None = None,
-        extra_tags: Collection[Tag] | None = None,
-        override_tag: Tag | None = None,
-        tag_type: Layer_Type = Layer_Type.icons,
-    ) -> None: ...
-
-    @overload
-    def create_with_iconlike(
-        self,
-        icon: Picture_Icon,
-        *,
-        idx: int | None = None,
-        extra_tags: Collection[Tag] | None = None,
-        override_tag: Tag | None = None,
-        tag_type: Layer_Type = Layer_Type.icons,
-    ) -> ItemID: ...
-
-    def create_with_iconlike(
-        self,
-        icon: Iconlike,
-        *,
-        idx: int | None = None,
-        extra_tags: Collection[Tag] | None = None,
-        override_tag: Tag | None = None,
-        tag_type: Layer_Type = Layer_Type.icons,
-    ) -> ItemID | None:
-        """Create an icon item from a builtin or picture icon.
-
-        Args;
-            icon: The icon model.
-            idx: Optional index for tagging.
-            extra_tags: Optional extra tags.
-            override_tag: Optional explicit tag.
-            tag_type: The layer type for tagging.
-
-        Returns;
-            The created item ID for pictures, or None for builtins.
-        """
-        if isinstance(icon, Picture_Icon):
-            return self.create_with_picture(
-                icon,
-                idx=idx,
-                extra_tags=extra_tags,
-                override_tag=override_tag,
-                tag_type=tag_type,
-            )
-        else:
-            return self.create_with_icon(
-                icon,
-                idx=idx,
-                extra_tags=extra_tags,
-                override_tag=override_tag,
-                tag_type=tag_type,
-            )
-
-    def create_with_icon(
-        self,
-        icon: Builtin_Icon,
-        *,
-        idx: int | None = None,
-        extra_tags: Collection[Tag] | None = None,
-        override_tag: Tag | None = None,
-        tag_type: Layer_Type = Layer_Type.icons,
-    ) -> None:
-        """Create a builtin icon on the canvas.
-
-        Args;
-            icon: The builtin icon model.
-            idx: Optional index for tagging.
-            extra_tags: Optional extra tags.
-            override_tag: Optional explicit tag.
-            tag_type: The layer type for tagging.
-        """
-        tag = tag_sort(tag_type, base_kind=Hit_Kind.icon, idx=idx, override=override_tag, extra=extra_tags)
-        col = icon.col.hexh
-        size = float(icon.size)
-        rot = float(icon.rotation or 0.0)
-
-        idef = Builtins.icon_def(icon.name)
-        minx, miny, vbw, vbh = idef.viewbox
-        s = size / max(vbw, vbh)
-
-        vis_w = s * vbw
-        vis_h = s * vbh
-        cx, cy = icon.anchor.centre_for(icon.p.x, icon.p.y, round(vis_w), round(vis_h), int(icon.rotation or 0))
-
-        ang = math.radians(rot)
-        cs, sn = math.cos(ang), math.sin(ang)
-
-        def M(px: float, py: float) -> tuple[float, float]:
-            x0 = (px - (minx + vbw / 2.0)) * s
-            y0 = (py - (miny + vbh / 2.0)) * s
-            xr = x0 * cs - y0 * sn
-            yr = x0 * sn + y0 * cs
-            return (cx + xr, cy + yr)
-
-        def _opts_line(sty: Style) -> _LineOpts:
-            if not sty.stroke:
-                return _LineOpts()
-            w = max(1, round(sty.stroke_width * s))
-            opts: _LineOpts = _LineOpts(width=w, joinstyle=sty.line_join, capstyle=sty.line_cap)
-            if sty.dash:
-                opts.dash = tuple(max(1, round(d * s)) for d in sty.dash)
-            return opts
-
-        def _opts_poly(sty: Style) -> _PolyOpts:
-            if not sty.stroke:
-                return _PolyOpts()
-            w = max(1, round(sty.stroke_width * s))
-            return _PolyOpts(width=w, joinstyle=sty.line_join)
-
-        st = self._stipple_for_alpha(icon.col.alpha)
-        for prim in idef.prims:
-            if isinstance(prim, Primitives.Circle):
-                cxp, cyp = M(prim.cx, prim.cy)
-                rr = prim.r * s
-                fill = col if prim.style.fill else ""
-                outline = col if prim.style.stroke else ""
-                width = max(1.0, prim.style.stroke_width * s) if prim.style.stroke else 1.0
-                super().create_oval(
-                    cxp - rr,
-                    cyp - rr,
-                    cxp + rr,
-                    cyp + rr,
-                    fill=fill,
-                    outline=outline,
-                    width=width,
-                    tags=tag,
-                    stipple=st or "",
-                )
-
-            elif isinstance(prim, Primitives.Rect):
-                x0, y0 = M(prim.x, prim.y)
-                x1, y1 = M(prim.x + prim.w, prim.y)
-                x2, y2 = M(prim.x + prim.w, prim.y + prim.h)
-                x3, y3 = M(prim.x, prim.y + prim.h)
-                pts = (x0, y0, x1, y1, x2, y2, x3, y3)
-                opts = _opts_poly(prim.style)
-                fill = col if prim.style.fill else ""
-                outline = col if prim.style.stroke else ""
-                super().create_polygon(
-                    pts,
-                    fill=fill,
-                    outline=outline,
-                    tags=tag,
-                    stipple=st or "",
-                    **opts.asdict(),
-                )
-
-            elif isinstance(prim, Primitives.Line):
-                x1, y1 = M(prim.x1, prim.y1)
-                x2, y2 = M(prim.x2, prim.y2)
-                opts = _opts_line(prim.style)
-                super().create_line(
-                    x1,
-                    y1,
-                    x2,
-                    y2,
-                    fill=col if prim.style.stroke else "",
-                    tags=tag,
-                    stipple=st or "",
-                    **opts.asdict(),
-                )
-
-            elif isinstance(prim, Primitives.Polyline):
-                pts = []
-                for px, py in prim.points:
-                    X, Y = M(px, py)
-                    pts += [X, Y]
-                if prim.closed:
-                    opts = _opts_poly(prim.style)
-                    super().create_polygon(
-                        pts,
-                        outline=col if prim.style.stroke else "",
-                        fill=col if prim.style.fill else "",
-                        tags=tag,
-                        stipple=st or "",
-                        **opts.asdict(),
-                    )
-                else:
-                    opts = _opts_line(prim.style)
-                    super().create_line(
-                        *pts,
-                        fill=col if prim.style.stroke else "",
-                        tags=tag,
-                        stipple=st or "",
-                        **opts.asdict(),
-                    )
-
-            elif isinstance(prim, Primitives.Path):
-                # Not supported on Tk canvas; pre-approximate to Polyline if need curves
-                continue
-
-        return None
-
-    def create_with_picture(
-        self,
-        pic: "Picture_Icon",
-        *,
-        idx: int | None = None,
-        extra_tags: Collection[Tag] | None = None,
-        override_tag: Tag | None = None,
-        tag_type: Layer_Type = Layer_Type.icons,
-    ) -> ItemID:
-        """Create a picture icon on the canvas.
-
-        Args;
-            pic: The picture icon model.
-            idx: Optional index for tagging.
-            extra_tags: Optional extra tags.
-            override_tag: Optional explicit tag.
-            tag_type: The layer type for tagging.
-
-        Returns;
-            The created item ID.
-        """
-        tag = tag_sort(tag_type, base_kind=Hit_Kind.icon, idx=idx, override=override_tag, extra=extra_tags)
-
-        bw, bh = pic.bbox_wh()
-        cx, cy = pic.anchor.centre_for(pic.p.x, pic.p.y, bw, bh, pic.rotation)
-
-        # LRU init
-        cache = getattr(self, "_picture_cache", None)
-        if cache is None:
-            cache = self._picture_cache = OrderedDict()
-        item_map = getattr(self, "_item_images", None)
-        if item_map is None:
-            item_map = self._item_images = {}
-
-        key = (str(Path(pic.src)), bw, bh, pic.rotation % 360)
-
-        ph = cache.get(key)
-        if ph is not None:
-            # Mark as recently used
-            cache.move_to_end(key)
-        else:
-            im = _open_rgba(pic.src, bw, bh)
-            rot = pic.rotation % 360
-            if rot:
-                im = im.rotate(-rot, resample=Image.Resampling.BICUBIC, expand=True)
-            # Tie the image to this canvas’ Tk master
-            ph = ImageTk.PhotoImage(im, master=self)
-            cache[key] = ph
-
-            # Evict least-recently-used if above capacity
-            while len(cache) > MAX_CACHE:
-                cache.popitem(last=False)  # LRU eviction
-
-        iid = super().create_image(cx, cy, image=ph, tags=tag)
-        item_map[iid] = ph  # keep a per-item ref so it doesn't get GC'd while displayed
-        return ItemID(iid)
-
-    @overload
-    def delete_lw(self, *items: int | ItemID) -> None: ...
-    @overload
-    def delete_lw(self, *items: Layer_Type) -> None: ...
-    @overload
-    def delete_lw(self, *items: str) -> None: ...
-    @overload
-    def delete_lw(self, *items: Tag) -> None: ...
-
-    def delete_lw(self, *items: Deletable | Layer_Type | Tag) -> None:
-        """Delete canvas items and clean associated caches.
-
-        Args;
-            *items: Item IDs or tags to delete.
-        """
-        args: list[Deletable] = []
-        ids: set[int] = set()
-        for it in items:
-            if isinstance(it, (int, ItemID)):
-                i = int(it)
-                args.append(i)
-                ids.add(i)
-            elif isinstance(it, Layer_Type):
-                args.append(it.value)
-                try:
-                    ids.update(int(i) for i in super().find_withtag(it.value))
-                except Exception:
-                    pass
-            elif isinstance(it, Tag):
-                tag_strs = it.to_strings()
-                args.extend(tag_strs)
-                for tag in tag_strs:
-                    try:
-                        ids.update(int(i) for i in super().find_withtag(tag))
-                    except Exception:
-                        pass
-                if isinstance(it.kind, Layer_Type):
-                    args.append(it.kind.value)
-                    try:
-                        ids.update(int(i) for i in super().find_withtag(it.kind.value))
-                    except Exception:
-                        pass
-            elif isinstance(it, str):
-                args.append(it)
-                try:
-                    ids.update(int(i) for i in super().find_withtag(it))
-                except Exception:
-                    pass
-
-        super().delete(*args)
-        item_map = getattr(self, "_item_images", {})
-        for iid in ids:
-            item_map.pop(iid, None)
-
-    # ---------- updates ----------
-    def coords_p(self, item: ItemID, *points: Point) -> None:
-        """Set item coordinates using Point values.
-
-        Args;
-            item: The item ID.
-            *points: The points to apply.
-        """
-        super().coords(item, *_flat_points(*points))
-
-    def move_by(self, item: ItemID, dx: int, dy: int) -> None:
-        """Move an item by delta offsets.
-
-        Args;
-            item: The item ID.
-            dx: Delta x.
-            dy: Delta y.
-        """
-        super().move(item, dx, dy)
-
-    def move_centre_to(self, item: ItemID, target: Point) -> None:
-        """Move an item so its centre matches the target point.
-
-        Args;
-            item: The item ID.
-            target: The target centre point.
-        """
-        bbox = super().bbox(item)
-        if not bbox:
-            return
-        cx = (bbox[0] + bbox[2]) / 2
-        cy = (bbox[1] + bbox[3]) / 2
-        super().move(item, round(target.x - cx), round(target.y - cy))
-
-    # ---------- queries ----------
-    def centre_of_tag(self, tag: str) -> Point | None:
-        """Return the centre point of the first item matching a tag.
-
-        Args;
-            tag: The tag to query.
-
-        Returns;
-            The centre point, or None if not found.
-        """
-        bbox = super().bbox(tag) or (lambda ids: super().bbox(ids[0]) if ids else None)(super().find_withtag(tag))
-        if not bbox:
-            return None
-        return Point(x=round((bbox[0] + bbox[2]) / 2), y=round((bbox[1] + bbox[3]) / 2))
-
-    def tag_raise_l(self, layer: Layer_Type) -> None:
-        """Raise all items in a layer to the top.
-
-        Args;
-            layer: The layer to raise.
-        """
-        return super().tag_raise(layer.value)
-
-    def tag_lower_l(self, layer: Layer_Type) -> None:
-        """Lower all items in a layer to the bottom.
-
-        Args;
-            layer: The layer to lower.
-        """
-        return super().tag_lower(layer.value)
+Iconlike = Annotated[BuiltinIcon | PictureIcon, Field(discriminator="kind")]

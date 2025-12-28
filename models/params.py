@@ -5,11 +5,11 @@ from typing import Any
 
 from pydantic import Field
 
-from models.geo import Icon_Source, Iconlike, Label, Line
+from models.geo import Iconlike, IconSource, Label, Line
 from models.styling import Anchor, Colour, Colours, LineStyle, Model
 
 SCHEMA_VERSION: int = 1
-PROFILE_EXCLUDE: set[str] = {"lines", "labels", "icons", "recent_icons", "app_version"}
+PROFILE_EXCLUDE: set[str] = {"lines", "labels", "icons", "recent_icons", "app_version", "output_file"}
 
 
 class Params(Model):
@@ -27,11 +27,20 @@ class Params(Model):
     line_style: LineStyle = LineStyle.SOLID
     line_dash_offset: int = 0
     grid_size: int = 40
+    grid_step: int = 5
     grid_visible: bool = True
     drag_to_draw: bool = True
+    continuous_draw: bool = False
     cardinal_snap: bool = True
-    output_file: Path = Path("output.webp")
-    default_icon: Icon_Source = Field(default_factory=lambda: Icon_Source.builtin("signal"))
+    output_file: Path | None = None
+    default_project: Path | None = None
+    storage_mode: str = "portable"
+    window_width: int = 0
+    window_height: int = 0
+    remember_window_size: bool = True
+    auto_expand_window: bool = False
+    auto_shrink_window: bool = False
+    default_icon: IconSource = Field(default_factory=lambda: IconSource.builtin("signal"))
     label_size: int = 12
     label_rotation: int = 37
     label_anchor: Anchor = Anchor.W
@@ -44,7 +53,7 @@ class Params(Model):
     lines: list[Line] = Field(default_factory=list)
     labels: list[Label] = Field(default_factory=list)
     icons: list[Iconlike] = Field(default_factory=list)
-    recent_icons: list[Icon_Source] = Field(default_factory=list)
+    recent_icons: list[IconSource] = Field(default_factory=list)
     version: int = Field(default=SCHEMA_VERSION)
     app_version: str | None = None
 

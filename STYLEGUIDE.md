@@ -36,7 +36,7 @@ Match domain vocabulary in names:
 
 * `colour: Colour` not `color_hex: str` when you mean a `Colour` object
 * Use `path: Path` for filesystem paths
-* Use `event: tk.Event` for tkinter events
+* Use concrete Qt event types for UI events (e.g., `event: QtGui.QKeyEvent`)
 
 ## Imports
 
@@ -55,12 +55,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-import tkinter as tk
+from PySide6 import QtCore, QtWidgets
 
 try:
-    import sv_ttk
-except Exception:
-    sv_ttk = None
+    import cairosvg
+except ImportError:
+    cairosvg = None
 
 from mypkg.widgets import Widget
 ```
@@ -69,6 +69,27 @@ from mypkg.widgets import Widget
 
 * Optional imports should default to catching ImportError with `try/except`
 * If you catch `Exception`, it must be **deliberate** (dependency may not exist). Prefer `ImportError` when possible
+
+### Type-only imports (TYPE_CHECKING)
+
+- Prefer `from typing import TYPE_CHECKING` + `if TYPE_CHECKING:` for type-only imports
+- With `from __future__ import annotations`, prefer bare `X` in annotations over string-literals `"X"`
+- Use string annotations only when necessary (e.g. code that must run without postponed annotations, or when a framework evaluates annotations at runtime)
+
+Example:
+
+```py
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .some_module import X
+
+
+def func(value: X) -> X:
+    ...
+```
 
 ## Type hints
 
@@ -154,14 +175,13 @@ def snap(point: Point, *, ignore_grid: bool = False) -> Point:
   * document why ignoring it is safe.
 * Never silently discard errors in core logic without at least a comment.
 
-## UI / Tkinter specifics
+## UI specifics
 
-* Use `tk` alias: `import tkinter as tk`
 * Prefer a single “safe UI call” helper for operations that may fail during shutdown
 * Event handlers:
 
-  * accept `event: tk.Event | None = None` when they can be called both by UI and by code
-  * if returning `"break"` is needed to stop propagation, do it consistently
+  * accept the native Qt event type when called by the UI
+  * allow `event: QtCore.QEvent | None = None` only when a handler is shared with non-UI code
 
 ## Data and mutation
 

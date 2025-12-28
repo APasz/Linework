@@ -1,1 +1,0 @@
-"""Canvas package for Linework."""

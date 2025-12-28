@@ -32,7 +32,7 @@ jobs:
           git fetch --tags --force
 
           COUNT="$(git rev-list --count HEAD)"
-          TAG="v0.${COUNT}"
+          TAG="v1.${COUNT}"
 
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "Tag $TAG already exists. Skipping."

@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 try:
     import cairosvg
-except Exception:
+except ImportError:
     cairosvg = None
 from PIL import Image, ImageDraw
 
@@ -93,7 +93,7 @@ def probe_wh(path: Path, fmt: str | None = None) -> tuple[int, int]:
             if vb:
                 _, _, vbw, vbh = (float(x) for x in vb.replace(",", " ").split())
                 return max(1, round(vbw)), max(1, round(vbh))
-        except Exception:
+        except (OSError, ET.ParseError, ValueError):
             pass
         return (0, 0)
     else:
@@ -101,11 +101,11 @@ def probe_wh(path: Path, fmt: str | None = None) -> tuple[int, int]:
         try:
             with Image.open(p) as im:
                 return im.width, im.height
-        except Exception:
+        except (OSError, ValueError):
             return (0, 0)
 
 
-class Asset_Library:
+class AssetLibrary:
     """Project-scoped asset library."""
 
     def __init__(self, root: Path) -> None:
@@ -154,11 +154,11 @@ class Asset_Library:
         return out
 
 
-_ICON_LIB: Asset_Library | None = None
+_ICON_LIB: AssetLibrary | None = None
 
 
-def get_asset_library(project_root: Path) -> Asset_Library:
-    """Return a cached Asset_Library rooted to a project path.
+def get_asset_library(project_root: Path) -> AssetLibrary:
+    """Return a cached AssetLibrary rooted to a project path.
 
     Args;
         project_root: The .linework project path.
@@ -168,7 +168,7 @@ def get_asset_library(project_root: Path) -> Asset_Library:
     """
     global _ICON_LIB
     if _ICON_LIB is None or _ICON_LIB.root != project_root:
-        _ICON_LIB = Asset_Library(project_root)
+        _ICON_LIB = AssetLibrary(project_root)
     return _ICON_LIB
 
 
@@ -196,11 +196,12 @@ def _open_rgba(src: Path, w: int, h: int) -> Image.Image:
             png = cairosvg.svg2png(bytestring=data, output_width=w, output_height=h)
             return Image.open(io.BytesIO(png)).convert("RGBA")  # pyright: ignore[reportArgumentType]
         except Exception:
+            # Any render error should fall back to the missing-icon placeholder.
             return _missing_rgba(w, h)
     else:
         try:
             im = Image.open(src).convert("RGBA")
-        except Exception:
+        except (OSError, ValueError):
             return _missing_rgba(w, h)
         if im.size != (w, h):
             im = im.resize((w, h), Image.Resampling.LANCZOS)
@@ -208,7 +209,7 @@ def _open_rgba(src: Path, w: int, h: int) -> Image.Image:
 
 
 # === Names ===========================================================
-class Icon_Name(StrEnum):
+class IconName(StrEnum):
     """Names for builtin icon definitions."""
     # ---- generic ----
     PLUS = "plus"
@@ -606,7 +607,7 @@ class Builtins:
         return IconDef(icon.viewbox, prims)
 
     @classmethod
-    def icon_def(cls, name: Icon_Name) -> IconDef:
+    def icon_def(cls, name: IconName) -> IconDef:
         """Return the builtin icon definition for a name.
 
         Args;
@@ -615,43 +616,43 @@ class Builtins:
         Returns;
             The icon definition.
         """
-        ICONS: dict[Icon_Name, IconDef] = {
+        ICONS: dict[IconName, IconDef] = {
             # --- generic ---
-            Icon_Name.PLUS: cls._plus(),
-            Icon_Name.MINUS: cls._minus(),
-            Icon_Name.CHECK: cls._check(),
-            Icon_Name.CROSS_MARK: cls._cross_mark(),
-            Icon_Name.PLAY: cls._play(),
-            Icon_Name.PAUSE: cls._pause(),
-            Icon_Name.STOP: cls._stop(),
-            Icon_Name.ARROW_UP: cls._arrow("up"),
-            Icon_Name.ARROW_RIGHT: cls._arrow("right"),
-            Icon_Name.ARROW_DOWN: cls._arrow("down"),
-            Icon_Name.ARROW_LEFT: cls._arrow("left"),
-            Icon_Name.CIRCLE_DOT: IconDef((-500, -500, 1000, 1000), [Primitives.Circle(0.0, 0.0, 300.0, FILL)]),
-            Icon_Name.SQUARE: IconDef((-500, -500, 1000, 1000), [Primitives.Rect(-300.0, -300.0, 600.0, 600.0, FILL)]),
-            Icon_Name.TRIANGLE: cls._triangle(),
+            IconName.PLUS: cls._plus(),
+            IconName.MINUS: cls._minus(),
+            IconName.CHECK: cls._check(),
+            IconName.CROSS_MARK: cls._cross_mark(),
+            IconName.PLAY: cls._play(),
+            IconName.PAUSE: cls._pause(),
+            IconName.STOP: cls._stop(),
+            IconName.ARROW_UP: cls._arrow("up"),
+            IconName.ARROW_RIGHT: cls._arrow("right"),
+            IconName.ARROW_DOWN: cls._arrow("down"),
+            IconName.ARROW_LEFT: cls._arrow("left"),
+            IconName.CIRCLE_DOT: IconDef((-500, -500, 1000, 1000), [Primitives.Circle(0.0, 0.0, 300.0, FILL)]),
+            IconName.SQUARE: IconDef((-500, -500, 1000, 1000), [Primitives.Rect(-300.0, -300.0, 600.0, 600.0, FILL)]),
+            IconName.TRIANGLE: cls._triangle(),
             # --- railway ---
-            Icon_Name.SIGNAL: cls._signal(),
-            Icon_Name.BUFFER: cls._buffer(),
-            Icon_Name.SWITCH_LEFT: cls._switch("left"),
-            Icon_Name.SWITCH_RIGHT: cls._switch("right"),
-            Icon_Name.BRIDGE: cls._bridge(),
-            Icon_Name.TUNNEL: cls._tunnel(),
-            Icon_Name.CROSSOVER: cls._crossover(),
-            Icon_Name.DOUBLE_SLIP: cls._double_slip(),
+            IconName.SIGNAL: cls._signal(),
+            IconName.BUFFER: cls._buffer(),
+            IconName.SWITCH_LEFT: cls._switch("left"),
+            IconName.SWITCH_RIGHT: cls._switch("right"),
+            IconName.BRIDGE: cls._bridge(),
+            IconName.TUNNEL: cls._tunnel(),
+            IconName.CROSSOVER: cls._crossover(),
+            IconName.DOUBLE_SLIP: cls._double_slip(),
             # --- electrical ---
-            Icon_Name.RESISTOR: cls._resistor(),
-            Icon_Name.CAPACITOR: cls._capacitor(),
-            Icon_Name.INDUCTOR: cls._inductor(),
-            Icon_Name.DIODE: cls._diode(),
-            Icon_Name.GROUND: cls._ground(),
-            Icon_Name.SWITCH_SPST: cls._switch_spst(),
+            IconName.RESISTOR: cls._resistor(),
+            IconName.CAPACITOR: cls._capacitor(),
+            IconName.INDUCTOR: cls._inductor(),
+            IconName.DIODE: cls._diode(),
+            IconName.GROUND: cls._ground(),
+            IconName.SWITCH_SPST: cls._switch_spst(),
         }
         return ICONS[name]
 
 
-def _builtin_icon_plan(name: Icon_Name, size: int, col_svg: str) -> list[tuple[str, dict[str, Any]]]:
+def _builtin_icon_plan(name: IconName, size: int, col_svg: str) -> list[tuple[str, dict[str, Any]]]:
     """Build a device-agnostic drawing plan for a builtin icon.
 
     Args;

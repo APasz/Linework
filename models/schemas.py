@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from models.geo import Icon_Type
+from models.geo import IconType
 from models.styling import Anchor, LineStyle
 
 
@@ -11,6 +11,51 @@ def settings_schema() -> list[dict[str, Any]]:
     styles = [s.value for s in LineStyle]
     anchors = [a.value for a in Anchor]
     return [
+        {
+            "name": "default_project",
+            "label": "Default project (startup)",
+            "kind": "project_path",
+            "section": "General",
+        },
+        {
+            "name": "storage_mode",
+            "label": "Storage mode",
+            "kind": "choice",
+            "choices": ["Portable", "Standard"],
+            "section": "General",
+        },
+        {
+            "name": "window_width",
+            "label": "Initial window width (0 = auto)",
+            "kind": "int",
+            "min": 0,
+            "section": "General",
+        },
+        {
+            "name": "window_height",
+            "label": "Initial window height (0 = auto)",
+            "kind": "int",
+            "min": 0,
+            "section": "General",
+        },
+        {
+            "name": "remember_window_size",
+            "label": "Remember window size",
+            "kind": "bool",
+            "section": "General",
+        },
+        {
+            "name": "auto_expand_window",
+            "label": "Auto-expand fit canvas",
+            "kind": "bool",
+            "section": "General",
+        },
+        {
+            "name": "auto_shrink_window",
+            "label": "Auto-shrink fit canvas",
+            "kind": "bool",
+            "section": "General",
+        },
         {
             "name": "width",
             "label": "Canvas width",
@@ -32,6 +77,15 @@ def settings_schema() -> list[dict[str, Any]]:
             "label": "Grid size",
             "kind": "int",
             "min": 0,
+            "section": "Canvas",
+            "multiple_of": "grid_step",
+        },
+        {
+            "name": "grid_step",
+            "label": "Grid step",
+            "kind": "int",
+            "min": 1,
+            "max": 1000,
             "section": "Canvas",
         },
         {
@@ -55,6 +109,12 @@ def settings_schema() -> list[dict[str, Any]]:
         {
             "name": "drag_to_draw",
             "label": "Drag to draw",
+            "kind": "bool",
+            "section": "Draw",
+        },
+        {
+            "name": "continuous_draw",
+            "label": "Continuous draw",
             "kind": "bool",
             "section": "Draw",
         },
@@ -128,7 +188,7 @@ def settings_schema() -> list[dict[str, Any]]:
             "name": "default_icon_kind",
             "label": "Default icon kind",
             "kind": "choice",
-            "choices": [Icon_Type.builtin.value, Icon_Type.picture.value],
+            "choices": [IconType.builtin.value, IconType.picture.value],
             "section": "Icons",
         },
         {
