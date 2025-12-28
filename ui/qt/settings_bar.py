@@ -419,18 +419,26 @@ class QtSettingsBar(QtWidgets.QWidget):
             self._canvas_height_spin.setSingleStep(step)
 
     def _calc_size_for_width(self, width: int) -> QtCore.QSize:
-        tab = self.tabs.currentWidget()
-        if tab is None:
-            return QtCore.QSize(width, self.tabs.sizeHint().height())
         tab_bar_h = self.tabs.tabBar().sizeHint().height()
         body_w = max(1, width)
-        layout = tab.layout()
-        if layout and layout.hasHeightForWidth():
-            body_h = layout.heightForWidth(body_w)
+        if self.tabs.count() == 0:
+            body_h = self.tabs.sizeHint().height()
         else:
-            body_h = tab.sizeHint().height()
+            # Reserve space for the tallest tab to avoid canvas scrollbars on tab changes.
+            body_h = 0
+            for idx in range(self.tabs.count()):
+                body_h = max(body_h, self._tab_body_height(self.tabs.widget(idx), body_w))
         margins = self._layout.contentsMargins()
         return QtCore.QSize(width, tab_bar_h + body_h + margins.top() + margins.bottom())
+
+    @staticmethod
+    def _tab_body_height(tab: QtWidgets.QWidget | None, body_w: int) -> int:
+        if tab is None:
+            return 0
+        layout = tab.layout()
+        if layout and layout.hasHeightForWidth():
+            return layout.heightForWidth(body_w)
+        return tab.sizeHint().height()
 
     def _on_tab_changed(self, idx: int) -> None:
         if not self._ready or self._syncing:

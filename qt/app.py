@@ -893,7 +893,10 @@ class QtApp(QtWidgets.QMainWindow):
         """Handle modifier changes for snap toggle updates."""
         event_type = event.type()
         if event_type in (QtCore.QEvent.Type.KeyPress, QtCore.QEvent.Type.KeyRelease):
-            self._sync_snap_overrides(event.modifiers())
+            if isinstance(event, QtGui.QInputEvent):
+                self._sync_snap_overrides(event.modifiers())
+            else:
+                self._sync_snap_overrides()
         elif event_type in (QtCore.QEvent.Type.WindowActivate, QtCore.QEvent.Type.WindowDeactivate):
             self._sync_snap_overrides()
         return super().eventFilter(obj, event)

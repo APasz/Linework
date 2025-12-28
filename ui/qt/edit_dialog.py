@@ -230,12 +230,12 @@ class QtGenericEditDialog(QtWidgets.QDialog):
         line_values = {s.value for s in LineStyle}
         name = str(fld.get("name", ""))
         use_line_icons = bool(keys) and name in {"style", "line_style"} and set(keys).issubset(line_values)
+        icon_size = QtCore.QSize(60, 12)
+        colour = combo.palette().color(QtGui.QPalette.ColorRole.Text)
         if use_line_icons:
-            icon_size = QtCore.QSize(60, 12)
             combo.setIconSize(icon_size)
             combo.setMinimumContentsLength(10)
             combo.setSizeAdjustPolicy(QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-            colour = combo.palette().color(QtGui.QPalette.ColorRole.Text)
         for key in keys:
             label = str(key)
             if use_line_icons:
