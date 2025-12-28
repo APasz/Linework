@@ -174,6 +174,7 @@ class QtApp(QtWidgets.QMainWindow):
         self._build_status_bar()
         self.renderer.render(self.params)
         self._sync_view_size()
+        self._sync_view_size_after_layout()
         self._status_hints_set()
         self.status.set("Ready")
 
@@ -293,9 +294,11 @@ class QtApp(QtWidgets.QMainWindow):
         self.params.window_height = int(size.height())
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # type: ignore[override]
-        """Persist window size when remember is enabled."""
+        """Persist window size and close auxiliary windows."""
         self._persist_window_size()
         super().closeEvent(event)
+        if event.isAccepted():
+            self._close_aux_windows()
 
     def _persist_window_size(self) -> None:
         """Persist the current window size to defaults."""
@@ -315,6 +318,19 @@ class QtApp(QtWidgets.QMainWindow):
             IO.save_defaults(defaults)
         except Exception as xcp:
             print(f"Default window size save failed: {xcp}", file=sys.stderr)
+
+    def _close_aux_windows(self) -> None:
+        for widget in QtWidgets.QApplication.topLevelWidgets():
+            if widget is self:
+                continue
+            self._safe_close_window(widget)
+
+    @staticmethod
+    def _safe_close_window(widget: QtWidgets.QWidget) -> None:
+        try:
+            widget.close()
+        except RuntimeError:
+            return
 
     # ---------- rendering ----------
     def redraw(self) -> None:
