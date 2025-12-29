@@ -39,8 +39,8 @@ class Params(Model):
     window_width: int = 0
     window_height: int = 0
     remember_window_size: bool = True
-    auto_expand_window: bool = False
-    auto_shrink_window: bool = False
+    auto_expand_window: bool = True
+    auto_shrink_window: bool = True
     default_icon: IconSource = Field(default_factory=lambda: IconSource.builtin("signal"))
     label_size: int = 12
     label_rotation: int = 37

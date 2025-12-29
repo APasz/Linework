@@ -68,6 +68,9 @@ def _load_params(project_path: Path | None) -> tuple[Params, Path | None]:
     auto_expand_window = bool(getattr(defaults, "auto_expand_window", False))
     auto_shrink_window = bool(getattr(defaults, "auto_shrink_window", False))
     custom_palette_shared = bool(getattr(defaults, "custom_palette_shared", True))
+    if auto_expand_window or auto_shrink_window:
+        window_width = 0
+        window_height = 0
 
     def _apply_palette_mode(params: Params) -> None:
         params.custom_palette_shared = custom_palette_shared
@@ -286,7 +289,11 @@ class QtApp(QtWidgets.QMainWindow):
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # type: ignore[override]
         """Track window size when remember is enabled."""
         super().resizeEvent(event)
-        if not getattr(self.params, "remember_window_size", False):
+        if not self.params.remember_window_size:
+            return
+        if self.params.auto_expand_window or self.params.auto_shrink_window:
+            self.params.window_width = 0
+            self.params.window_height = 0
             return
         if self.windowState() & QtCore.Qt.WindowState.WindowMinimized:
             return
@@ -309,6 +316,14 @@ class QtApp(QtWidgets.QMainWindow):
             print(f"Defaults load failed; window size not saved: {xcp}", file=sys.stderr)
             return
         if not getattr(defaults, "remember_window_size", False):
+            return
+        if self.params.auto_expand_window or self.params.auto_shrink_window:
+            defaults.window_width = 0
+            defaults.window_height = 0
+            try:
+                IO.save_defaults(defaults)
+            except Exception as xcp:
+                print(f"Default window size save failed: {xcp}", file=sys.stderr)
             return
         size = self.size()
         if self.windowState() & QtCore.Qt.WindowState.WindowMinimized:
@@ -1271,12 +1286,17 @@ class QtApp(QtWidgets.QMainWindow):
                 default_icon_picture = str(params.default_icon.src)
         default_project = str(params.default_project) if params.default_project else ""
         storage_mode = "Portable" if current_storage_mode() == "portable" else "Standard"
+        window_width = params.window_width
+        window_height = params.window_height
+        if params.auto_expand_window or params.auto_shrink_window:
+            window_width = 0
+            window_height = 0
         return dict(
             default_project=default_project,
             storage_mode=storage_mode,
             custom_palette_shared=getattr(params, "custom_palette_shared", True),
-            window_width=params.window_width,
-            window_height=params.window_height,
+            window_width=window_width,
+            window_height=window_height,
             remember_window_size=params.remember_window_size,
             auto_expand_window=params.auto_expand_window,
             auto_shrink_window=params.auto_shrink_window,
@@ -1443,6 +1463,9 @@ class QtApp(QtWidgets.QMainWindow):
             "icon_colour": _parse_colour("icon_colour", base.icon_colour),
             "grid_colour": _parse_colour("grid_colour", base.grid_colour),
         }
+        if updates["auto_expand_window"] or updates["auto_shrink_window"]:
+            updates["window_width"] = 0
+            updates["window_height"] = 0
         return base.model_copy(update=updates)
 
     @staticmethod
