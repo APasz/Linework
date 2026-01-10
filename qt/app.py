@@ -136,6 +136,8 @@ class QtApp(QtWidgets.QMainWindow):
         self.params, self.project_path = _load_params(project_path)
         self._normalize_canvas_params()
         self.dirty = False
+        self.last_save_was_autosave = False
+        self._set_last_save_autosave(self.project_path)
         self.asset_lib = get_asset_library(self._project_path_or_default())
 
         self.setWindowTitle("Linework (Qt)")
@@ -305,10 +307,64 @@ class QtApp(QtWidgets.QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # type: ignore[override]
         """Persist window size and close auxiliary windows."""
+        if not self._confirm_close():
+            event.ignore()
+            return
         self._persist_window_size()
         super().closeEvent(event)
         if event.isAccepted():
             self._close_aux_windows()
+
+    def _confirm_close(self) -> bool:
+        """Prompt to save when closing with unsaved or autosaved work."""
+        # Only bother the user when there are actual edits.
+        if not self.dirty:
+            return True
+        unsaved = self.project_path is None
+
+        parts = []
+        if unsaved:
+            parts.append("This project hasn't been saved yet.")
+        if self.dirty:
+            parts.append("You have unsaved changes.")
+        if self.last_save_was_autosave:
+            parts.append("The last save was an autosave.")
+        message = "\n".join(parts) or "Save the project before closing?"
+
+        box = QtWidgets.QMessageBox(self)
+        box.setIcon(QtWidgets.QMessageBox.Icon.Warning)
+        box.setWindowTitle("Save project?")
+        box.setText(message)
+        box.setInformativeText("Save the project before closing?")
+        box.setStandardButtons(
+            QtWidgets.QMessageBox.StandardButton.Save
+            | QtWidgets.QMessageBox.StandardButton.Discard
+            | QtWidgets.QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QtWidgets.QMessageBox.StandardButton.Save)
+
+        choice = box.exec()
+        if choice == QtWidgets.QMessageBox.StandardButton.Save:
+            if unsaved or (self.last_save_was_autosave and self._is_autosave_path(self.project_path)):
+                self.on_save_as()
+            else:
+                self.on_save()
+            return not self.dirty
+        if choice == QtWidgets.QMessageBox.StandardButton.Discard:
+            return True
+        return False
+
+    @staticmethod
+    def _is_autosave_path(path: Path | None) -> bool:
+        """Return True when the path looks like an autosave file."""
+        if path is None:
+            return False
+        suffixes = path.suffixes
+        return suffixes[-1:] == [".autosave"] or path.name.endswith(".linework.autosave")
+
+    def _set_last_save_autosave(self, path: Path | None) -> None:
+        """Update autosave tracking based on the current path."""
+        self.last_save_was_autosave = self._is_autosave_path(path)
 
     def _persist_window_size(self) -> None:
         """Persist the current window size to defaults."""
@@ -1050,6 +1106,7 @@ class QtApp(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "Save failed", str(xcp))
             return
         self.dirty = False
+        self.last_save_was_autosave = self._is_autosave_path(self.project_path)
         self._update_title()
         self.on_file_saved(self.project_path)
 
@@ -1074,6 +1131,7 @@ class QtApp(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "Save failed", str(xcp))
             return
         self.dirty = False
+        self.last_save_was_autosave = self._is_autosave_path(self.project_path)
         self._update_title()
         self.on_file_saved(self.project_path)
 
@@ -1639,6 +1697,7 @@ class QtApp(QtWidgets.QMainWindow):
         self._rebuild_settings_bar()
         self._sync_view_size_after_layout()
         self.dirty = False
+        self._set_last_save_autosave(self.project_path)
         self._update_title()
         if self.properties_panel is not None:
             self.properties_panel.set_target(None, None, force=True)
