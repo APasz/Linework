@@ -138,7 +138,8 @@ class QtCanvasView(QtWidgets.QGraphicsView):
             event: The Qt key event.
         """
         self.app.tool_mgr.on_key(event)
-        super().keyPressEvent(event)
+        if not event.isAccepted():
+            super().keyPressEvent(event)
 
     def wheelEvent(self, event: QtGui.QWheelEvent) -> None:
         """Handle wheel events for zooming with Ctrl.

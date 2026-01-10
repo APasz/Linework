@@ -83,6 +83,15 @@ class QtToolManager:
         """
         if evt.key() == QtCore.Qt.Key.Key_Escape:
             self.cancel()
+            evt.accept()
+            return
+        # Toggle between draw and erase with E
+        if evt.key() == QtCore.Qt.Key.Key_E:
+            if getattr(self.current, "name", None) == ToolName.erase:
+                self.activate(ToolName.draw)
+            else:
+                self.activate(ToolName.erase)
+            evt.accept()
             return
         self.current.on_key(self.app, evt)
 

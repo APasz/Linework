@@ -18,6 +18,7 @@ class ToolName(StrEnum):
     """Tool mode identifiers."""
 
     draw = "draw"
+    erase = "erase"
     label = "label"
     icon = "icon"
     select = "select"

@@ -25,6 +25,7 @@ from qt.selection import QtSelectionOverlay
 from qt.tool_manager import QtToolManager
 from qt.tools.base import ToolName
 from qt.tools.draw import DrawTool
+from qt.tools.eraser import EraserTool
 from qt.tools.icon import IconTool
 from qt.tools.label import LabelTool
 from qt.tools.select import SelectTool
@@ -162,6 +163,7 @@ class QtApp(QtWidgets.QMainWindow):
         self.tools = {
             ToolName.select: SelectTool(),
             ToolName.draw: DrawTool(),
+            ToolName.erase: EraserTool(),
             ToolName.label: LabelTool(),
             ToolName.icon: IconTool(),
         }
@@ -804,10 +806,11 @@ class QtApp(QtWidgets.QMainWindow):
         self.tool_action_group.setExclusive(True)
         self.tool_actions = {}
 
-        def _add_tool(name: ToolName, label: str, shortcut: str) -> None:
+        def _add_tool(name: ToolName, label: str, shortcut: str | None) -> None:
             action = QtGui.QAction(label, self)
             action.setCheckable(True)
-            action.setShortcut(QtGui.QKeySequence(shortcut))
+            if shortcut:
+                action.setShortcut(QtGui.QKeySequence(shortcut))
             action.triggered.connect(lambda _checked, n=name: self.tool_mgr.activate(n))
             self.tool_action_group.addAction(action)
             self.addAction(action)
@@ -817,6 +820,7 @@ class QtApp(QtWidgets.QMainWindow):
 
         _add_tool(ToolName.select, "Select", "V")
         _add_tool(ToolName.draw, "Draw", "L")
+        _add_tool(ToolName.erase, "Eraser", None)  # toggled via E hotkey in tool manager
         _add_tool(ToolName.label, "Label", "T")
         _add_tool(ToolName.icon, "Icon", "I")
 

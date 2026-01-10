@@ -125,6 +125,7 @@ class QtSettingsBar(QtWidgets.QWidget):
         name = tool.value if isinstance(tool, ToolName) else str(tool)
         tab = {
             ToolName.draw.value: "Draw",
+            ToolName.erase.value: "Draw",
             ToolName.label.value: "Label",
             ToolName.icon.value: "Icon",
             ToolName.select.value: "Canvas | Select",

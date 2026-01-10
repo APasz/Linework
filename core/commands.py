@@ -35,6 +35,18 @@ class CommandStack:
         self._undo.append(cmd)
         self._redo.clear()
 
+    def push_done(self, cmd: Command) -> None:
+        """Push an already-executed command onto the undo stack.
+
+        Use when a command has been run conditionally and should only be stacked when
+        it actually modified state.
+
+        Args;
+            cmd: The previously executed command.
+        """
+        self._undo.append(cmd)
+        self._redo.clear()
+
     def undo(self) -> None:
         """Undo the last command."""
         if not self._undo:
@@ -293,6 +305,65 @@ class DeleteLine:
         if self._removed is not None:
             self.params.lines.insert(self.index, self._removed)
             self.on_after()
+
+
+@dataclass
+class SplitLine:
+    """Command to split a line into two segments."""
+
+    params: Params
+    index: int
+    split_point: Point
+    on_after: Callable[[], None]
+    first_end: Point | None = None
+    second_start: Point | None = None
+    _original: Line | None = None
+    _first: Line | None = None
+    _second: Line | None = None
+    executed: bool = False
+
+    def do(self) -> None:
+        """Execute the split-line command."""
+        if not (0 <= self.index < len(self.params.lines)):
+            return
+        line = self.params.lines[self.index]
+        if (line.a.x, line.a.y) == (line.b.x, line.b.y):
+            return
+
+        a_end = self.first_end or self.split_point
+        b_start = self.second_start or self.split_point
+
+        # avoid degenerate segments
+        if (a_end.x, a_end.y) == (line.a.x, line.a.y):
+            return
+        if (b_start.x, b_start.y) == (line.b.x, line.b.y):
+            return
+        if (a_end.x, a_end.y) == (b_start.x, b_start.y):
+            return
+
+        self._original = line
+        first = line.with_points(line.a, a_end)
+        second = line.with_points(b_start, line.b)
+        self.params.lines.pop(self.index)
+        self.params.lines.insert(self.index, first)
+        self.params.lines.insert(self.index + 1, second)
+        self._first = first
+        self._second = second
+        self.executed = True
+        self.on_after()
+
+    def undo(self) -> None:
+        """Undo the split-line command."""
+        if self._original is None or not self.executed:
+            return
+        lines = self.params.lines
+        if self._second is not None and self._second in lines:
+            lines.remove(self._second)
+        if self._first is not None and self._first in lines:
+            lines.remove(self._first)
+        insert_index = max(0, min(self.index, len(lines)))
+        lines.insert(insert_index, self._original)
+        self.on_after()
 
 
 @dataclass
