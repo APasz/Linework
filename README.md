@@ -12,6 +12,7 @@ Linework is a small Qt app for drawing simple track diagrams and line drawings. 
 - Select, move, resize, and multi-select items with undo/redo
 - Export to SVG, PNG, WEBP, JPG, and BMP
 - Autosave and per-user defaults
+- Eraser tool splits lines where you drag, letting you carve away segments without redrawing and toggle it with `E`
 
 ## Quick start
 Requirements: Python 3.13+ with PySide6.
@@ -26,6 +27,7 @@ python main.py
 - Draw tool (L): click-drag to draw (or click-click if "Drag to draw" is off); enable "Continuous draw" to chain lines; Ctrl inverts cardinal snap; Shift opens the editor; Alt inverts grid snap
 - Label tool (T): click to add text; Shift opens the editor before placing; Alt inverts grid snap
 - Icon tool (I): click to place; Ctrl opens the icon picker; Shift opens the editor; Alt inverts grid snap
+- Eraser tool (E) [Draw]: drag along a line to split it at the cursor, then continue dragging to carve more segments while the tool stays active
 - With Select active, double-click to edit; Ctrl+wheel zooms; Esc or right-click cancels the active tool
 
 ## Shortcuts
@@ -49,6 +51,7 @@ Tools
 - `L`: Draw tool
 - `T`: Label tool
 - `I`: Icon tool
+- `E`: Eraser tool [Draw]
 
 ## Files and formats
 - Projects are saved as `.linework` (JSON)
